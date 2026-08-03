@@ -1,6 +1,7 @@
 # saem
 
-**Saem** — wellspring of knowledge, where scattered streams seep in and rise again
+**Saem** — Korean for a natural spring: scattered streams seep in, gather, and rise again
+as a wellspring of knowledge
 
 > An on-premises intelligence layer that sits on top of an organization's existing
 > line-of-business systems, connects their scattered data into a single ontology, and lets you
@@ -23,10 +24,18 @@ How that gap is handled today, and where each approach breaks:
 |---|---|
 | People walk between systems and assemble the answer by hand | Cost scales with human time, and the result is never reused |
 | BI and reporting dashboards | Only show the axes someone chose in advance; a new question means a new development request |
-| Vector RAG chatbots | Cannot answer relational or structural questions (multi-hop, cross-system), and **cannot show the path that produced the answer** |
+| Vector RAG chatbots | Get relational and structural questions (multi-hop, cross-system) **plausibly wrong**, and cannot show the path that produced the answer |
 
-The third one is why saem exists. The only structural advantage an ontology layer has over
-retrieval is that it can **present the path it walked**.
+The third one is where saem sits — and that position is two separate statements.
+
+**Why it exists.** An ontology contract raises accuracy and turns failure into an **error**
+rather than a plausible wrong answer. Refusing to answer without grounding is how that gets
+enforced; give it up and saem is an expensive RAG.
+
+**What is still empty.** Sitting read-only on top of existing line-of-business systems,
+attaching grounding to every answer, and respecting source-system permissions — we have not
+found a product that does all three. **That is an empty seat, not a proven advantage**: of the
+three, the permission axis is still unsolved.
 
 ## Principles
 
