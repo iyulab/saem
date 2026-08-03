@@ -1,7 +1,6 @@
 # saem
 
-**Saem** — Korean for a natural spring: where scattered streams seep in, gather, and rise again
-as a wellspring of knowledge.
+**Saem** — wellspring of knowledge, where scattered streams seep in and rise again
 
 > An on-premises intelligence layer that sits on top of an organization's existing
 > line-of-business systems, connects their scattered data into a single ontology, and lets you
