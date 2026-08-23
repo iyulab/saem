@@ -37,6 +37,13 @@ attaching grounding to every answer, and respecting source-system permissions �
 found a product that does all three. **That is an empty seat, not a proven advantage**: of the
 three, the permission axis is still unsolved.
 
+> *Re-checked 2026-08-23: newly released control-plane and agent-building tools from graph
+> database vendors were reviewed against this claim. None of them alter it — the tools reviewed
+> operate on data already loaded into their own managed store, with access scoped to that
+> store's own accounts, rather than live, per-end-user delegated queries back to the original
+> source systems that enforce that system's own row- and field-level permissions. This remains
+> an observation to re-verify periodically, not a permanent fact.*
+
 ## Principles
 
 **Explainability is non-negotiable, and it is enforced by the contract — not by a prompt.**
