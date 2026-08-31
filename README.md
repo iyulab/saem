@@ -108,8 +108,9 @@ not build an agent loop. saem owns an MCP **server**; the built-in chat surface 
 an MCP **client**. That makes "the built-in UI is a reference consumer" structural rather than
 aspirational: the built-in chat connects over the same contract everyone else does.
 
-**Ontology authoring** combines standard domain packs, LLM-assisted extraction and mapping, and
-human review. Changes flow as changesets through simulate → apply → rollback.
+**Ontology authoring** combines standard domain packs, entity/relation proposals from
+[Eyu](https://github.com/iyulab/Eyu) (the LLM-assisted extraction and mapping engine, consumed —
+not built here), and human review. Changes flow as changesets through simulate → apply → rollback.
 
 **Model access** goes through a single provider-neutral entry point, so saem runs fully
 on-premises against whatever inference an organization already operates — a local model farm or a
@@ -151,6 +152,8 @@ particular knowledge scope.
 
 ## Built on
 
+- [Eyu](https://github.com/iyulab/Eyu) — the ontology inference engine; saem hands it declared
+  structure and raw records, and materializes what it proposes
 - [Formbase](https://github.com/iyulab/Formbase) — integrated at the container boundary, not as an
   SDK reference; it stores what saem materializes
 - [vivarium](https://github.com/iyulab/vivarium) family — sandboxed UI runtime and the changeset lifecycle
