@@ -7,8 +7,10 @@ as a wellspring of knowledge
 > line-of-business systems, connects their scattered data into a single ontology, and lets you
 > build and deploy grounded answers and widgets on top of it.
 
-**Status: pre-implementation.** The architecture is settled; the code is not written yet.
-This README describes what saem is meant to be, not what it currently does.
+**Status: pre-implementation, architecture and ADRs under active revalidation.** No code is
+written yet, but the architecture is not simply "settled and waiting" — ADR re-checks and the
+first connector's design are in progress ahead of implementation. This README describes what
+saem is meant to be, not what it currently does.
 
 ---
 
