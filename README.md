@@ -52,7 +52,9 @@ three, the permission axis is still unsolved.
 > evaluate access against their own store or a mirrored copy of the source's ACL (a configured
 > connection credential, an ACL mirrored at crawl time and evaluated at query time, the platform's
 > internal permissions). None runs the query back to the source system as the end user. The seat
-> is still empty. One thing the same review did establish: pass-through session credentials,
+> is still empty. **Re-check by 2026-12-06.** A claim about who else is in the market is true on the
+> day it is made and quietly stops being true afterwards; the date says when this one has to be
+> looked at again rather than leaving "periodically" to whoever remembers. One thing the same review did establish: pass-through session credentials,
 > constrained delegation and on-behalf-of flows are standard features of established data
 > virtualization products, so the delegation this project assumes is an adoption, not an
 > invention — with a documented cost, one connection pool per user, that the assumptions above
