@@ -122,9 +122,14 @@ boundary at materialization time — before anyone asks a question.
 ```
 
 The contract is the first-class output. A **`saem-agent` is a contract, not a runtime** — saem does
-not build an agent loop. saem owns an MCP **server**; the built-in chat surface consumes it through
-an MCP **client**. That makes "the built-in UI is a reference consumer" structural rather than
-aspirational: the built-in chat connects over the same contract everyone else does.
+not build an agent loop. What that contract carries is the distinguishing part: a knowledge scope,
+the grounding a claim must cite, and the authority the query runs under. **How it is delivered is
+not** — saem owns an MCP **server** and the built-in chat surface consumes it through an MCP
+**client**, but exposing an ontology over MCP is table stakes as of 2026 (see the re-check above:
+every recent entrant does it). Read the protocol as the transport it is, not as the reason to
+choose this. What it does buy is structural rather than aspirational: the built-in chat connects
+over the same contract everyone else does, so "the built-in UI is a reference consumer" is a fact
+about the wiring instead of a promise.
 
 **Ontology authoring** combines standard domain packs, entity/relation proposals from
 [Eyu](https://github.com/iyulab/Eyu) (the LLM-assisted extraction and mapping engine, consumed —
