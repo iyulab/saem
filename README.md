@@ -55,6 +55,10 @@ expressed at all**. Natural language is a rendering of that structure. When a qu
 nothing, saem refuses without invoking the model. If a principle is non-negotiable, the format
 must not be able to express a violation. This costs real coverage, real latency, and — deliberately —
 **synthesis**: "defects on this line are trending up" is a claim that lives in no single record.
+(*Grounding* here is that citation — an answer traceable to the source records it was read from.
+It is not what LLM-based biomedical extractors call *ontology-based grounding*, the normalization
+of a mention to a reference-ontology term id; saem does no such lookup, and "grounded" in these
+documents always means "traceable to records".)
 
 **saem never writes to source systems.** It is read-only. When something must be recorded, it goes
 into saem's own space, and that space is bounded by a **reducibility rule**: every ontology
