@@ -46,6 +46,17 @@ three, the permission axis is still unsolved.
 > than live, per-end-user delegated queries back to the original source systems that enforce
 > that system's own row- and field-level permissions. This remains an observation to re-verify
 > periodically, not a permanent fact.*
+>
+> *Re-checked 2026-09-06: three further 2026 entrants — a cloud data platform's cross-source
+> shortcut feature, an enterprise search assistant, and an ontology platform's MCP endpoint — each
+> evaluate access against their own store or a mirrored copy of the source's ACL (a configured
+> connection credential, an ACL mirrored at crawl time and evaluated at query time, the platform's
+> internal permissions). None runs the query back to the source system as the end user. The seat
+> is still empty. One thing the same review did establish: pass-through session credentials,
+> constrained delegation and on-behalf-of flows are standard features of established data
+> virtualization products, so the delegation this project assumes is an adoption, not an
+> invention — with a documented cost, one connection pool per user, that the assumptions above
+> now carry.*
 
 ## Principles
 
