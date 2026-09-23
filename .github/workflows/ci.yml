@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# A newer push to the same ref supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_NOLOGO: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/Directory.Packages.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore saem.slnx
+
+      - name: Build
+        run: dotnet build saem.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test --solution saem.slnx --no-build --configuration Release --verbosity normal
+
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      # The live tests are left out of the default compilation, so the build job never sees them.
+      # Compiling them here catches a live test that no longer builds; running them needs a Formbase
+      # instance, which CI does not have. MSBuild reads environment variables as properties, which
+      # is also how `dotnet format` (no -p:) comes to check those files.
+      IncludeFormbaseLiveTests: 'true'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore saem.slnx
+
+      - name: Compile the live-only test configuration
+        run: dotnet build saem.slnx --no-restore --configuration Release
+
+      - name: Check formatting
+        run: dotnet format saem.slnx --verify-no-changes --verbosity diagnostic
+
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Published text must not name something only an insider can look up. Needs no dotnet, so it
+      # runs first and fails the job in seconds when it fails.
+      - name: Internal token scan
+        uses: iyulab/dotnet-ci-actions/internal-token-scan@7e501c0d46f7c06e73a8945f4b0f83fcb347eb53 # main, 2026-09-06
+        with:
+          # The floor exists to catch a scan that silently covers nothing. This repository is small
+          # (about twenty text files when this was set), so the default floor of twenty rejected a
+          # scan that did cover it; the floor sits under the real count, not over it. Raise it as the
+          # repository grows.
+          min-files: '10'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore saem.slnx
+
+      - name: Run security scan
+        uses: iyulab/dotnet-ci-actions/vulnerability-scan@00faf7ff62b88e11fbf88edfedcf73bdc5f2eebe # main, 2026-08-31
+        with:
+          project: saem.slnx
