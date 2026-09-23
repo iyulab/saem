@@ -18,10 +18,13 @@ copyright can block that file from being included in the commercial offering.
 
 **Every external code contribution requires signing a CLA before it can be merged.** The CLA
 does not transfer ownership of your contribution; it grants the project the rights needed to
-distribute your contribution under both the open-source and commercial license terms. The
-mechanism for signing (a CLA-assistant bot, a DCO-style sign-off, or an explicit agreement) will
-be wired up before any external PR is merged — until then, PRs will be held pending that setup
-rather than merged without it.
+distribute your contribution under both the open-source and commercial license terms.
+
+Signing is a file in your own pull request: read [CLA.md](CLA.md) and add
+`.github/cla/v1/<your-github-login>.md` (login in lowercase) with the content given there under
+"Signing". A CI check on every pull request looks for that file and says what is missing if it is
+not there. There is no bot and no external service. Members of the iyulab organization are not
+asked to sign, since their contributions are already made under iyulab's copyright.
 
 Note: this requirement does not extend to non-code content that saem does not itself own the
 copyright to (for example, standards-derived reference data folded into a domain pack). That kind
