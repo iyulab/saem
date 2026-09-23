@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Saem.Connectors.Formbase/Saem.Connectors.Formbase.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Saem.Connectors.Formbase.Tests/Saem.Connectors.Formbase.Tests.csproj" />
+  </Folder>
+</Solution>

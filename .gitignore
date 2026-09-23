@@ -1,0 +1,25 @@
+## .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+.vs/
+
+## Rider / VS Code
+.idea/
+.vscode/
+
+## Test / coverage
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+*.coverage
+
+## Dev-tracking docs live in the umbrella, not this repository
+claudedocs/
+CLAUDE.md
+
+.serena/
+.env

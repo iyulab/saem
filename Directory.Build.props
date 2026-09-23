@@ -1,0 +1,24 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+
+    <Version>0.1.0</Version>
+    <Authors>iyulab</Authors>
+    <Company>iyulab</Company>
+    <Product>saem</Product>
+    <Copyright>Copyright (c) iyulab 2026</Copyright>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/iyulab/saem</RepositoryUrl>
+
+    <!-- Nothing here is published yet: packaging is decided when there is something to ship. -->
+    <IsPackable>false</IsPackable>
+
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>

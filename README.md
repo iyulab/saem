@@ -7,10 +7,9 @@ as a wellspring of knowledge
 > line-of-business systems, connects their scattered data into a single ontology, and lets you
 > build and deploy grounded answers and widgets on top of it.
 
-**Status: pre-implementation, architecture and ADRs under active revalidation.** No code is
-written yet, but the architecture is not simply "settled and waiting" — ADR re-checks and the
-first connector's design are in progress ahead of implementation. This README describes what
-saem is meant to be, not what it currently does.
+**Status: early implementation — the first connector exists; nothing is published.** The only
+code is one read-only connector (below). The rest of this README describes what saem is meant to
+be, not what it currently does, and the architecture and ADRs are still under active revalidation.
 
 ---
 
@@ -140,6 +139,28 @@ not built here), and human review. Changes flow as changesets through simulate �
 **Model access** goes through a single provider-neutral entry point, so saem runs fully
 on-premises against whatever inference an organization already operates — a local model farm or a
 hosted provider. Local inference is available out of the box, not required.
+
+## Connectors
+
+A connector reads one system that already exists and is owned by someone else, and hands
+[Eyu](https://github.com/iyulab/Eyu) what it judges from: what the system declares about a subject
+(Eyu's `IStructureSource`) and the records it holds (`IRecordSample`). The ports are Eyu's public
+contract, not saem's, so a connector could be lifted out without being rewritten.
+
+- **One source per connector, read-only.** A connector never writes, and never infers — entities and
+  relations are Eyu's to propose from what it returns.
+- **Across the process boundary.** A connector talks to its source over the source's own interface;
+  it does not load the source's engine or read its storage.
+
+`Saem.Connectors.Formbase` is the first: it reads a [Formbase](https://github.com/iyulab/Formbase)
+instance over HTTP — a form type's declaration as declared structure, and its raw document stream as
+records, so fields nobody has declared yet reach Eyu too. It needs a Formbase that serves
+`GET /formtypes/{type}/documents`, which the current Formbase release does not yet.
+
+```bash
+dotnet test --solution saem.slnx
+SAEM_FORMBASE_URL=http://127.0.0.1:8080 dotnet test --solution saem.slnx -p:IncludeFormbaseLiveTests=true
+```
 
 ## Consumption modes
 
