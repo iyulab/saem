@@ -8,7 +8,7 @@
       The ports a connector fills. Eyu is MIT and consumed in-process; Formbase is reached only over
       HTTP, never as a package — the process boundary is where saem's licence stops.
     -->
-    <PackageVersion Include="Eyu.Core" Version="0.4.0" />
+    <PackageVersion Include="Eyu.Core" Version="0.5.0" />
   </ItemGroup>
 
   <ItemGroup>
