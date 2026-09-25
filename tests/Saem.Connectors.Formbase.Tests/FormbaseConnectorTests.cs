@@ -113,7 +113,8 @@ public class FormbaseConnectorTests
 
     /// <summary>
     /// A Formbase from before the raw stream was served answers the read with 405 (the route exists
-    /// only for intake). The message says what the instance lacks instead of a bare status.
+    /// only for intake). The message says what the instance lacks, and which release serves it,
+    /// instead of a bare status.
     /// </summary>
     [Fact]
     public async Task A_formbase_that_does_not_serve_the_raw_stream_is_named_as_such()
@@ -122,6 +123,7 @@ public class FormbaseConnectorTests
 
         var ex = await Assert.ThrowsAsync<FormbaseConnectorException>(() => Connector(formbase).SampleAsync(WorkOrders, 5, TestContext.Current.CancellationToken));
         Assert.Contains("raw stream", ex.Message);
+        Assert.Contains("0.11.0", ex.Message);
     }
 
     [Fact]

@@ -100,7 +100,7 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
             {
                 throw new FormbaseConnectorException(
                     "This Formbase instance does not serve a form type's raw stream (GET /formtypes/{type}/documents answered 405). " +
-                    "Reading documents across the process boundary needs a Formbase that serves it.");
+                    "Reading documents across the process boundary needs Formbase 0.11.0 or later, which serves it.");
             }
 
             await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);

@@ -154,8 +154,9 @@ contract, not saem's, so a connector could be lifted out without being rewritten
 
 `Saem.Connectors.Formbase` is the first: it reads a [Formbase](https://github.com/iyulab/Formbase)
 instance over HTTP — a form type's declaration as declared structure, and its raw document stream as
-records, so fields nobody has declared yet reach Eyu too. It needs a Formbase that serves
-`GET /formtypes/{type}/documents`, which the current Formbase release does not yet.
+records, so fields nobody has declared yet reach Eyu too. It needs Formbase 0.11.0 or later, the
+first release that serves `GET /formtypes/{type}/documents`; an older instance is named as such
+rather than answered with a bare status.
 
 ```bash
 dotnet test --solution saem.slnx
