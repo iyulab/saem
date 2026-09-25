@@ -136,6 +136,27 @@ public class FormbaseConnectorTests
         Assert.Equal(["tenant-a"], formbase.Requests.Single().Headers.GetValues("Formbase-Namespace"));
     }
 
+    /// <summary>
+    /// A connector given a namespace and pointed at a host serving another one is refused with 404.
+    /// On the declaration read that 404 must stay a failure: taken for "no declaration", the connector
+    /// would report nothing declared about a host it was never meant to read.
+    /// </summary>
+    [Fact]
+    public async Task A_host_serving_another_namespace_is_a_failure_on_both_reads()
+    {
+        const string UnknownNamespace = """{ "type": "/problems/unknown-namespace", "title": "No such namespace on this host", "status": 404, "detail": "This host serves the namespace 'store'." }""";
+        var formbase = new StubFormbase()
+            .Answer("GET", "/formtypes/workorders/declaration", HttpStatusCode.NotFound, UnknownNamespace)
+            .Answer("GET", "/formtypes/workorders/documents?after=0&limit=5", HttpStatusCode.NotFound, UnknownNamespace);
+        var connector = new FormbaseConnector(formbase.Client, "source");
+
+        var declaration = await Assert.ThrowsAsync<FormbaseConnectorException>(() => connector.GetStructureAsync(WorkOrders, TestContext.Current.CancellationToken));
+        var sample = await Assert.ThrowsAsync<FormbaseConnectorException>(() => connector.SampleAsync(WorkOrders, 5, TestContext.Current.CancellationToken));
+
+        Assert.Contains("/problems/unknown-namespace", declaration.Message);
+        Assert.Equal(HttpStatusCode.NotFound, sample.StatusCode);
+    }
+
     [Fact]
     public async Task A_refused_request_carries_formbases_problem()
     {

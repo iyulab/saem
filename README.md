@@ -158,6 +158,13 @@ records, so fields nobody has declared yet reach Eyu too. It needs Formbase 0.11
 first release that serves `GET /formtypes/{type}/documents`; an older instance is named as such
 rather than answered with a bare status.
 
+Where the instance is not the only Formbase on its PostgreSQL and MorphDB, pass its namespace
+(`new FormbaseConnector(http, formbaseNamespace: "…")`, sent as `Formbase-Namespace`): a connector
+pointed at the wrong host then fails with `404` instead of reading someone else's documents. The
+namespace only checks which host answered — it does not keep data apart. Formbase hosts sharing one
+PostgreSQL and one MorphDB need a schema and a project each (`Formbase__Schema`,
+`Formbase__MorphDb__ProjectId`); hosts that differ only in namespace serve the same data.
+
 ```bash
 dotnet test --solution saem.slnx
 SAEM_FORMBASE_URL=http://127.0.0.1:8080 dotnet test --solution saem.slnx -p:IncludeFormbaseLiveTests=true
