@@ -158,6 +158,12 @@ records, so fields nobody has declared yet reach Eyu too. It needs Formbase 0.11
 first release that serves `GET /formtypes/{type}/documents`; an older instance is named as such
 rather than answered with a bare status.
 
+The records are records, not appends. Where documents name the record they belong to — a correction
+is a new document under the same record key, and a retirement takes the record out — the connector
+keeps each record's latest document and drops retired ones, the same fold Formbase's own projection
+applies, so a corrected record reaches Eyu once. Documents without a key are records of their own, which
+is every document on an instance that predates record keys.
+
 Where the instance is not the only Formbase on its PostgreSQL and MorphDB, pass its namespace
 (`new FormbaseConnector(http, formbaseNamespace: "…")`, sent as `Formbase-Namespace`): a connector
 pointed at the wrong host then fails with `404` instead of reading someone else's documents. The

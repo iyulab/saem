@@ -168,11 +168,52 @@ public class FormbaseConnectorTests
         Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
     }
 
+    [Fact]
+    public async Task A_corrected_record_is_sampled_once_as_corrected()
+    {
+        var formbase = new StubFormbase().Answer("GET", "/formtypes/workorders/documents?after=0&limit=10", HttpStatusCode.OK,
+            KeyedPage(head: 3, (1, "a", false, 1), (2, "a", false, 2), (3, null, false, 3)));
+
+        var records = await Connector(formbase).SampleAsync(WorkOrders, 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["2", "3"], records.Select(r => r.Fields["n"]));
+    }
+
+    [Fact]
+    public async Task A_retired_record_is_not_sampled()
+    {
+        var formbase = new StubFormbase().Answer("GET", "/formtypes/workorders/documents?after=0&limit=10", HttpStatusCode.OK,
+            KeyedPage(head: 3, (1, "a", false, 1), (2, "b", false, 2), (3, "a", true, null)));
+
+        var records = await Connector(formbase).SampleAsync(WorkOrders, 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["2"], records.Select(r => r.Fields["n"]));
+    }
+
+    [Fact]
+    public async Task Documents_folded_away_do_not_count_toward_the_sample()
+    {
+        var formbase = new StubFormbase()
+            .Answer("GET", "/formtypes/workorders/documents?after=0&limit=2", HttpStatusCode.OK,
+                KeyedPage(head: 3, (1, "a", false, 1), (2, "a", false, 2)))
+            .Answer("GET", "/formtypes/workorders/documents?after=2&limit=1", HttpStatusCode.OK,
+                KeyedPage(head: 3, (3, "b", false, 3)));
+
+        var records = await Connector(formbase).SampleAsync(WorkOrders, 2, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["2", "3"], records.Select(r => r.Fields["n"]));
+    }
+
     private static FormbaseConnector Connector(StubFormbase formbase) => new(formbase.Client);
 
     private static string Page(long head, params long[] watermarks) =>
         "{ \"documents\": [" + string.Join(",", watermarks.Select(w =>
             $$"""{ "documentId": "{{Guid.NewGuid()}}", "formType": "workorders", "watermark": {{w}}, "appendedAt": "2026-09-23T08:00:00+00:00", "body": { "n": {{w}} } }"""))
+        + "], \"rawHead\": " + head + " }";
+
+    private static string KeyedPage(long head, params (long Watermark, string? Key, bool Retired, int? N)[] documents) =>
+        "{ \"documents\": [" + string.Join(",", documents.Select(d =>
+            $$"""{ "documentId": "{{Guid.NewGuid()}}", "formType": "workorders", "watermark": {{d.Watermark}}, "appendedAt": "2026-09-29T08:00:00+00:00", "body": {{(d.N is { } n ? $$"""{ "n": {{n}} }""" : "null")}}, "recordKey": {{(d.Key is null ? "null" : $"\"{d.Key}\"")}}, "retired": {{(d.Retired ? "true" : "false")}} }"""))
         + "], \"rawHead\": " + head + " }";
 
     private sealed class StubFormbase : HttpMessageHandler

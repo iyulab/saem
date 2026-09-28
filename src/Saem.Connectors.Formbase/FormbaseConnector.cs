@@ -78,20 +78,31 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     }
 
     /// <summary>
-    /// The form type's documents in the order Formbase accepted them, oldest first, up to
-    /// <paramref name="maxCount"/>. Each document's top-level members become the record's fields — a
-    /// string as its text, a nested object or array as its JSON — and its id is the Formbase document
-    /// id, so a claim Eyu grounds in it points back at a document the instance can show.
+    /// The form type's records in the order Formbase accepted them, oldest first, up to
+    /// <paramref name="maxCount"/>. Each record's top-level members become its fields — a string as its
+    /// text, a nested object or array as its JSON — and its id is the Formbase document id, so a claim
+    /// Eyu grounds in it points back at a document the instance can show.
+    /// <para>
+    /// Records, not appends. A document that names its record (<c>recordKey</c>) replaces that record's
+    /// earlier documents, and a retirement removes the record — the same fold Formbase's own projection
+    /// applies — so a corrected record is sampled once, as corrected, and a retired one not at all. A
+    /// document without a key is a record of its own; an instance that predates record keys sends none,
+    /// and every document is sampled as before. Reading stops once <paramref name="maxCount"/> records
+    /// stand, so a record corrected or retired further along the stream is sampled as it stood there.
+    /// </para>
     /// </summary>
     public async Task<IReadOnlyList<RawRecord>> SampleAsync(SubjectRef subject, int maxCount, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
 
-        var records = new List<RawRecord>();
+        // Standing records by position in the stream: the latest document of each key, and every document
+        // without one. A later document of a key moves the record to that document's position.
+        var standing = new SortedDictionary<long, DocumentResponse>();
+        var latestByKey = new Dictionary<string, long>(StringComparer.Ordinal);
         long after = 0;
-        while (records.Count < maxCount)
+        while (standing.Count < maxCount)
         {
-            var limit = Math.Min(maxCount - records.Count, MaxPageSize);
+            var limit = Math.Min(maxCount - standing.Count, MaxPageSize);
             using var response = await SendAsync(
                 $"formtypes/{Uri.EscapeDataString(subject.Value)}/documents?after={after.ToString(CultureInfo.InvariantCulture)}&limit={limit.ToString(CultureInfo.InvariantCulture)}",
                 cancellationToken).ConfigureAwait(false);
@@ -107,9 +118,26 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
             var page = await response.Content.ReadFromJsonAsync<DocumentPageResponse>(Json, cancellationToken).ConfigureAwait(false)
                 ?? throw new FormbaseConnectorException($"Formbase answered a page of '{subject}' with an empty body.");
 
+            // The whole page is folded, even past maxCount: a later document on it may correct or retire a
+            // record already counted.
             foreach (var document in page.Documents)
             {
-                records.Add(new RawRecord(document.DocumentId.ToString(), Flatten(document.Body)));
+                if (document.RecordKey is { } key)
+                {
+                    if (latestByKey.Remove(key, out var earlier))
+                    {
+                        standing.Remove(earlier);
+                    }
+
+                    if (document.Retired)
+                    {
+                        continue;
+                    }
+
+                    latestByKey[key] = document.Watermark;
+                }
+
+                standing[document.Watermark] = document;
             }
 
             if (page.Documents.Count == 0 || page.Documents[^1].Watermark >= page.RawHead)
@@ -120,7 +148,9 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
             after = page.Documents[^1].Watermark;
         }
 
-        return records;
+        return [.. standing.Values
+            .Take(maxCount)
+            .Select(document => new RawRecord(document.DocumentId.ToString(), Flatten(document.Body)))];
     }
 
     private async Task<HttpResponseMessage> SendAsync(string path, CancellationToken cancellationToken)
@@ -211,7 +241,9 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
 
     private sealed record DocumentPageResponse(IReadOnlyList<DocumentResponse> Documents, long RawHead);
 
-    private sealed record DocumentResponse(Guid DocumentId, long Watermark, JsonElement Body);
+    /// <param name="RecordKey">The record the document belongs to; absent from instances that predate record keys.</param>
+    /// <param name="Retired">Whether the document retires <paramref name="RecordKey"/>; absent means it does not.</param>
+    private sealed record DocumentResponse(Guid DocumentId, long Watermark, JsonElement Body, string? RecordKey = null, bool Retired = false);
 
     private sealed record ProblemResponse(string? Type, string? Detail);
 }
