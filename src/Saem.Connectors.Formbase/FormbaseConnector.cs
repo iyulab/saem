@@ -66,15 +66,47 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
             .Select(field => new DeclaredField(field.Name, Kind: ToDeclaredKind(field.Type), Required: !field.Nullable))
             .ToList();
 
-        var relations = (declaration.Relations ?? [])
+        var declaredRelations = (declaration.Relations ?? [])
             .Select(relation => new DeclaredRelation(
                 relation.Name,
                 SubjectRef.Create(relation.Target),
                 ViaField: relation.KeyField,
-                Kind: ToRelationKind(relation.Kind)))
-            .ToList();
+                Kind: ToRelationKind(relation.Kind)));
+        var relations = WithBoundFields(declaredRelations, declaration.Fields ?? []);
 
         return new DeclaredStructure(subject, fields, relations, declaration.DeclarationVersion.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// The declared relations, then one for each field bound to another form type (its <c>target</c>): a
+    /// bound field is a declared reference too, only declared on the field rather than as a relation, and
+    /// leaving it out would drop a declared fact. The bound field itself carries the reference — its value
+    /// is the target's — and so does the field holding the target record's key, when the binding names
+    /// one (<c>viaField</c>). Each becomes a reference relation named after the field that carries it; a
+    /// field already carrying a declared relation to the same form type adds nothing. The same reading
+    /// as Eyu's in-process Formbase adapter, so a declaration means one thing whichever way it is read.
+    /// </summary>
+    private static List<DeclaredRelation> WithBoundFields(IEnumerable<DeclaredRelation> declared, IEnumerable<FieldResponse> fields)
+    {
+        var relations = declared.ToList();
+        foreach (var field in fields)
+        {
+            if (field.Target is not { } target)
+            {
+                continue;
+            }
+
+            var subject = SubjectRef.Create(target.FormType);
+            foreach (var carrier in target.ViaField is { } via && via != field.Name ? new[] { field.Name, via } : [field.Name])
+            {
+                if (!relations.Any(r => r.Target == subject && r.ViaField == carrier))
+                {
+                    relations.Add(new DeclaredRelation(carrier, subject, ViaField: carrier, Kind: DeclaredRelationKind.Reference));
+                }
+            }
+        }
+
+        return relations;
     }
 
     /// <summary>
@@ -235,7 +267,10 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
 
     private sealed record DeclarationResponse(long DeclarationVersion, IReadOnlyList<FieldResponse>? Fields, IReadOnlyList<RelationResponse>? Relations);
 
-    private sealed record FieldResponse(string Name, string Type, bool Nullable);
+    private sealed record FieldResponse(string Name, string Type, bool Nullable, TargetResponse? Target = null);
+
+    /// <param name="ViaField">The field of this declaration carrying the target record's key; absent when the binding names none.</param>
+    private sealed record TargetResponse(string FormType, string? ViaField = null);
 
     private sealed record RelationResponse(string Name, string? Kind, string Target, string? KeyField);
 

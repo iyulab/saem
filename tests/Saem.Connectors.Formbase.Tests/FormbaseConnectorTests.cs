@@ -39,6 +39,38 @@ public class FormbaseConnectorTests
         Assert.Equal(new DeclaredRelation("machine", SubjectRef.Create("machines"), ViaField: "equipment", Kind: DeclaredRelationKind.Reference), relation);
     }
 
+    /// <summary>
+    /// A field bound to another form type is a declared reference: it reaches Eyu as a reference relation
+    /// through that field, and through the field carrying the target's key when the binding names one.
+    /// </summary>
+    [Fact]
+    public async Task A_bound_field_becomes_a_reference_relation_through_the_fields_that_carry_it()
+    {
+        var formbase = new StubFormbase().Answer("GET", "/formtypes/workorders/declaration", HttpStatusCode.OK, """
+            {
+              "formType": "workorders", "tableName": "workorders", "declarationVersion": 4,
+              "fields": [
+                { "name": "equipment", "type": "text", "nullable": true, "sourceKey": null, "binding": "stored", "target": null },
+                { "name": "machine", "type": "text", "nullable": true, "sourceKey": null, "binding": "snapshot",
+                  "target": { "formType": "machines", "valueField": "name", "lookupKey": "number", "viaField": "equipment" } },
+                { "name": "site", "type": "text", "nullable": true, "sourceKey": null, "binding": "snapshot",
+                  "target": { "formType": "sites", "valueField": "name", "lookupKey": null, "viaField": null } }
+              ],
+              "relations": []
+            }
+            """);
+
+        var structure = await Connector(formbase).GetStructureAsync(WorkOrders, TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                new DeclaredRelation("machine", SubjectRef.Create("machines"), ViaField: "machine", Kind: DeclaredRelationKind.Reference),
+                new DeclaredRelation("equipment", SubjectRef.Create("machines"), ViaField: "equipment", Kind: DeclaredRelationKind.Reference),
+                new DeclaredRelation("site", SubjectRef.Create("sites"), ViaField: "site", Kind: DeclaredRelationKind.Reference),
+            ],
+            structure!.Relations);
+    }
+
     [Fact]
     public async Task A_form_type_formbase_says_has_no_declaration_declares_nothing()
     {
