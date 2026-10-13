@@ -23,6 +23,7 @@ public class FormbaseConnectorLiveTests
         using var http = Formbase();
         var type = "workorders-" + Guid.NewGuid().ToString("N")[..12];
         var ct = TestContext.Current.CancellationToken;
+        await AssertAnswersAsFormbaseAsync(http, ct);
 
         foreach (var body in new[]
                  {
@@ -55,5 +56,33 @@ public class FormbaseConnectorLiveTests
         var after = await connector.SampleAsync(subject, 10, ct);
         Assert.Equal(before.Select(r => r.Id), after.Select(r => r.Id));
         Assert.All(after, r => Assert.Contains("started", r.Fields.Keys));
+    }
+
+    /// <summary>
+    /// Fails with the cause when <c>SAEM_FORMBASE_URL</c> reaches something that is not a Formbase host —
+    /// a port another service already listens on, say. Without it the first write below fails with a bare
+    /// status from whatever answered, in the test's own preparation rather than in the connector.
+    /// </summary>
+    private static async Task AssertAnswersAsFormbaseAsync(HttpClient http, CancellationToken ct)
+    {
+        string? observed;
+        try
+        {
+            using var settings = await http.GetAsync("settings", ct);
+            observed = settings.IsSuccessStatusCode
+                && settings.Content.Headers.ContentType?.MediaType == "application/json"
+                && (await settings.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct))
+                    .TryGetProperty("namespace", out _)
+                ? null
+                : $"GET settings answered {(int)settings.StatusCode} without a Formbase settings document";
+        }
+        catch (HttpRequestException e)
+        {
+            observed = $"nothing answered ({e.Message})";
+        }
+
+        Assert.True(observed is null,
+            $"SAEM_FORMBASE_URL ({http.BaseAddress}) does not answer as a Formbase host: {observed}. " +
+            "Start one — docker run -p 8080:8080 ghcr.io/iyulab/formbase:<version> — and point the variable at it.");
     }
 }
