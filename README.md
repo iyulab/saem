@@ -3,13 +3,18 @@
 **Saem** — Korean for a natural spring: scattered streams seep in, gather, and rise again
 as a wellspring of knowledge
 
-> An on-premises intelligence layer that sits on top of an organization's existing
-> line-of-business systems, connects their scattered data into a single ontology, and lets you
-> build and deploy grounded answers and widgets on top of it.
+> An on-premises context layer for AI that acts on someone's behalf. It sits read-only on top of
+> an organization's existing line-of-business systems, connects their scattered data into a single
+> ontology, and serves grounded facts from it — to agents and generated applications, and to the
+> answers and widgets built and deployed on saem itself. It is designed so that every query runs as
+> the person being acted for, and every fact it returns carries its source.
 
 **Status: early implementation — the first connector exists; nothing is published.** The only
-code is one read-only connector (below). The rest of this README describes what saem is meant to
-be, not what it currently does, and the architecture and ADRs are still under active revalidation.
+code is one read-only connector (below), and it feeds ontology authoring: there is no query path
+yet, so nothing in this README is enforced by running code — the permission principle least of
+all. The rest of this README describes what saem is meant to be, not what it currently does, and
+the architecture and ADRs are still under active revalidation. What comes next is under
+[Roadmap](#roadmap).
 
 ---
 
@@ -18,6 +23,13 @@ be, not what it currently does, and the architecture and ADRs are still under ac
 Business knowledge lives across several line-of-business systems (ERP, MES, CMMS, and others),
 and each system is complete only within itself. Questions answerable inside one system are
 already solved. The ones that are not are the questions that **cross system boundaries**.
+
+**The same gap, with a different reader.** More and more of what reads these systems is not a
+person but an AI acting for one — an agent, or an application someone generated for their own
+work. Such a reader needs what a person needs, and one thing more: it must see **only what the
+person it acts for may see**. A copy of the source's access rules evaluated in some other store,
+or one service account shared by everyone, stops being acceptable once the reader is a delegate.
+(saem's own answer to this has a documented residual at the edge level — see *Principles*.)
 
 How that gap is handled today, and where each approach breaks:
 
@@ -61,12 +73,32 @@ three, the permission axis is still unsolved.
 
 ## Principles
 
+**saem does not reimplement authorization — but it enforces it at two points.**
+This one comes first because it is a boundary rather than a trade-off: the principles after it
+are weighed against each other, and explainability is the first priority *inside* this line, not
+a reason to cross it. It is also the principle furthest from being implemented (see the status
+note at the top).
+What is materialized never passes through query-time federation, so delegating to the source
+system at query time alone would leave the relationship graph outside the permission model.
+
+| Point | Covers | How |
+|---|---|---|
+| Materialization | Graph, indexes, embeddings | Materialized per group profile; instance edges inherit source-record visibility |
+| Query | Record bodies | Federated with the credentials of the person asking — or the person an AI is asking for; row- and field-level rules are enforced by the source system |
+
+**Edges by group, bodies by user.** A documented residual: within a group, differences between
+individuals are not reflected in edge visibility — group partitioning narrows that exposure but
+does not eliminate it.
+
 **Explainability is non-negotiable, and it is enforced by the contract — not by a prompt.**
 A response is a structure of `{claim, sources[], path[]}`, and **a claim with no sources cannot be
 expressed at all**. Natural language is a rendering of that structure. When a query returns
 nothing, saem refuses without invoking the model. If a principle is non-negotiable, the format
 must not be able to express a violation. This costs real coverage, real latency, and — deliberately —
 **synthesis**: "defects on this line are trending up" is a claim that lives in no single record.
+Where the consumer is itself a synthesizer — an agent — that cost becomes a division of labour:
+saem vouches for the facts and the path to them; conclusions drawn across them are the
+consumer's, and saem's contract does not extend to them.
 (*Grounding* here is that citation — an answer traceable to the source records it was read from.
 It is not what LLM-based biomedical extractors call *ontology-based grounding*, the normalization
 of a mention to a reference-ontology term id; saem does no such lookup, and "grounded" in these
@@ -79,19 +111,6 @@ are references to several records, and concepts that exist only in the organizat
 equipment group, a crew) may exist only as **groupings** — they carry no facts of their own, and
 their grounding is their members. This is the data-model form of the same principle: no
 ungrounded answers, no ungrounded nodes.
-
-**saem does not reimplement authorization — but it enforces it at two points.**
-What is materialized never passes through query-time federation, so delegating to the source
-system at query time alone would leave the relationship graph outside the permission model.
-
-| Point | Covers | How |
-|---|---|---|
-| Materialization | Graph, indexes, embeddings | Materialized per group profile; instance edges inherit source-record visibility |
-| Query | Record bodies | Federated with the asking user's own credentials; row- and field-level rules are enforced by the source system |
-
-**Edges by group, bodies by user.** A documented residual: within a group, differences between
-individuals are not reflected in edge visibility — group partitioning narrows that exposure but
-does not eliminate it.
 
 **What grows is models, not code.** Connectivity is limited to a small set of generic primitives.
 Growth happens through ontology assets — domain packs and mapping templates.
@@ -176,13 +195,34 @@ dotnet test --solution saem.slnx
 SAEM_FORMBASE_URL=http://127.0.0.1:8080 dotnet test --solution saem.slnx -p:IncludeFormbaseLiveTests=true
 ```
 
+## Roadmap
+
+Order, not dates.
+
+**Next: query-time delegation**, ahead of further connectors. Two independent relational sources
+that enforce their own row-level rules, two users whose visibility differs, one question that
+crosses both systems — and two different answers, each fact citing only records that user can
+read, each lookup shown in the log to have run as that user.
+
+What that slice will not show is part of the plan. It runs on synthetic fixtures, so it says
+nothing about whether a given legacy system can be queried as its end users at all. It links the
+two systems through relations declared by hand, not proposed by Eyu. And it leaves materialization
+out — the "edges by group" half of the permission principle, and the question of how to show a
+path whose middle hop the user may not read, stay open.
+
+What follows is decided by what that slice measures, starting with the cost the delegation model
+already carries on paper: one connection pool per user.
+
 ## Consumption modes
 
-saem is self-contained and can also be integrated as middleware. All three modes are first-class:
+saem is self-contained and can also be integrated as middleware. All three modes run over the same
+contract — the contract is the first-class output, and saem's own surfaces consume it the way
+anyone else does:
 
-1. **Standalone** — an organization runs saem and manages and queries the ontology inside it
+1. **API / MCP** — a host, an agent, or a generated application brings its own UI and reads
+   grounded context from saem
 2. **Client-side widget embedding** — a host application embeds saem's chat or `saem-artifact` widgets
-3. **API / MCP only** — a host application brings its own UI and uses saem as a knowledge provider
+3. **Standalone** — an organization runs saem and manages and queries the ontology inside it
 
 ## What saem is not
 
