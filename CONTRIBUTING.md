@@ -23,8 +23,8 @@ distribute your contribution under both the open-source and commercial license t
 Signing is a file in your own pull request: read [CLA.md](CLA.md) and add
 `.github/cla/v1/<your-github-login>.md` (login in lowercase) with the content given there under
 "Signing". A CI check on every pull request looks for that file and says what is missing if it is
-not there. There is no bot and no external service. Members of the iyulab organization are not
-asked to sign, since their contributions are already made under iyulab's copyright.
+not there. There is no bot and no external service. Members of the iyulab organization sign too;
+only bots are exempt.
 
 Note: this requirement does not extend to non-code content that saem does not itself own the
 copyright to (for example, standards-derived reference data folded into a domain pack). That kind

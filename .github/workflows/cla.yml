@@ -19,16 +19,18 @@ jobs:
   signature:
     name: signature on record
     runs-on: ubuntu-latest
+    # The job checks out the tree and reads one file. Without an explicit limit a stuck runner
+    # holds the job for the 360-minute default, which a private repository pays for by the minute.
+    timeout-minutes: 5
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Check for a CLA signature
         env:
           LOGIN: ${{ github.event.pull_request.user.login }}
-          ASSOCIATION: ${{ github.event.pull_request.author_association }}
           USER_TYPE: ${{ github.event.pull_request.user.type }}
         # Invoked through `bash` rather than executed directly: the repository is developed on
         # Windows, where git does not track the executable bit, so relying on it would fail every
-        # pull request — including the exempt ones — with "Permission denied".
+        # pull request with "Permission denied".
         run: bash .github/scripts/check-cla.sh
