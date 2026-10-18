@@ -3,6 +3,17 @@
   <!--
     The shape of a lookup and its answer, and nothing else: no reference to the server, so a consumer
     takes the contract without taking saem. Dependencies point one way — the server is to reference this, never the reverse.
+
+    A consumer compiles this into its own product, so it is MIT rather than the repository's AGPL-3.0:
+    the LICENSE beside this file covers this directory, and the package says the same.
   -->
+
+  <PropertyGroup>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="LICENSE" Pack="true" PackagePath="" />
+  </ItemGroup>
 
 </Project>

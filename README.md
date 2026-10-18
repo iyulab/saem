@@ -283,3 +283,8 @@ The specific packages are not pinned in this README yet.
 
 AGPL-3.0 with a commercial license available. External contributions require a CLA.
 saem does not take external AGPL/GPL dependencies.
+
+The contract a consumer compiles into its own code — `src/Saem.Contracts`, the shape of a lookup
+and its answer — is MIT, declared by the `LICENSE` in that directory and by its package. Calling
+saem over its API or MCP surface does not make the caller a derivative of the server; the contract
+is the one piece a consumer links. The CLA covers every path in the repository alike.
