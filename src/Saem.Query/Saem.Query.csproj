@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A lookup run against the sources: the plan the ontology makes, walked one source read at a time
+    through sessions opened as the person saem acts for. Nothing here filters, ranks or writes text —
+    what a session returns is what the person may see, and the answer is assembled from it as is.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Saem.Ontology\Saem.Ontology.csproj" />
+  </ItemGroup>
+
+</Project>

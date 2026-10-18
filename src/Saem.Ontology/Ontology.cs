@@ -130,6 +130,11 @@ public sealed class Ontology
             at = _types[relation.To];
         }
 
+        if (problems.Count == 0 && call.Read.Count == 0)
+        {
+            problems.Add("The lookup reads no field; an answer states at least one.");
+        }
+
         if (problems.Count == 0)
         {
             problems.AddRange(call.Read

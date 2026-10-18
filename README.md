@@ -169,7 +169,10 @@ foreign key — neither source holds it — so it exists only as a declaration. 
 against the declarations before any source is asked: a type, relation or field the ontology does
 not declare is a malformed question, answered as an error rather than as a refusal. The
 declarations are read behind a catalog port; the first adapter reads a JSON file and is re-read on
-every lookup.
+every lookup. The walk itself (`Saem.Query`) reads one source row at a time through sessions opened
+as the person the lookup is for, follows each relation by the value it read, and builds the answer
+from those reads alone — where a read returns nothing, the lookup is refused at that hop, naming the
+relation and the system.
 
 **Ontology authoring** combines standard domain packs, entity/relation proposals from
 [Eyu](https://github.com/iyulab/Eyu) (the LLM-assisted extraction and mapping engine, consumed —

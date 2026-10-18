@@ -76,6 +76,14 @@ public class OntologyTests
     }
 
     [Fact]
+    public void A_lookup_that_reads_nothing_is_malformed()
+    {
+        Assert.Equal(
+            ["The lookup reads no field; an answer states at least one."],
+            Assert.Throws<UnknownTermException>(() => Rig().Plan(new LookupCall(new EntityKey("Item", "I-9"), [], []))).Problems);
+    }
+
+    [Fact]
     public void Inconsistent_declarations_are_refused_whole_with_every_problem_named()
     {
         var e = Assert.Throws<OntologyDeclarationException>(() => Ontology.Create(
