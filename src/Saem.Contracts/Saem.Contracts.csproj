@@ -2,7 +2,7 @@
 
   <!--
     The shape of a lookup and its answer, and nothing else: no reference to the server, so a consumer
-    takes the contract without taking saem. Dependencies point one way — the server references this.
+    takes the contract without taking saem. Dependencies point one way — the server is to reference this, never the reverse.
   -->
 
 </Project>

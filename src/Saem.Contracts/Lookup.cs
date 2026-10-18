@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Saem.Contracts;
 
@@ -21,8 +22,12 @@ public sealed record LookupCall(EntityKey Start, IReadOnlyList<string> Path, IRe
 
 /// <summary>
 /// What a lookup answers: facts, each with where it came from — or a refusal saying where the walk
-/// found nothing. Never both, never neither.
+/// found nothing. Never both, never neither. On the wire the case is named in <c>kind</c>
+/// (<see cref="ContractJson"/>).
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(Answered), "answered")]
+[JsonDerivedType(typeof(Refused), "refused")]
 public abstract record LookupAnswer
 {
     private protected LookupAnswer()
@@ -135,12 +140,13 @@ public sealed record Refusal(RefusalReason Reason, int AtHop, string? Relation, 
     };
 }
 
-/// <summary>Why a lookup states nothing.</summary>
+/// <summary>Why a lookup states nothing. On the wire each reason travels by its camelCase name.</summary>
 public enum RefusalReason
 {
     /// <summary>
     /// The start entity, or a relation on the path, returned no rows under the person's own access.
     /// Not "not found": the source may hold rows this person cannot see.
     /// </summary>
+    [JsonStringEnumMemberName("noVisibleResult")]
     NoVisibleResult,
 }
