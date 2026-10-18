@@ -151,6 +151,14 @@ choose this. What it does buy is structural rather than aspirational: the built-
 over the same contract everyone else does, so "the built-in UI is a reference consumer" is a fact
 about the wiring instead of a promise.
 
+**The answer contract** (`Saem.Contracts`, no reference to the server) is what a consumer codes
+against. A lookup starts at one entity, follows declared relations, and reads declared fields — the
+caller composes it in the ontology's terms; no model sits inside saem's path. The answer is either
+facts, each with the source records it was read from and the relations that reached it, or a
+refusal that says where the walk stopped. A fact without a source cannot be built. A refusal never
+says "does not exist": a source that enforces its own permissions returns no rows both for what is
+absent and for what this person may not see, and saem cannot tell the two apart.
+
 **Ontology authoring** combines standard domain packs, entity/relation proposals from
 [Eyu](https://github.com/iyulab/Eyu) (the LLM-assisted extraction and mapping engine, consumed —
 not built here), and human review. Changes flow as changesets through simulate → apply → rollback.
