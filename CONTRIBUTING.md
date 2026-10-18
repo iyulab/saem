@@ -47,5 +47,6 @@ issue.
 ## Pull requests
 
 Given the pre-implementation status above, please open an issue to discuss scope before
-investing time in a PR. When code contributions do open up, the PR template will walk through
+investing time in a PR. Scope is judged against [docs/CONSTITUTION.md](docs/CONSTITUTION.md) — a proposal
+that crosses one of its clauses is a proposal to amend that clause, made with the evidence it asks for. When code contributions do open up, the PR template will walk through
 the CLA step.

@@ -73,6 +73,9 @@ three, the permission axis is still unsolved.
 
 ## Principles
 
+The boundaries below, and those under [What saem is not](#what-saem-is-not), are also stated as
+numbered clauses with an amendment procedure in [docs/CONSTITUTION.md](docs/CONSTITUTION.md).
+
 **saem does not reimplement authorization — but it enforces it at two points.**
 This one comes first because it is a boundary rather than a trade-off: the principles after it
 are weighed against each other, and explainability is the first priority *inside* this line, not
