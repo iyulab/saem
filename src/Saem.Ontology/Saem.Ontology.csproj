@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The ontology saem walks: which entity types stand on which source tables, and which declared
+    relations connect them across systems. A relation between two systems is not a foreign key — no
+    source holds it — so it exists only as a declaration here. The declarations are read behind a port
+    (IOntologyCatalog); where they live is the adapter's business, not the walk's.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Saem.Contracts\Saem.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

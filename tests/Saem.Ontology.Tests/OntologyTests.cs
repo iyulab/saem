@@ -1,0 +1,102 @@
+using Saem.Contracts;
+using Xunit;
+
+namespace Saem.Ontology.Tests;
+
+/// <summary>
+/// The rig's shape in miniature: a work order in the MES names an item by its code, and the ERP holds
+/// that item and the supplier it comes from. No foreign key joins the two systems — the relation
+/// <c>orders_item</c> exists only because it is declared.
+/// </summary>
+public class OntologyTests
+{
+    internal static readonly EntityTypeDeclaration WorkOrder = new(
+        "WorkOrder", "mes", "work_orders", "wo_no",
+        new Dictionary<string, string> { ["item"] = "item_code", ["quantity"] = "qty" });
+
+    internal static readonly EntityTypeDeclaration Item = new(
+        "Item", "erp", "items", "item_code",
+        new Dictionary<string, string> { ["name"] = "item_name", ["supplier"] = "supplier_id" });
+
+    internal static readonly EntityTypeDeclaration Supplier = new(
+        "Supplier", "erp", "suppliers", "supplier_id",
+        new Dictionary<string, string> { ["name"] = "supplier_name" });
+
+    internal static readonly RelationDeclaration OrdersItem = new("orders_item", "WorkOrder", "item", "Item");
+
+    internal static readonly RelationDeclaration SuppliedBy = new("supplied_by", "Item", "supplier", "Supplier");
+
+    private static Ontology Rig() => Ontology.Create([WorkOrder, Item, Supplier, OrdersItem, SuppliedBy]);
+
+    [Fact]
+    public void A_walk_across_two_systems_is_planned_from_declarations_alone()
+    {
+        var plan = Rig().Plan(new LookupCall(new EntityKey("WorkOrder", "WO-1"), ["orders_item", "supplied_by"], ["name"]));
+
+        Assert.Equal(WorkOrder, plan.Start);
+        Assert.Equal([OrdersItem, SuppliedBy], plan.Steps);
+        Assert.Equal(Supplier, plan.End);
+        Assert.Equal("mes", plan.Start.System);
+        Assert.Equal("erp", plan.End.System);
+        Assert.Equal(["name"], plan.Read);
+    }
+
+    [Fact]
+    public void An_empty_path_reads_the_start_entity_itself()
+    {
+        var plan = Rig().Plan(new LookupCall(new EntityKey("Item", "I-9"), [], ["name", "supplier"]));
+
+        Assert.Empty(plan.Steps);
+        Assert.Equal(Item, plan.End);
+    }
+
+    [Fact]
+    public void A_relation_followed_from_the_wrong_type_is_named_with_where_the_walk_is()
+    {
+        var e = Assert.Throws<UnknownTermException>(() =>
+            Rig().Plan(new LookupCall(new EntityKey("WorkOrder", "WO-1"), ["supplied_by"], ["name"])));
+
+        Assert.Equal(["Path step 1: 'supplied_by' leaves 'Item', but the walk is at 'WorkOrder'."], e.Problems);
+    }
+
+    [Fact]
+    public void Unknown_terms_are_refused_as_a_malformed_question_not_answered()
+    {
+        var ontology = Rig();
+
+        Assert.Equal(
+            ["'Customer' is not a declared entity type."],
+            Assert.Throws<UnknownTermException>(() => ontology.Plan(new LookupCall(new EntityKey("Customer", "C-1"), [], ["name"]))).Problems);
+        Assert.Equal(
+            ["Path step 2: 'made_by' is not a declared relation."],
+            Assert.Throws<UnknownTermException>(() => ontology.Plan(new LookupCall(new EntityKey("WorkOrder", "WO-1"), ["orders_item", "made_by"], ["name"]))).Problems);
+        Assert.Equal(
+            ["'price' is not a field of 'Supplier'.", "'country' is not a field of 'Supplier'."],
+            Assert.Throws<UnknownTermException>(() => ontology.Plan(new LookupCall(new EntityKey("Item", "I-9"), ["supplied_by"], ["name", "price", "country"]))).Problems);
+    }
+
+    [Fact]
+    public void Inconsistent_declarations_are_refused_whole_with_every_problem_named()
+    {
+        var e = Assert.Throws<OntologyDeclarationException>(() => Ontology.Create(
+        [
+            WorkOrder,
+            Item,
+            Item,
+            new RelationDeclaration("orders_item", "WorkOrder", "item", "Item"),
+            new RelationDeclaration("orders_item", "WorkOrder", "item", "Item"),
+            new RelationDeclaration("supplied_by", "Item", "vendor", "Supplier"),
+            new EntityTypeDeclaration("Blank", "erp", " ", "id", new Dictionary<string, string>()),
+        ]));
+
+        Assert.Equal(
+            [
+                "Entity type 'Item' is declared more than once.",
+                "Entity type 'Blank' leaves its name, system, table or key empty.",
+                "Relation 'orders_item' is declared more than once.",
+                "Relation 'supplied_by' leaves 'Item' through 'vendor', which is not one of its fields.",
+                "Relation 'supplied_by' leads to 'Supplier', which is not a declared entity type.",
+            ],
+            e.Problems);
+    }
+}

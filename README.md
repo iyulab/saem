@@ -162,6 +162,15 @@ refusal that says where the walk stopped. A fact without a source cannot be buil
 says "does not exist": a source that enforces its own permissions returns no rows both for what is
 absent and for what this person may not see, and saem cannot tell the two apart.
 
+**The ontology a lookup walks** (`Saem.Ontology`) is a set of declarations: each entity type
+stands on one table of one source system, with its key column and its fields, and each relation
+leads from a field of one type to the key of another. A relation between two systems is not a
+foreign key — neither source holds it — so it exists only as a declaration. A lookup is checked
+against the declarations before any source is asked: a type, relation or field the ontology does
+not declare is a malformed question, answered as an error rather than as a refusal. The
+declarations are read behind a catalog port; the first adapter reads a JSON file and is re-read on
+every lookup.
+
 **Ontology authoring** combines standard domain packs, entity/relation proposals from
 [Eyu](https://github.com/iyulab/Eyu) (the LLM-assisted extraction and mapping engine, consumed —
 not built here), and human review. Changes flow as changesets through simulate → apply → rollback.
@@ -205,7 +214,7 @@ PostgreSQL and one MorphDB need a schema and a project each (`Formbase__Schema`,
 dotnet test --solution saem.slnx
 
 # the live test reads a running Formbase; without one it stops and says the URL is not a Formbase host
-docker run -d -p 8080:8080 ghcr.io/iyulab/formbase:0.22.0
+docker run -d -p 8080:8080 ghcr.io/iyulab/formbase:0.23.0
 SAEM_FORMBASE_URL=http://127.0.0.1:8080 dotnet test --solution saem.slnx -p:IncludeFormbaseLiveTests=true
 ```
 
