@@ -1,0 +1,34 @@
+{
+  "interactiveLogin": false,
+  "tokenCallbacks": [
+    {
+      "issuerId": "rig",
+      "tokenExpiry": 20,
+      "requestMappings": [
+        {
+          "requestParam": "grant_type",
+          "match": "client_credentials",
+          "claims": {
+            "sub": "${clientId}",
+            "scope": "${scope}",
+            "aud": ["${audience}"]
+          }
+        }
+      ]
+    },
+    {
+      "issuerId": "elsewhere",
+      "requestMappings": [
+        {
+          "requestParam": "grant_type",
+          "match": "client_credentials",
+          "claims": {
+            "sub": "${clientId}",
+            "scope": "${scope}",
+            "aud": ["${audience}"]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+# The rig's sources and the issuer they trust, on one private network. Nothing is published to the
+# host: probes run inside the network (see probe-postgres.sh), so a port already taken on the
+# developer's machine cannot make the rig talk to something else.
+#
+#   docker compose -f tests/rig/compose.yaml up -d --build --wait
+#   sh tests/rig/probe-postgres.sh
+#   docker compose -f tests/rig/compose.yaml down -v
+
+name: saem-rig
+
+services:
+  issuer:
+    # Any OIDC issuer would do (the rig is not tied to an identity product); this one is a
+    # development issuer whose token claims are configured per request.
+    image: ghcr.io/navikt/mock-oauth2-server:6.0.4
+    environment:
+      JSON_CONFIG_PATH: /config/config.json
+      SERVER_PORT: "8080"
+    volumes:
+      - ./issuer/config.json:/config/config.json:ro
+
+  mes:
+    build: ./postgres
+    environment:
+      POSTGRES_PASSWORD: rig-superuser-local-only
+      RIG_OAUTH_ISSUER: http://issuer:8080/rig
+      RIG_OAUTH_SCOPE: saem-rig
+    depends_on:
+      - issuer
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "/var/run/postgresql", "-U", "postgres"]
+      interval: 2s
+      retries: 30
