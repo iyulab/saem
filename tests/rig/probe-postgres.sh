@@ -11,6 +11,10 @@ set -u
 compose="docker compose -f tests/rig/compose.yaml"
 failures=0
 
+# A source still starting refuses every login, which reads exactly like the refusals tested here.
+health=$($compose ps --format '{{.Health}}' mes 2>/dev/null)
+[ "$health" = "healthy" ] || { echo "NOT RUN  mes is not healthy ($health) -- wait for compose up --wait"; exit 2; }
+
 # token <issuer-id> <client> <scope> <audience> -> prints the access token
 token() {
     $compose exec -T mes curl -sf -X POST "http://issuer:8080/$1/token" \
@@ -45,6 +49,8 @@ expect "alice's token logs in as alice"           ok      '^alice$'  alice "$ali
 expect "bob's token logs in as bob"               ok      '^bob$'    bob   "$bob"   "select current_user"
 expect "alice sees all three work orders"         ok      '^3$'      alice "$alice" "select count(*) from work_orders"
 expect "bob sees only line 1"                     ok      '^2$'      bob   "$bob"   "select count(*) from work_orders"
+# The canary must be visible to the one person allowed it, or bob's 0 below proves nothing.
+expect "alice sees the canary"                    ok      '^1$'      alice "$alice" "select count(*) from work_orders where note like 'CANARY%'"
 expect "the canary is not visible to bob"         ok      '^0$'      bob   "$bob"   "select count(*) from work_orders where note like 'CANARY%'"
 expect "a write is refused by the source"         refused 'read-only' alice "$alice" "delete from work_orders"
 expect "bob's token cannot log in as alice"       refused 'fail|denied|not authorized|map' alice "$bob" "select current_user"

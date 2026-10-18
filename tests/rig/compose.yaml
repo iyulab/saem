@@ -4,6 +4,7 @@
 #
 #   docker compose -f tests/rig/compose.yaml up -d --build --wait
 #   sh tests/rig/probe-postgres.sh
+#   sh tests/rig/probe-mysql.sh
 #   docker compose -f tests/rig/compose.yaml down -v
 
 name: saem-rig
@@ -29,5 +30,22 @@ services:
       - issuer
     healthcheck:
       test: ["CMD", "pg_isready", "-h", "/var/run/postgresql", "-U", "postgres"]
-      interval: 2s
-      retries: 30
+      interval: 3s
+      retries: 20
+      start_period: 300s
+
+  erp:
+    build: ./mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rig-superuser-local-only
+    depends_on:
+      - issuer
+    healthcheck:
+      # Over TCP: the entrypoint's initialisation server listens on the socket only, so a socket ping
+      # would report healthy before the real server is up.
+      test: ["CMD", "mysqladmin", "ping", "--silent", "-h", "127.0.0.1", "-uroot", "-prig-superuser-local-only"]
+      interval: 3s
+      retries: 20
+      # The first start initialises the data directory and runs the init scripts before the real
+      # server listens; on a loaded Docker host that took over two minutes.
+      start_period: 300s

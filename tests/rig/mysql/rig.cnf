@@ -1,0 +1,11 @@
+# A MySQL source that takes an OpenID Connect token as a person's login (Percona Server's
+# auth_openid_connect). The token must come from the rig's issuer, be signed by one of its keys,
+# name this database as its audience, and not be expired; its subject must be the one the account
+# was created for. The keys are read from the issuer when the server starts.
+[mysqld]
+plugin-load-add=auth_openid_connect.so
+# loose-: during --initialize the plugin is not loaded and the variable does not exist yet.
+loose-auth_openid_connect_configuration=JSON://{"rig":{"issuer-name":"http://issuer:8080/rig","jwks-url":"http://issuer:8080/rig/jwks","audiences":["saem-rig-erp"]}}
+require_secure_transport=ON
+# Notes level: the plugin says why it refused a token only there.
+log_error_verbosity=3
