@@ -9,11 +9,12 @@ as a wellspring of knowledge
 > answers and widgets built and deployed on saem itself. It is designed so that every query runs as
 > the person being acted for, and every fact it returns carries its source.
 
-**Status: early implementation — the first connector exists; nothing is published.** The only
-code is one read-only connector (below), and it feeds ontology authoring: there is no query path
-yet, so nothing in this README is enforced by running code — the permission principle least of
-all. The rest of this README describes what saem is meant to be, not what it currently does, and
-the architecture and ADRs are still under active revalidation. What comes next is under
+**Status: early implementation — nothing is published.** What runs: a read-only connector that
+feeds ontology authoring, a lookup walk that reads each hop through a session opened as the person
+it is for, and a PostgreSQL source those sessions log in to (all below). There is no service or tool
+surface yet, and logins are passwords for now, not the person's token — so most of this README,
+the permission principle included, describes what saem is meant to be rather than what it does.
+The architecture and ADRs are still under active revalidation. What comes next is under
 [Roadmap](#roadmap).
 
 ---
@@ -219,6 +220,38 @@ dotnet test --solution saem.slnx
 # the live test reads a running Formbase; without one it stops and says the URL is not a Formbase host
 docker run -d -p 8080:8080 ghcr.io/iyulab/formbase:0.25.0
 SAEM_FORMBASE_URL=http://127.0.0.1:8080 dotnet test --solution saem.slnx -p:IncludeFormbaseLiveTests=true
+```
+
+### Query-time sources
+
+A lookup reads its sources at the moment it is asked, through `ISourceSessions`: a session per
+system, opened as the person the lookup is for, so the source — its grants and its row-level rules —
+decides what comes back, and a row the person may not see is simply not there. `PersonSessions`
+binds one person's login for each system the ontology names; it is made per lookup and dropped with
+it.
+
+`Saem.Connectors.Postgres` is the first such source. Where a database is the system's interface,
+reading it over its own protocol, as the person, *is* talking to it over its own interface: the
+session logs in with the person's credential (`PostgresSource.As(user, secret)`, the secret asked for
+when the connection opens and not kept), runs in a read-only transaction rolled back when the session
+ends, and pools nothing between lookups. A connection string that names a login is refused.
+
+```csharp
+var mes = new PostgresSource("Host=mes;Database=postgres;SSL Mode=Require");
+var sessions = new PersonSessions(new Dictionary<string, SourceOpener> { ["mes"] = mes.As("alice", ct => GetSecretAsync(ct)) });
+var answer = await new LookupWalker(catalog).RunAsync(call, sessions, ct);
+```
+
+The credential is a password for now. PostgreSQL 18 accepts an OAuth bearer token as a login, which is
+how a person's own token would reach the source, but the .NET driver cannot send one yet; when it can,
+the secret becomes the token and nothing else in the path changes.
+
+```bash
+# the live tests read a PostgreSQL that enforces row-level rules for two people
+docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yaml up -d --build --wait
+SAEM_RIG_MES="Host=127.0.0.1;Port=55432;Database=postgres" \
+  dotnet test --solution saem.slnx -p:IncludeRigLiveTests=true
+docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yaml down -v
 ```
 
 ## Roadmap

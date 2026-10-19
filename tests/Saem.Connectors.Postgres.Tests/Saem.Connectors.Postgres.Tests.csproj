@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    Live tests read the rig's mes source in its password-login profile, reached at SAEM_RIG_MES
+    (see tests/rig/compose.password-login.yaml):
+      SAEM_RIG_MES="Host=127.0.0.1;Port=55432;Database=postgres" dotnet test -p:IncludeRigLiveTests=true
+    Excluded by default, so the suite never depends on a running source.
+  -->
+  <ItemGroup Condition="'$(IncludeRigLiveTests)' != 'true'">
+    <Compile Remove="Live/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Saem.Connectors.Postgres\Saem.Connectors.Postgres.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+</Project>
