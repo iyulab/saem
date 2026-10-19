@@ -11,8 +11,12 @@ namespace Saem.Mcp;
 /// </summary>
 public interface ISourceLogins
 {
-    /// <summary>The sessions <paramref name="person"/> reads through, one opener per source system they can log in to.</summary>
-    ISourceSessions SessionsFor(Person person);
+    /// <summary>
+    /// The sessions <paramref name="person"/> reads through for one lookup, one opener per source system
+    /// they can log in to. Each session carries <paramref name="lookupId"/> where the source can log it,
+    /// so the source's record of the login can be matched to the request.
+    /// </summary>
+    ISourceSessions SessionsFor(Person person, string lookupId);
 }
 
 /// <summary>Where the deployment's source systems are, and — for now — how each person logs in to them.</summary>
@@ -56,7 +60,7 @@ internal sealed class PasswordSourceLogins : ISourceLogins
         _sources = _options.Postgres.ToDictionary(p => p.Key, p => new PostgresSource(p.Value), StringComparer.Ordinal);
     }
 
-    public ISourceSessions SessionsFor(Person person)
+    public ISourceSessions SessionsFor(Person person, string lookupId)
     {
         var openers = new Dictionary<string, SourceOpener>(StringComparer.Ordinal);
         foreach (var (system, source) in _sources)
@@ -65,10 +69,13 @@ internal sealed class PasswordSourceLogins : ISourceLogins
                 && logins.TryGetValue(person.Subject, out var login))
             {
                 var password = login.Password;
-                openers.Add(system, source.As(login.User, _ => ValueTask.FromResult(password)));
+                openers.Add(system, source.As(login.User, _ => ValueTask.FromResult(password), SessionName(lookupId)));
             }
         }
 
         return new PersonSessions(openers);
     }
+
+    /// <summary>How a session names itself in the source's log: the server, and the lookup it reads for.</summary>
+    internal static string SessionName(string lookupId) => "saem/" + lookupId;
 }

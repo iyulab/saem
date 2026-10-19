@@ -14,6 +14,17 @@ public class PostgresSourceTests
         Assert.Contains("not who logs in", refused.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("saem/0123456789012345678901234567890123456789012345678901234567890")] // longer than 63
+    [InlineData("saem/조회")]
+    [InlineData("saem/\n")]
+    public void An_application_name_the_source_would_not_log_as_given_is_refused(string applicationName)
+    {
+        var source = new PostgresSource("Host=mes;Database=postgres");
+
+        Assert.Throws<ArgumentException>(() => source.As("alice", _ => ValueTask.FromResult("x"), applicationName));
+    }
+
     [Fact]
     public void A_read_selects_the_key_as_text_and_the_asked_columns_by_key()
     {

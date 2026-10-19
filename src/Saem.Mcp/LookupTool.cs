@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -80,11 +81,14 @@ internal sealed partial class LookupTool
             return Error("A lookup names 'start' (type and key), 'path' (relations, possibly none) and 'read' (fields).");
         }
 
-        LogLookup(person.Subject, person.Actor ?? "-", call.Start.Type, call.Path.Count, call.Read.Count);
+        // The request's trace id when there is one (W3C trace context), so this log line, the source's log
+        // and any tracing backend all name the lookup the same way.
+        var lookupId = Activity.Current?.TraceId.ToHexString() ?? Guid.NewGuid().ToString("N");
+        LogLookup(lookupId, person.Subject, person.Actor ?? "-", call.Start.Type, call.Path.Count, call.Read.Count);
         LookupAnswer answer;
         try
         {
-            answer = await _walker.RunAsync(call, _logins.SessionsFor(person), cancellationToken).ConfigureAwait(false);
+            answer = await _walker.RunAsync(call, _logins.SessionsFor(person, lookupId), cancellationToken).ConfigureAwait(false);
         }
         catch (UnknownTermException e)
         {
@@ -98,7 +102,7 @@ internal sealed partial class LookupTool
         catch (Exception e) when (e is not OperationCanceledException)
         {
             // A source that fails is a fault, not a refusal. Its detail (hosts, server messages) stays in the log.
-            LogLookupFailed(e, person.Subject);
+            LogLookupFailed(e, lookupId, person.Subject);
             return Error("A source failed while the lookup ran, so it was not answered. This is a failure, not a refusal: nothing is known about what the source holds.");
         }
 
@@ -182,11 +186,11 @@ internal sealed partial class LookupTool
         return JsonSerializer.SerializeToElement(schema, McpJson.Default.JsonObject);
     }
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "lookup for {Person} failed at a source")]
-    private partial void LogLookupFailed(Exception exception, string person);
+    [LoggerMessage(Level = LogLevel.Error, Message = "lookup {LookupId} for {Person} failed at a source")]
+    private partial void LogLookupFailed(Exception exception, string lookupId, string person);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "lookup for {Person} by {Actor}: start {StartType}, {Hops} hop(s), {Fields} field(s)")]
-    private partial void LogLookup(string person, string actor, string startType, int hops, int fields);
+    [LoggerMessage(Level = LogLevel.Information, Message = "lookup {LookupId} for {Person} by {Actor}: start {StartType}, {Hops} hop(s), {Fields} field(s)")]
+    private partial void LogLookup(string lookupId, string person, string actor, string startType, int hops, int fields);
 }
 
 [System.Text.Json.Serialization.JsonSerializable(typeof(JsonObject))]

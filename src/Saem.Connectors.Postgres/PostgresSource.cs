@@ -42,15 +42,30 @@ public sealed class PostgresSource
     /// <summary>
     /// Opens sessions as <paramref name="user"/>, logging in with what <paramref name="secret"/>
     /// returns when a connection is opened. The source decides what that login may read.
+    /// <paramref name="applicationName"/>, when given, names the session in the source — its
+    /// <c>application_name</c>, which the source's own connection log records beside the login — so the
+    /// source's log can be matched to the request the session was opened for.
     /// </summary>
-    public SourceOpener As(string user, SecretProvider secret)
+    /// <exception cref="ArgumentException"><paramref name="applicationName"/> is longer than PostgreSQL keeps (63 bytes) or not plain ASCII.</exception>
+    public SourceOpener As(string user, SecretProvider secret, string? applicationName = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(user);
         ArgumentNullException.ThrowIfNull(secret);
+        if (applicationName is not null && (applicationName.Length > 63 || !applicationName.All(c => c is >= ' ' and <= '~')))
+        {
+            // PostgreSQL truncates a longer name and replaces non-ASCII, so the log would not show what was asked.
+            throw new ArgumentException("An application name is at most 63 printable ASCII characters.", nameof(applicationName));
+        }
+
         return async cancellationToken =>
         {
             var builder = new NpgsqlDataSourceBuilder(_connectionString);
             builder.ConnectionStringBuilder.Username = user;
+            if (applicationName is not null)
+            {
+                builder.ConnectionStringBuilder.ApplicationName = applicationName;
+            }
+
             // Npgsql asks for both; a session is only ever opened asynchronously, so the synchronous one
             // is never called — and says so rather than blocking on the secret if it ever were.
             builder.UsePasswordProvider(

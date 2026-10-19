@@ -13,6 +13,10 @@ shared_preload_libraries = 'pg_oidc_validator'
 oauth_validator_libraries = 'pg_oidc_validator'
 pg_oidc_validator.authn_field = 'sub'
 log_connections = 'authentication,authorization'
+# saem names each session after the lookup it reads for (application_name), so a lookup in saem's log
+# and its login here can be matched: the 'connection authorized' line carries user= and
+# application_name=, and every later line of the session carries both in its prefix.
+log_line_prefix = '%m [%p] user=%u app=%a '
 EOF
 
 cat > "$PGDATA/pg_hba.conf" <<EOF

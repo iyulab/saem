@@ -73,6 +73,53 @@ public sealed class McpRigLiveTests : IAsyncLifetime
         Assert.DoesNotContain(Canary, refused.GetRawText(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task The_source_logs_each_lookup_as_the_login_of_the_person_saem_logged_it_for()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var call = new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = "WorkOrder", ["key"] = "WO-1" },
+            ["path"] = Array.Empty<string>(),
+            ["read"] = new[] { "quantity" },
+        };
+
+        foreach (var person in new[] { "alice", "bob" })
+        {
+            await using var client = await _server.ClientAsync(await TokenAsync(person, ct), ct);
+            await client.CallToolAsync("lookup", call, cancellationToken: ct);
+        }
+
+        var sourceLog = await MesLogAsync(ct);
+        foreach (var person in new[] { "alice", "bob" })
+        {
+            // saem's side: the lookup, its id, and whom it ran for.
+            var line = Assert.Single(_server.Logs.Lines, l => l.Contains($" for {person} by ", StringComparison.Ordinal) && l.Contains("WorkOrder", StringComparison.Ordinal));
+            var lookupId = line.Split(' ')[1];
+
+            // The source's side: the login it authorised for a session named after that lookup is the person's own.
+            var logins = sourceLog.Where(l => l.Contains("connection authorized:", StringComparison.Ordinal) && l.Contains($" application_name=saem/{lookupId} ", StringComparison.Ordinal)).ToList();
+            var login = Assert.Single(logins);
+            Assert.Contains($"connection authorized: user={person}_pw ", login, StringComparison.Ordinal);
+        }
+    }
+
+    // The rig's mes container log, where PostgreSQL writes its connection log.
+    private static async Task<string[]> MesLogAsync(CancellationToken ct)
+    {
+        var container = Environment.GetEnvironmentVariable("SAEM_RIG_MES_CONTAINER") ?? "saem-rig-mes-1";
+        using var docker = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("docker", ["logs", container])
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        })!;
+        var stdout = docker.StandardOutput.ReadToEndAsync(ct);
+        var stderr = docker.StandardError.ReadToEndAsync(ct);
+        await docker.WaitForExitAsync(ct);
+        Assert.True(docker.ExitCode == 0, $"docker logs {container} failed: {await stderr}");
+        return ((await stdout) + (await stderr)).Split('\n');
+    }
+
     // The rig issuer answers client credentials with a token whose sub is the client id and whose aud is
     // the asked audience — standing in for the token an agent would hold for the person.
     private static async Task<string> TokenAsync(string person, CancellationToken ct)

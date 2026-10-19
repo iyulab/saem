@@ -30,11 +30,15 @@ internal sealed class TestServer : IAsyncDisposable
     private readonly WebApplication _app;
     private readonly string _ontologyFile;
 
-    private TestServer(WebApplication app, string ontologyFile)
+    private TestServer(WebApplication app, string ontologyFile, CapturedLogs logs)
     {
         _app = app;
         _ontologyFile = ontologyFile;
+        Logs = logs;
     }
+
+    /// <summary>What the server logged, as formatted lines.</summary>
+    public CapturedLogs Logs { get; }
 
     public Uri Endpoint => new(_app.Urls.First() + "/mcp");
 
@@ -64,6 +68,8 @@ internal sealed class TestServer : IAsyncDisposable
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
+        var logs = new CapturedLogs();
+        builder.Logging.AddProvider(logs);
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>(settings) { ["Saem:Ontology"] = ontologyFile });
         configure?.Invoke(builder.Services);
         builder.Services.AddSaemMcp(builder.Configuration);
@@ -81,7 +87,7 @@ internal sealed class TestServer : IAsyncDisposable
             throw;
         }
 
-        return new TestServer(app, ontologyFile);
+        return new TestServer(app, ontologyFile, logs);
     }
 
     public static string Token(string? subject, string audience = Audience, string? actor = null)
@@ -131,7 +137,7 @@ internal sealed class FakeLogins(Dictionary<string, Dictionary<string, List<Sour
 
     // A person the test gives no rows to has no login at all, as a person missing from the deployment's
     // logins would; the failing person's source fails when it is opened.
-    public ISourceSessions SessionsFor(Person person) => new PersonSessions(
+    public ISourceSessions SessionsFor(Person person, string lookupId) => new PersonSessions(
         person.Subject == failingPerson
             ? new Dictionary<string, SourceOpener> { ["mes"] = _ => throw new IOException(FaultDetail) }
             : rowsByPerson.TryGetValue(person.Subject, out var tables)
@@ -156,4 +162,33 @@ internal static class Claims
 {
     public static ClaimsPrincipal Of(params (string Type, string Value, string ValueType)[] claims) =>
         new(new ClaimsIdentity(claims.Select(c => new Claim(c.Type, c.Value, c.ValueType)), "test"));
+}
+
+/// <summary>The server's log lines, kept in memory for a test to read.</summary>
+internal sealed class CapturedLogs : ILoggerProvider
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _lines = new();
+
+    public IReadOnlyList<string> Lines => [.. _lines];
+
+    public ILogger CreateLogger(string categoryName) => new Logger(_lines);
+
+    public void Dispose()
+    {
+    }
+
+    private sealed class Logger(System.Collections.Concurrent.ConcurrentQueue<string> lines) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (IsEnabled(logLevel))
+            {
+                lines.Enqueue(formatter(state, exception));
+            }
+        }
+    }
 }
