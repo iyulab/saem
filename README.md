@@ -11,8 +11,9 @@ as a wellspring of knowledge
 
 **Status: early implementation — nothing is published.** What runs: a read-only connector that
 feeds ontology authoring, a lookup walk that reads each hop through a session opened as the person
-it is for, and a PostgreSQL source those sessions log in to (all below). There is no service or tool
-surface yet, and logins are passwords for now, not the person's token — so most of this README,
+it is for, a PostgreSQL source those sessions log in to, and an MCP server whose one lookup tool runs
+as the person a request's bearer token names (all below). Logins to the sources are passwords for
+now, not the person's token — so most of this README,
 the permission principle included, describes what saem is meant to be rather than what it does.
 The architecture and ADRs are still under active revalidation. What comes next is under
 [Roadmap](#roadmap).
@@ -246,10 +247,40 @@ The credential is a password for now. PostgreSQL 18 accepts an OAuth bearer toke
 how a person's own token would reach the source, but the .NET driver cannot send one yet; when it can,
 the secret becomes the token and nothing else in the path changes.
 
+### MCP server
+
+`Saem.Mcp` serves one tool, `lookup`, over MCP's Streamable HTTP transport. Its input is a lookup in
+the ontology's terms — `start` (type and key), `path` (relations), `read` (fields) — and its result is
+the answer contract above, as structured content and as the same JSON in text. The tool's description
+and input schema are built from the ontology when tools are listed, so the vocabulary a caller sees is
+the one its call is checked against. A call outside that vocabulary is a tool error, not a refusal.
+
+Who a lookup runs as is never an argument. Every request carries a bearer token from an issuer the
+deployment trusts; the server validates it (signature, lifetime, audience) and runs the lookup as the
+token's `sub`, recording the agent named in its `act` claim when an agent obtained the token on the
+person's behalf (RFC 8693). A request without a valid token gets `401` with a pointer to the issuer
+(RFC 9728 protected resource metadata). Each person then logs in to each source with their own login
+— for now a password configured per person, until the person's token can reach the source itself.
+
+```json
+{
+  "Saem": {
+    "Ontology": "ontology.json",
+    "Identity": { "Authority": "https://issuer.example/realm", "Audience": "saem" },
+    "Sources": {
+      "Postgres": { "mes": "Host=mes;Database=postgres;SSL Mode=Require" },
+      "PasswordLogins": { "mes": { "alice": { "User": "alice_login", "Password": "…" } } }
+    }
+  }
+}
+```
+
 ```bash
-# the live tests read a PostgreSQL that enforces row-level rules for two people
+# the live tests read a PostgreSQL that enforces row-level rules for two people, and ask the rig's
+# issuer for each person's token to call the MCP server with
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yaml up -d --build --wait
 SAEM_RIG_MES="Host=127.0.0.1;Port=55432;Database=postgres;SSL Mode=Require" \
+SAEM_RIG_ISSUER="http://127.0.0.1:58080/rig" \
   dotnet test --solution saem.slnx -p:IncludeRigLiveTests=true
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yaml down -v
 ```

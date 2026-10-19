@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    The server started in-process on a loopback port, with tokens signed by a key the test holds and
+    sources the test fakes. Live tests (Live/) run the same server against the rig's issuer and mes
+    source — see tests/rig/compose.password-login.yaml — and are excluded unless IncludeRigLiveTests=true.
+  -->
+  <ItemGroup Condition="'$(IncludeRigLiveTests)' != 'true'">
+    <Compile Remove="Live/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Saem.Mcp\Saem.Mcp.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+</Project>

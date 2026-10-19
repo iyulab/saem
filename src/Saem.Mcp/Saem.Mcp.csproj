@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    The MCP server: one lookup tool over Streamable HTTP. A request carries the person it acts for in
+    its bearer token, issued by an issuer the deployment trusts; the tool runs the lookup through
+    sessions opened as that person and returns the answer in the contract's own JSON. The person is
+    never a tool argument, so a caller cannot name someone else.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Saem.Contracts\Saem.Contracts.csproj" />
+    <ProjectReference Include="..\Saem.Query\Saem.Query.csproj" />
+    <ProjectReference Include="..\Saem.Connectors.Postgres\Saem.Connectors.Postgres.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Saem.Mcp.Tests" />
+  </ItemGroup>
+
+</Project>
