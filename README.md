@@ -249,7 +249,7 @@ the secret becomes the token and nothing else in the path changes.
 ```bash
 # the live tests read a PostgreSQL that enforces row-level rules for two people
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yaml up -d --build --wait
-SAEM_RIG_MES="Host=127.0.0.1;Port=55432;Database=postgres" \
+SAEM_RIG_MES="Host=127.0.0.1;Port=55432;Database=postgres;SSL Mode=Require" \
   dotnet test --solution saem.slnx -p:IncludeRigLiveTests=true
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yaml down -v
 ```

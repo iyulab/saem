@@ -14,17 +14,37 @@ set -eu
 # A password login of its own for each person -- alice_pw, bob_pw -- a member of that person's role, so
 # the person's row rules and grants (written TO alice, TO bob) are what the login reads under. The
 # person's own role keeps the token as its only credential, and the token probes run unchanged.
+# Fifty synthetic people, u01..u50, are measured as many users at once: the odd ones see what alice
+# sees, the even ones what bob sees, so the two visibilities stay apart.
 psql -v ON_ERROR_STOP=1 --username postgres --dbname postgres <<'SQL'
-CREATE ROLE alice_pw LOGIN PASSWORD 'rig-alice-local-only' IN ROLE alice;
-CREATE ROLE bob_pw LOGIN PASSWORD 'rig-bob-local-only' IN ROLE bob;
+CREATE ROLE rig_password_login NOLOGIN;
+CREATE ROLE alice_pw LOGIN PASSWORD 'rig-alice-local-only' IN ROLE alice, rig_password_login;
+CREATE ROLE bob_pw LOGIN PASSWORD 'rig-bob-local-only' IN ROLE bob, rig_password_login;
 ALTER ROLE alice_pw SET default_transaction_read_only = on;
 ALTER ROLE bob_pw SET default_transaction_read_only = on;
+DO $$
+BEGIN
+    FOR i IN 1..50 LOOP
+        EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L IN ROLE %I, rig_password_login',
+            'u' || lpad(i::text, 2, '0'), 'rig-synthetic-local-only', CASE WHEN i % 2 = 1 THEN 'alice' ELSE 'bob' END);
+        EXECUTE format('ALTER ROLE %I SET default_transaction_read_only = on', 'u' || lpad(i::text, 2, '0'));
+    END LOOP;
+END
+$$;
 SQL
 
-# Password logins for those two roles only, ahead of the token line; every other login needs a token.
+# A password crosses the wire, so these logins take TLS only: a self-signed certificate made here, for
+# this rig and nothing else.
+openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=mes" \
+    -keyout "$PGDATA/server.key" -out "$PGDATA/server.crt" 2>/dev/null
+chmod 600 "$PGDATA/server.key"
+echo "ssl = on" >> "$PGDATA/postgresql.conf"
+
+# Password logins for the members of rig_password_login only, over TLS, ahead of the token line; every
+# other login needs a token.
 {
     head -n 2 "$PGDATA/pg_hba.conf"
-    echo "host    all       alice_pw,bob_pw  all  scram-sha-256"
+    echo "hostssl all       +rig_password_login  all  scram-sha-256"
     tail -n +3 "$PGDATA/pg_hba.conf"
 } > "$PGDATA/pg_hba.conf.new"
 mv "$PGDATA/pg_hba.conf.new" "$PGDATA/pg_hba.conf"
