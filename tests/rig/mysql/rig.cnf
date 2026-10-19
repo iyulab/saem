@@ -9,3 +9,6 @@ loose-auth_openid_connect_configuration=JSON://{"rig":{"issuer-name":"http://iss
 require_secure_transport=ON
 # Notes level: the plugin says why it refused a token only there.
 log_error_verbosity=3
+# The connection audit (initdb/40-audit.sh) writes each record as it happens, so a test reading the
+# log right after a lookup finds it. loose-: the component is installed after --initialize.
+loose-audit_log_filter.strategy=SYNCHRONOUS

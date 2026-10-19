@@ -46,6 +46,32 @@ public class PostgresSourceLiveTests
     }
 
     [Fact]
+    public async Task A_session_is_read_only_at_the_source()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await using var session = await As("alice")(ct);
+
+        var setting = Assert.Single(await session.ReadAsync("pg_settings", "name", "transaction_read_only", ["setting"], ct));
+        Assert.Equal("on", setting.Values["setting"].GetString());
+    }
+
+    [Fact]
+    public async Task A_write_by_the_persons_login_is_refused_by_the_source_even_outside_a_read_only_transaction()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var login = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("SAEM_RIG_MES")) { Username = "alice_pw", Password = "rig-alice-local-only" };
+        await using var connection = new NpgsqlConnection(login.ConnectionString);
+        await connection.OpenAsync(ct);
+        await using var write = new NpgsqlCommand("BEGIN READ WRITE; UPDATE work_orders SET qty = qty WHERE wo_no = 'WO-1'", connection);
+
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => write.ExecuteNonQueryAsync(ct));
+
+        // The login holds SELECT only: the source refuses the write by its grants, not because saem never sends one.
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, refused.SqlState);
+    }
+
+    [Fact]
     public async Task A_wrong_secret_is_refused_by_the_source()
     {
         var ct = TestContext.Current.CancellationToken;

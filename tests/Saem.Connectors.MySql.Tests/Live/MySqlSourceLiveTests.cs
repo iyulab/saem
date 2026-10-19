@@ -73,6 +73,21 @@ public class MySqlSourceLiveTests
     }
 
     [Fact]
+    public async Task A_write_by_the_persons_login_is_refused_by_the_source()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var login = new MySqlConnectionStringBuilder(Required("SAEM_RIG_ERP")) { UserID = "alice_pw", Password = Secret("alice") };
+        await using var connection = new MySqlConnection(login.ConnectionString);
+        await connection.OpenAsync(ct);
+        await using var write = new MySqlCommand("UPDATE visible_items SET item_name = item_name", connection);
+
+        var refused = await Assert.ThrowsAsync<MySqlException>(() => write.ExecuteNonQueryAsync(ct));
+
+        // The login may SELECT the views and nothing else: the source refuses the write by its grants.
+        Assert.Equal(MySqlErrorCode.TableAccessDenied, refused.ErrorCode);
+    }
+
+    [Fact]
     public async Task A_wrong_secret_is_refused_by_the_source()
     {
         var ct = TestContext.Current.CancellationToken;

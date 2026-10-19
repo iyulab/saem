@@ -119,6 +119,12 @@ public sealed class McpRigLiveTests : IAsyncLifetime
         Assert.Equal("erp", refusal.GetProperty("system").GetString());
         Assert.DoesNotContain(SupplierCanary, forBob.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain(_server.Logs.Lines, l => l.Contains(SupplierCanary, StringComparison.Ordinal));
+
+        // erp's own audit log records alice's login with the session named after her lookup.
+        var lookupId = Assert.Single(_server.Logs.Lines, l => l.Contains(" for alice by ", StringComparison.Ordinal)).Split(' ')[1];
+        var audit = await ContainerTextAsync(Environment.GetEnvironmentVariable("SAEM_RIG_ERP_CONTAINER") ?? "saem-rig-erp-1", ["cat", "/var/lib/mysql/audit_filter.log"], ct);
+        var record = Assert.Single(audit.Split("<AUDIT_RECORD>"), r => r.Contains($"<VALUE>saem/{lookupId}</VALUE>", StringComparison.Ordinal) && r.Contains("<NAME>Connect</NAME>", StringComparison.Ordinal));
+        Assert.Contains("<USER>alice_pw</USER>", record, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -153,10 +159,16 @@ public sealed class McpRigLiveTests : IAsyncLifetime
     }
 
     // The rig's mes container log, where PostgreSQL writes its connection log.
-    private static async Task<string[]> MesLogAsync(CancellationToken ct)
+    private static async Task<string[]> MesLogAsync(CancellationToken ct) =>
+        (await DockerAsync(["logs", Environment.GetEnvironmentVariable("SAEM_RIG_MES_CONTAINER") ?? "saem-rig-mes-1"], ct)).Split('\n');
+
+    private static Task<string> ContainerTextAsync(string container, string[] command, CancellationToken ct) =>
+        DockerAsync(["exec", container, .. command], ct);
+
+    // docker's output, both streams: a container's log is written to either.
+    private static async Task<string> DockerAsync(string[] arguments, CancellationToken ct)
     {
-        var container = Environment.GetEnvironmentVariable("SAEM_RIG_MES_CONTAINER") ?? "saem-rig-mes-1";
-        using var docker = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("docker", ["logs", container])
+        using var docker = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("docker", arguments)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -164,8 +176,8 @@ public sealed class McpRigLiveTests : IAsyncLifetime
         var stdout = docker.StandardOutput.ReadToEndAsync(ct);
         var stderr = docker.StandardError.ReadToEndAsync(ct);
         await docker.WaitForExitAsync(ct);
-        Assert.True(docker.ExitCode == 0, $"docker logs {container} failed: {await stderr}");
-        return ((await stdout) + (await stderr)).Split('\n');
+        Assert.True(docker.ExitCode == 0, $"docker {string.Join(' ', arguments)} failed: {await stderr}");
+        return (await stdout) + (await stderr);
     }
 
     // The rig issuer answers client credentials with a token whose sub is the client id and whose aud is

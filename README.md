@@ -268,9 +268,10 @@ person's behalf (RFC 8693). A request without a valid token gets `401` with a po
 
 Each lookup gets an id — the request's W3C trace id when it has one — which the server logs with the
 person and the agent, and which each source session carries as its name (`application_name=saem/<id>`
-on PostgreSQL, the `program_name` connection attribute on MySQL). PostgreSQL's own connection log then
-shows, for that id, which login it authorised: the record that a lookup ran as the person comes from the
-source, not only from saem.
+on PostgreSQL, the `program_name` connection attribute on MySQL). The source's own record then shows,
+for that id, which login it authorised — PostgreSQL's connection log, or on MySQL an audit log that
+keeps connection attributes (the rig turns on Percona's `audit_log_filter` for this): the record that a
+lookup ran as the person comes from the source, not only from saem.
 
 ```json
 {
