@@ -35,7 +35,11 @@ public static class SaemMcpServer
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var saem = configuration.GetSection("Saem");
-        services.Configure<IdentityOptions>(saem.GetSection("Identity"));
+        // Without an issuer and an audience every request would be turned away; say so at start instead.
+        services.AddOptions<IdentityOptions>()
+            .Bind(saem.GetSection("Identity"))
+            .Validate(i => !string.IsNullOrEmpty(i.Authority) && !string.IsNullOrEmpty(i.Audience), "Saem:Identity names the trusted issuer (Authority) and this server's audience (Audience).")
+            .ValidateOnStart();
         services.Configure<SourceOptions>(saem.GetSection("Sources"));
 
         var ontologyPath = saem["Ontology"];

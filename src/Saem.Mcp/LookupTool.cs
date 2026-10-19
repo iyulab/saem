@@ -91,6 +91,16 @@ internal sealed partial class LookupTool
             // The question is malformed, which is not a refusal: a refusal is an answer about the sources.
             return Error(e.Message);
         }
+        catch (NoSourceLoginException e)
+        {
+            return Error(e.Message);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // A source that fails is a fault, not a refusal. Its detail (hosts, server messages) stays in the log.
+            LogLookupFailed(e, person.Subject);
+            return Error("A source failed while the lookup ran, so it was not answered. This is a failure, not a refusal: nothing is known about what the source holds.");
+        }
 
         var json = JsonSerializer.SerializeToElement(answer, ContractJson.Default.LookupAnswer);
         return new CallToolResult
@@ -171,6 +181,9 @@ internal sealed partial class LookupTool
         };
         return JsonSerializer.SerializeToElement(schema, McpJson.Default.JsonObject);
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "lookup for {Person} failed at a source")]
+    private partial void LogLookupFailed(Exception exception, string person);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "lookup for {Person} by {Actor}: start {StartType}, {Hops} hop(s), {Fields} field(s)")]
     private partial void LogLookup(string person, string actor, string startType, int hops, int fields);

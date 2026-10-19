@@ -23,10 +23,26 @@ public sealed class PersonSessions : ISourceSessions
     }
 
     /// <inheritdoc />
-    /// <exception cref="InvalidOperationException">No opener was given for <paramref name="system"/>.</exception>
+    /// <exception cref="NoSourceLoginException">No opener was given for <paramref name="system"/>.</exception>
     public ValueTask<ISourceSession> OpenAsync(string system, CancellationToken cancellationToken = default) =>
         _openers.TryGetValue(system, out var open)
             ? open(cancellationToken)
-            : throw new InvalidOperationException(
-                $"The ontology names the source system '{system}', and this lookup was given no login for it.");
+            : throw new NoSourceLoginException(system);
+}
+
+/// <summary>
+/// A lookup reached a source system the person has no login for. Nothing was read from it as anyone
+/// else: this is a gap in how the deployment logs people in, not an answer about the source.
+/// </summary>
+public sealed class NoSourceLoginException : InvalidOperationException
+{
+    /// <summary>Creates the exception for <paramref name="system"/>.</summary>
+    public NoSourceLoginException(string system)
+        : base($"The ontology names the source system '{system}', and this lookup was given no login for it.")
+    {
+        System = system;
+    }
+
+    /// <summary>The source system the person has no login for.</summary>
+    public string System { get; }
 }

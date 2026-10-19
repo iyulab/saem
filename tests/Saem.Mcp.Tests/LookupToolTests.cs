@@ -37,7 +37,7 @@ public sealed class LookupToolTests : IAsyncLifetime
                 ["items"] = [FakeLogins.Row("I-200", ("name", "Bracket"))],
             },
             ["bob"] = new(),
-        }));
+        }, failingPerson: "dave"));
     }
 
     public async ValueTask DisposeAsync() => await _server.DisposeAsync();
@@ -131,6 +131,33 @@ public sealed class LookupToolTests : IAsyncLifetime
         Assert.Contains("'sub'", Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_person_with_no_login_to_the_source_gets_a_tool_error_that_says_so()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var carol = await _server.ClientAsync(TestServer.Token("carol"), ct);
+
+        var result = await carol.CallToolAsync("lookup", Call("WorkOrder", "WO-3", [], ["note"]), cancellationToken: ct);
+
+        Assert.True(result.IsError);
+        Assert.Null(result.StructuredContent);
+        Assert.Contains("'mes'", Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_failing_source_is_a_tool_error_that_keeps_its_detail_in_the_log()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var dave = await _server.ClientAsync(TestServer.Token("dave"), ct);
+
+        var result = await dave.CallToolAsync("lookup", Call("WorkOrder", "WO-3", [], ["note"]), cancellationToken: ct);
+
+        Assert.True(result.IsError);
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
+        Assert.Contains("not a refusal", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("db-host", text, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("someone-else")]
@@ -177,5 +204,17 @@ public class PersonTests
     {
         Assert.Null(Person.From(Claims.Of(("act", """{"sub":"agent-7"}""", "JSON"))));
         Assert.Null(Person.From(null));
+    }
+}
+
+public class StartupTests
+{
+    [Fact]
+    public async Task A_server_without_an_issuer_does_not_start()
+    {
+        var failed = await Assert.ThrowsAsync<Microsoft.Extensions.Options.OptionsValidationException>(() =>
+            TestServer.StartAsync("[]", new Dictionary<string, string?> { ["Saem:Identity:Audience"] = "saem" }));
+
+        Assert.Contains("Authority", failed.Message, StringComparison.Ordinal);
     }
 }

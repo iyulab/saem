@@ -9,7 +9,7 @@ public class PersonSessionsTests
     {
         var sessions = new PersonSessions(new Dictionary<string, SourceOpener>());
 
-        var refused = await Assert.ThrowsAsync<InvalidOperationException>(async () => await sessions.OpenAsync("erp", TestContext.Current.CancellationToken));
+        var refused = await Assert.ThrowsAsync<NoSourceLoginException>(async () => await sessions.OpenAsync("erp", TestContext.Current.CancellationToken));
 
         Assert.Contains("'erp'", refused.Message, StringComparison.Ordinal);
     }

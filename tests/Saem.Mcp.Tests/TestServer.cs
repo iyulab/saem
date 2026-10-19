@@ -69,8 +69,18 @@ internal sealed class TestServer : IAsyncDisposable
         builder.Services.AddSaemMcp(builder.Configuration);
 
         var app = builder.Build();
-        app.MapSaemMcp();
-        await app.StartAsync();
+        try
+        {
+            app.MapSaemMcp();
+            await app.StartAsync();
+        }
+        catch
+        {
+            await app.DisposeAsync();
+            File.Delete(ontologyFile);
+            throw;
+        }
+
         return new TestServer(app, ontologyFile);
     }
 
@@ -115,12 +125,18 @@ internal sealed class TestServer : IAsyncDisposable
 }
 
 /// <summary>Sources held in memory: per person, the rows of each table they may see.</summary>
-internal sealed class FakeLogins(Dictionary<string, Dictionary<string, List<SourceRow>>> rowsByPerson) : ISourceLogins
+internal sealed class FakeLogins(Dictionary<string, Dictionary<string, List<SourceRow>>> rowsByPerson, string? failingPerson = null) : ISourceLogins
 {
-    public ISourceSessions SessionsFor(Person person) => new PersonSessions(new Dictionary<string, SourceOpener>
-    {
-        ["mes"] = _ => ValueTask.FromResult<ISourceSession>(new Session(rowsByPerson.GetValueOrDefault(person.Subject) ?? [])),
-    });
+    internal const string FaultDetail = "connection to db-host.internal:5432 refused";
+
+    // A person the test gives no rows to has no login at all, as a person missing from the deployment's
+    // logins would; the failing person's source fails when it is opened.
+    public ISourceSessions SessionsFor(Person person) => new PersonSessions(
+        person.Subject == failingPerson
+            ? new Dictionary<string, SourceOpener> { ["mes"] = _ => throw new IOException(FaultDetail) }
+            : rowsByPerson.TryGetValue(person.Subject, out var tables)
+                ? new Dictionary<string, SourceOpener> { ["mes"] = _ => ValueTask.FromResult<ISourceSession>(new Session(tables)) }
+                : []);
 
     public static SourceRow Row(string key, params (string Column, object? Value)[] values) =>
         new(key, values.ToDictionary(v => v.Column, v => JsonSerializer.SerializeToElement(v.Value)));
