@@ -262,6 +262,11 @@ person's behalf (RFC 8693). A request without a valid token gets `401` with a po
 (RFC 9728 protected resource metadata). Each person then logs in to each source with their own login
 — for now a password configured per person, until the person's token can reach the source itself.
 
+Each lookup gets an id — the request's W3C trace id when it has one — which the server logs with the
+person and the agent, and which each source session carries as its name (`application_name=saem/<id>`
+on PostgreSQL). The source's own connection log then shows, for that id, which login it authorised:
+the record that a lookup ran as the person comes from the source, not only from saem.
+
 ```json
 {
   "Saem": {
