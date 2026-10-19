@@ -4,12 +4,6 @@ using Saem.Query;
 namespace Saem.Connectors.Postgres;
 
 /// <summary>
-/// The secret a person logs in to a source with, asked for each time a connection to the source is
-/// opened — so it is fetched when needed and never kept here.
-/// </summary>
-public delegate ValueTask<string> SecretProvider(CancellationToken cancellationToken);
-
-/// <summary>
 /// One PostgreSQL source system: where it is, and nothing about who reads it. A session is opened
 /// for one person with <see cref="As"/>.
 /// </summary>

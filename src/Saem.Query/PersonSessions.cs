@@ -1,6 +1,12 @@
 namespace Saem.Query;
 
 /// <summary>
+/// The secret a person logs in to a source with, asked for each time a session to the source is
+/// opened — so it is fetched when needed and kept by no adapter.
+/// </summary>
+public delegate ValueTask<string> SecretProvider(CancellationToken cancellationToken);
+
+/// <summary>
 /// Opens one person's session to a source system: the person's login for that source is already
 /// bound, so calling it cannot open a session as anyone else.
 /// </summary>

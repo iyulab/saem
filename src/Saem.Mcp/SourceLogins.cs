@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Saem.Connectors.MySql;
 using Saem.Connectors.Postgres;
 using Saem.Query;
 
@@ -24,6 +25,9 @@ public sealed class SourceOptions
 {
     /// <summary>PostgreSQL sources, by the system name the ontology declares: connection strings without a login.</summary>
     public Dictionary<string, string> Postgres { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>MySQL sources, by the system name the ontology declares: connection strings without a login.</summary>
+    public Dictionary<string, string> MySql { get; } = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The interim password logins, by system and then by person. The person's token cannot yet reach
@@ -51,25 +55,38 @@ public sealed class PasswordLogin
 /// </summary>
 internal sealed class PasswordSourceLogins : ISourceLogins
 {
-    private readonly Dictionary<string, PostgresSource> _sources;
+    private delegate SourceOpener Login(string user, SecretProvider secret, string applicationName);
+
+    private readonly Dictionary<string, Login> _sources = new(StringComparer.Ordinal);
     private readonly SourceOptions _options;
 
     public PasswordSourceLogins(IOptions<SourceOptions> options)
     {
         _options = options.Value;
-        _sources = _options.Postgres.ToDictionary(p => p.Key, p => new PostgresSource(p.Value), StringComparer.Ordinal);
+        foreach (var (system, connectionString) in _options.Postgres)
+        {
+            _sources.Add(system, new PostgresSource(connectionString).As);
+        }
+
+        foreach (var (system, connectionString) in _options.MySql)
+        {
+            if (!_sources.TryAdd(system, new MySqlSource(connectionString).As))
+            {
+                throw new InvalidOperationException($"The source system '{system}' is configured twice; a system is one source.");
+            }
+        }
     }
 
     public ISourceSessions SessionsFor(Person person, string lookupId)
     {
         var openers = new Dictionary<string, SourceOpener>(StringComparer.Ordinal);
-        foreach (var (system, source) in _sources)
+        foreach (var (system, login) in _sources)
         {
             if (_options.PasswordLogins.TryGetValue(system, out var logins)
-                && logins.TryGetValue(person.Subject, out var login))
+                && logins.TryGetValue(person.Subject, out var credential))
             {
-                var password = login.Password;
-                openers.Add(system, source.As(login.User, _ => ValueTask.FromResult(password), SessionName(lookupId)));
+                var password = credential.Password;
+                openers.Add(system, login(credential.User, _ => ValueTask.FromResult(password), SessionName(lookupId)));
             }
         }
 

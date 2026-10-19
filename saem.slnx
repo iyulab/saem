@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Saem.Connectors.Formbase/Saem.Connectors.Formbase.csproj" />
+    <Project Path="src/Saem.Connectors.MySql/Saem.Connectors.MySql.csproj" />
     <Project Path="src/Saem.Connectors.Postgres/Saem.Connectors.Postgres.csproj" />
     <Project Path="src/Saem.Contracts/Saem.Contracts.csproj" />
     <Project Path="src/Saem.Mcp/Saem.Mcp.csproj" />
@@ -9,6 +10,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Saem.Connectors.Formbase.Tests/Saem.Connectors.Formbase.Tests.csproj" />
+    <Project Path="tests/Saem.Connectors.MySql.Tests/Saem.Connectors.MySql.Tests.csproj" />
     <Project Path="tests/Saem.Connectors.Postgres.Tests/Saem.Connectors.Postgres.Tests.csproj" />
     <Project Path="tests/Saem.Contracts.Tests/Saem.Contracts.Tests.csproj" />
     <Project Path="tests/Saem.Mcp.Tests/Saem.Mcp.Tests.csproj" />

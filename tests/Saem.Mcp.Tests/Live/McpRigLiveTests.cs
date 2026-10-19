@@ -6,8 +6,8 @@ namespace Saem.Mcp.Tests.Live;
 
 /// <summary>
 /// The MCP server against the rig: a person's token from the rig's issuer, presented to the server,
-/// and the lookup read from the rig's mes source as that person — the source's row-level security,
-/// not saem, deciding that alice sees WO-3's note and bob does not.
+/// and the lookup read from the rig's sources as that person — mes (PostgreSQL, row-level security)
+/// and erp (MySQL, views over an access table) deciding, not saem, what each person sees.
 /// <para>
 /// The source login is each person's interim password login: this shows the token decides
 /// whose session the lookup reads through, not that the token reached the source.
@@ -17,10 +17,18 @@ public sealed class McpRigLiveTests : IAsyncLifetime
 {
     private const string Canary = "CANARY-7f3a-line2-only";
 
+    private const string SupplierCanary = "CANARY-91c4-supplier-two";
+
     private const string OntologyJson = """
         [
           { "kind": "entityType", "name": "WorkOrder", "system": "mes", "table": "work_orders", "key": "wo_no",
-            "fields": { "note": "note", "quantity": "qty" } }
+            "fields": { "note": "note", "quantity": "qty", "item": "item_code" } },
+          { "kind": "entityType", "name": "Item", "system": "erp", "table": "visible_items", "key": "item_code",
+            "fields": { "name": "item_name", "supplier": "supplier_id" } },
+          { "kind": "entityType", "name": "Supplier", "system": "erp", "table": "visible_suppliers", "key": "supplier_id",
+            "fields": { "name": "supplier_name" } },
+          { "kind": "relation", "name": "orders_item", "from": "WorkOrder", "via": "item", "to": "Item" },
+          { "kind": "relation", "name": "supplied_by", "from": "Item", "via": "supplier", "to": "Supplier" }
         ]
         """;
 
@@ -29,6 +37,9 @@ public sealed class McpRigLiveTests : IAsyncLifetime
 
     private static readonly string Mes = Environment.GetEnvironmentVariable("SAEM_RIG_MES")
         ?? throw new InvalidOperationException("SAEM_RIG_MES names the rig's mes source (tests/rig/compose.password-login.yaml).");
+
+    private static readonly string Erp = Environment.GetEnvironmentVariable("SAEM_RIG_ERP")
+        ?? throw new InvalidOperationException("SAEM_RIG_ERP names the rig's erp source (tests/rig/compose.password-login.yaml).");
 
     private TestServer _server = null!;
 
@@ -44,6 +55,11 @@ public sealed class McpRigLiveTests : IAsyncLifetime
             ["Saem:Sources:PasswordLogins:mes:alice:Password"] = "rig-alice-local-only",
             ["Saem:Sources:PasswordLogins:mes:bob:User"] = "bob_pw",
             ["Saem:Sources:PasswordLogins:mes:bob:Password"] = "rig-bob-local-only",
+            ["Saem:Sources:MySql:erp"] = Erp,
+            ["Saem:Sources:PasswordLogins:erp:alice:User"] = "alice_pw",
+            ["Saem:Sources:PasswordLogins:erp:alice:Password"] = "rig-alice-local-only",
+            ["Saem:Sources:PasswordLogins:erp:bob:User"] = "bob_pw",
+            ["Saem:Sources:PasswordLogins:erp:bob:Password"] = "rig-bob-local-only",
         });
     }
 
@@ -73,6 +89,36 @@ public sealed class McpRigLiveTests : IAsyncLifetime
         Assert.DoesNotContain(Canary, refused.GetRawText(), StringComparison.Ordinal);
         // Nor in saem's log: what a lookup read is answered, never logged.
         Assert.DoesNotContain(_server.Logs.Lines, l => l.Contains(Canary, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task One_call_across_both_systems_shows_both_in_its_path_and_stops_where_the_person_cannot_see()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var supplierOf = new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = "WorkOrder", ["key"] = "WO-2" },
+            ["path"] = new[] { "orders_item", "supplied_by" },
+            ["read"] = new[] { "name" },
+        };
+
+        await using var alice = await _server.ClientAsync(await TokenAsync("alice", ct), ct);
+        var forAlice = await alice.CallToolAsync("lookup", supplierOf, cancellationToken: ct);
+        await using var bob = await _server.ClientAsync(await TokenAsync("bob", ct), ct);
+        var forBob = await bob.CallToolAsync("lookup", supplierOf, cancellationToken: ct);
+
+        var claim = Assert.Single(forAlice.StructuredContent!.Value.GetProperty("claims").EnumerateArray());
+        Assert.Equal(SupplierCanary, claim.GetProperty("value").GetString());
+        Assert.Equal("erp", Assert.Single(claim.GetProperty("sources").EnumerateArray()).GetProperty("system").GetString());
+        var hops = claim.GetProperty("path").EnumerateArray().ToList();
+        Assert.Equal(["WorkOrder", "Item", "Supplier"], [hops[0].GetProperty("from").GetProperty("type").GetString(), hops[0].GetProperty("to").GetProperty("type").GetString(), hops[1].GetProperty("to").GetProperty("type").GetString()]);
+
+        // bob may see WO-2 in mes, but not its item in erp: refused at the hop into erp, naming erp.
+        var refusal = forBob.StructuredContent!.Value.GetProperty("refusal");
+        Assert.Equal(1, refusal.GetProperty("atHop").GetInt32());
+        Assert.Equal("erp", refusal.GetProperty("system").GetString());
+        Assert.DoesNotContain(SupplierCanary, forBob.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain(_server.Logs.Lines, l => l.Contains(SupplierCanary, StringComparison.Ordinal));
     }
 
     [Fact]

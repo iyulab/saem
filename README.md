@@ -11,7 +11,7 @@ as a wellspring of knowledge
 
 **Status: early implementation — nothing is published.** What runs: a read-only connector that
 feeds ontology authoring, a lookup walk that reads each hop through a session opened as the person
-it is for, a PostgreSQL source those sessions log in to, and an MCP server whose one lookup tool runs
+it is for, PostgreSQL and MySQL sources those sessions log in to, and an MCP server whose one lookup tool runs
 as the person a request's bearer token names (all below). Logins to the sources are passwords for
 now, not the person's token — so most of this README,
 the permission principle included, describes what saem is meant to be rather than what it does.
@@ -231,11 +231,14 @@ decides what comes back, and a row the person may not see is simply not there. `
 binds one person's login for each system the ontology names; it is made per lookup and dropped with
 it.
 
-`Saem.Connectors.Postgres` is the first such source. Where a database is the system's interface,
-reading it over its own protocol, as the person, *is* talking to it over its own interface: the
-session logs in with the person's credential (`PostgresSource.As(user, secret)`, the secret asked for
-when the connection opens and not kept), runs in a read-only transaction rolled back when the session
-ends, and pools nothing between lookups. A connection string that names a login is refused.
+`Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
+the system's interface, reading it over its own protocol, as the person, *is* talking to it over its
+own interface: the session logs in with the person's credential (`PostgresSource.As(user, secret)`,
+`MySqlSource.As(user, secret)` — the secret asked for when the session opens and not kept), runs in a
+read-only transaction rolled back when the session ends, and pools nothing between lookups. A
+connection string that names a login is refused. One lookup can cross both: a work order in a
+PostgreSQL MES names an item in a MySQL ERP, which names its supplier — and each person's answer, or
+the hop at which it is refused, follows from what each source lets that person see.
 
 ```csharp
 var mes = new PostgresSource("Host=mes;Database=postgres;SSL Mode=Require");
@@ -243,9 +246,10 @@ var sessions = new PersonSessions(new Dictionary<string, SourceOpener> { ["mes"]
 var answer = await new LookupWalker(catalog).RunAsync(call, sessions, ct);
 ```
 
-The credential is a password for now. PostgreSQL 18 accepts an OAuth bearer token as a login, which is
-how a person's own token would reach the source, but the .NET driver cannot send one yet; when it can,
-the secret becomes the token and nothing else in the path changes.
+The credential is a password for now. Both sources accept an OpenID Connect token as a login
+(PostgreSQL 18's OAuth, Percona Server's `auth_openid_connect`), which is how a person's own token would
+reach them, but neither .NET driver can send one yet; when they can, the secret becomes the token and
+nothing else in the path changes.
 
 ### MCP server
 
@@ -264,8 +268,9 @@ person's behalf (RFC 8693). A request without a valid token gets `401` with a po
 
 Each lookup gets an id — the request's W3C trace id when it has one — which the server logs with the
 person and the agent, and which each source session carries as its name (`application_name=saem/<id>`
-on PostgreSQL). The source's own connection log then shows, for that id, which login it authorised:
-the record that a lookup ran as the person comes from the source, not only from saem.
+on PostgreSQL, the `program_name` connection attribute on MySQL). PostgreSQL's own connection log then
+shows, for that id, which login it authorised: the record that a lookup ran as the person comes from the
+source, not only from saem.
 
 ```json
 {
@@ -274,17 +279,22 @@ the record that a lookup ran as the person comes from the source, not only from 
     "Identity": { "Authority": "https://issuer.example/realm", "Audience": "saem" },
     "Sources": {
       "Postgres": { "mes": "Host=mes;Database=postgres;SSL Mode=Require" },
-      "PasswordLogins": { "mes": { "alice": { "User": "alice_login", "Password": "…" } } }
+      "MySql": { "erp": "Server=erp;Database=erp;SslMode=Required" },
+      "PasswordLogins": {
+        "mes": { "alice": { "User": "alice_login", "Password": "…" } },
+        "erp": { "alice": { "User": "alice_login", "Password": "…" } }
+      }
     }
   }
 }
 ```
 
 ```bash
-# the live tests read a PostgreSQL that enforces row-level rules for two people, and ask the rig's
-# issuer for each person's token to call the MCP server with
+# the live tests read a PostgreSQL and a MySQL that each enforce their own rules for two people, and
+# ask the rig's issuer for each person's token to call the MCP server with
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yaml up -d --build --wait
 SAEM_RIG_MES="Host=127.0.0.1;Port=55432;Database=postgres;SSL Mode=Require" \
+SAEM_RIG_ERP="Server=127.0.0.1;Port=53306;Database=erp;SslMode=Required" \
 SAEM_RIG_ISSUER="http://127.0.0.1:58080/rig" \
   dotnet test --solution saem.slnx -p:IncludeRigLiveTests=true
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yaml down -v

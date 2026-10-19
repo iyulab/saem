@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A MySQL source read at query time, as the person a lookup is for: each session logs in with that
+    person's credential, inside a read-only transaction, and the source's own grants and views decide
+    what comes back. The database is this source's public interface.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Saem.Query\Saem.Query.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MySqlConnector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Saem.Connectors.MySql.Tests" />
+  </ItemGroup>
+
+</Project>
