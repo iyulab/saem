@@ -71,6 +71,8 @@ public sealed class McpRigLiveTests : IAsyncLifetime
         var refused = forBob.StructuredContent!.Value;
         Assert.Equal("refused", refused.GetProperty("kind").GetString());
         Assert.DoesNotContain(Canary, refused.GetRawText(), StringComparison.Ordinal);
+        // Nor in saem's log: what a lookup read is answered, never logged.
+        Assert.DoesNotContain(_server.Logs.Lines, l => l.Contains(Canary, StringComparison.Ordinal));
     }
 
     [Fact]
