@@ -219,7 +219,7 @@ PostgreSQL and one MorphDB need a schema and a project each (`Formbase__Schema`,
 dotnet test --solution saem.slnx
 
 # the live test reads a running Formbase; without one it stops and says the URL is not a Formbase host
-docker run -d -p 8080:8080 ghcr.io/iyulab/formbase:0.25.0
+docker run -d -p 8080:8080 ghcr.io/iyulab/formbase:0.26.0
 SAEM_FORMBASE_URL=http://127.0.0.1:8080 dotnet test --solution saem.slnx -p:IncludeFormbaseLiveTests=true
 ```
 
