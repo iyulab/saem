@@ -25,7 +25,9 @@ namespace Saem.Authoring;
 /// </description></item>
 /// </list>
 /// What is already declared is the authority: an existing declaration is never changed, and where the
-/// proposal places something differently, the draft keeps the declaration and says so in a note.
+/// proposal places something differently, the draft keeps the declaration and says so in a note. A type
+/// is its table, not its name: a proposed type on a table a declared type already stands on is read as
+/// that type, whatever the proposal called it.
 /// Nothing the proposal said is dropped silently — every element it could not declare is a
 /// <see cref="DraftNote"/> naming the records it cited.
 /// </summary>
@@ -76,6 +78,8 @@ public static class DeclarationDrafter
             .GroupBy(e => e.EntityId, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
 
+        private readonly Dictionary<string, string> _aliases = new(StringComparer.Ordinal);
+
         public Dictionary<string, IReadOnlyList<string>> Evidence { get; } = new(StringComparer.Ordinal);
 
         public List<DraftNote> Notes { get; } = [];
@@ -112,12 +116,39 @@ public static class DeclarationDrafter
                     continue;
                 }
 
+                // A type stands for its table: a proposed type on a table a type already stands on is that
+                // type under another name — the name a model gave it, or the subject's when the subject was
+                // declared — so it is read as that type, and its relations leave from it.
+                var placed = declared.EntityTypes.Values.Concat(drafted).FirstOrDefault(t => SamePlace(t, declaration));
+                if (placed is not null)
+                {
+                    _aliases[type] = placed.Name;
+                    if (declared.EntityTypes.ContainsKey(placed.Name))
+                    {
+                        NoteDifference(placed, declaration, denoting);
+                    }
+                    else
+                    {
+                        Note(type, $"It stands on {Place(declaration)}, as '{placed.Name}' does; it is read as '{placed.Name}'.", denoting);
+                    }
+
+                    continue;
+                }
+
                 drafted.Add(declaration);
                 Evidence[type] = denoting;
             }
 
             return drafted;
         }
+
+        /// <summary>The declared type a proposed type is read as: itself, or the type already standing on its table.</summary>
+        private string TypeOf(EntityProposal entity) => _aliases.GetValueOrDefault(entity.EntityType, entity.EntityType);
+
+        private static bool SamePlace(EntityTypeDeclaration a, EntityTypeDeclaration b) =>
+            a.System == b.System && a.Table == b.Table && a.Key == b.Key;
+
+        private static string Place(EntityTypeDeclaration t) => $"{t.System}.{t.Table} keyed by '{t.Key}'";
 
         public List<RelationDeclaration> DraftRelations(IReadOnlyList<EntityTypeDeclaration> draftedTypes)
         {
@@ -142,7 +173,7 @@ public static class DeclarationDrafter
                 // relation two hops away, through the entity in between, under the same name. Each pair
                 // is read on its own: a pair no field carries is noted, and only a pair a field carries
                 // can become the declaration.
-                var pairs = instances.GroupBy(i => (From: i.From.EntityType, To: i.To.EntityType)).ToList();
+                var pairs = instances.GroupBy(i => (From: TypeOf(i.From), To: TypeOf(i.To))).ToList();
                 var readable = new List<(RelationDeclaration Declaration, List<string> Cited)>();
                 foreach (var pair in pairs)
                 {
@@ -354,7 +385,7 @@ public static class DeclarationDrafter
         {
             if (existing.System != proposed.System || existing.Table != proposed.Table || existing.Key != proposed.Key)
             {
-                Note(existing.Name, $"Already declared on {existing.System}.{existing.Table} keyed by '{existing.Key}'; the proposal places it on {proposed.System}.{proposed.Table} keyed by '{proposed.Key}'. The declaration is kept.", denoting);
+                Note(existing.Name, $"Already declared on {Place(existing)}; the proposal places it on {Place(proposed)}. The declaration is kept.", denoting);
                 return;
             }
 

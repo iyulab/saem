@@ -111,6 +111,48 @@ public sealed class DeclarationDrafterTests
     }
 
     [Fact]
+    public void A_proposed_type_on_a_declared_types_table_is_read_as_that_type_whatever_it_is_called()
+    {
+        // Eyu names an entity after its subject when the subject is declared — the form type, not the
+        // ontology's name for the kind. The table says which declared type it is.
+        var proposal = RigProposal();
+        var renamed = proposal with
+        {
+            Entities = [.. proposal.Entities.Select(e => EntityProposal.Create(
+                e.EntityId, e.Name, e.EntityType switch { "WorkOrder" => "work_orders", "Item" => "items", _ => e.EntityType },
+                e.Claim, e.Origin, e.Confidence, denotedBy: e.DenotedBy))],
+        };
+        var existing = Rig.OfType<EntityTypeDeclaration>().Cast<Declaration>().ToList();
+
+        var draft = DeclarationDrafter.Draft(renamed, Records, Sources, existing);
+
+        Assert.Empty(draft.Notes);
+        Assert.Equal(
+            [new RelationDeclaration("orders_item", "WorkOrder", "item", "Item"), new RelationDeclaration("supplied_by", "Item", "supplier", "Supplier")],
+            draft.Added);
+    }
+
+    [Fact]
+    public void Two_proposed_types_on_one_table_are_drafted_as_one_and_the_second_is_noted()
+    {
+        var proposal = RigProposal();
+        var split = proposal with
+        {
+            Entities = [.. proposal.Entities.Select(e => e.EntityId == "e4"
+                ? EntityProposal.Create(e.EntityId, e.Name, "Part", e.Claim, e.Origin, e.Confidence, denotedBy: e.DenotedBy)
+                : e)],
+        };
+
+        var draft = DeclarationDrafter.Draft(split, Records, Sources);
+
+        Assert.DoesNotContain(draft.Added, d => d.Name == "Part");
+        var note = Assert.Single(draft.Notes);
+        Assert.Equal("Part", note.About);
+        Assert.Contains("read as 'Item'", note.Reason, StringComparison.Ordinal);
+        Assert.Contains(new RelationDeclaration("orders_item", "WorkOrder", "item_code", "Item"), draft.Added);
+    }
+
+    [Fact]
     public void A_type_declared_on_another_table_is_kept_as_declared_and_the_difference_is_noted()
     {
         var existing = Rig.Select(d => d is EntityTypeDeclaration { Name: "Item" } t ? t with { Table = "items_v2" } : d).ToList();
