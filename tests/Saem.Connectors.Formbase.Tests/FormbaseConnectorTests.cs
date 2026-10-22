@@ -22,7 +22,8 @@ public class FormbaseConnectorTests
               "formType": "workorders", "tableName": "workorders", "declarationVersion": 3,
               "fields": [
                 { "name": "wo", "type": "text", "nullable": false, "sourceKey": null, "binding": "stored", "target": null },
-                { "name": "tonnage", "type": "integer", "nullable": true, "sourceKey": null, "binding": "stored", "target": null }
+                { "name": "tonnage", "type": "integer", "nullable": true, "sourceKey": null, "binding": "stored", "target": null },
+                { "name": "due", "type": "date", "nullable": true, "sourceKey": null, "binding": "stored", "target": null }
               ],
               "relations": [ { "name": "machine", "kind": "reference", "target": "machines", "keyField": "equipment" } ]
             }
@@ -33,7 +34,8 @@ public class FormbaseConnectorTests
         Assert.NotNull(structure);
         Assert.Equal("3", structure.Version);
         Assert.Equal(
-            [new DeclaredField("wo", Kind: DeclaredValueKind.Text, Required: true), new DeclaredField("tonnage", Kind: DeclaredValueKind.WholeNumber, Required: false)],
+            [new DeclaredField("wo", Kind: DeclaredValueKind.Text, Required: true), new DeclaredField("tonnage", Kind: DeclaredValueKind.WholeNumber, Required: false),
+             new DeclaredField("due", Kind: DeclaredValueKind.Date, Required: false)],
             structure.Fields);
         var relation = Assert.Single(structure.Relations);
         Assert.Equal(new DeclaredRelation("machine", SubjectRef.Create("machines"), ViaField: "equipment", Kind: DeclaredRelationKind.Reference), relation);

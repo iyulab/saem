@@ -39,6 +39,29 @@ public sealed class AuthoringLiveTests
         AssertRelation(pass.Draft, byTable["items"].Name, "supplier_id", byTable["suppliers"].Name);
     }
 
+    /// <summary>
+    /// The input the grounding chain actually has: form types Formbase holds declarations for — the
+    /// fields, and which field of a form names a record of another. Eyu then reads those fields as
+    /// references, not as evidence of a record's own identity.
+    /// </summary>
+    [Fact]
+    public async Task A_pass_over_declared_form_types_drafts_the_same_types_and_relations()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var formbase = Formbase();
+        var subjects = await FileDocumentsAsync(formbase, ct, declare: true);
+        using var model = ModelHttp();
+
+        var pass = await Authoring(formbase, model).DraftAsync(subjects.Sources, [], RecordsPerSubject, ct);
+        await ReportAsync("declared-forms", pass, ct);
+
+        var byTable = pass.Draft.Added.OfType<EntityTypeDeclaration>().ToDictionary(t => t.Table, StringComparer.Ordinal);
+        Assert.True(byTable.ContainsKey("work_orders") && byTable.ContainsKey("items") && byTable.ContainsKey("suppliers"),
+            $"Expected a type on each of the three tables; drafted on: {string.Join(", ", byTable.Keys)}.");
+        AssertRelation(pass.Draft, byTable["work_orders"].Name, "item_code", byTable["items"].Name);
+        AssertRelation(pass.Draft, byTable["items"].Name, "supplier_id", byTable["suppliers"].Name);
+    }
+
     [Fact]
     public async Task With_the_types_declared_a_pass_adds_only_the_relations_under_the_declared_names()
     {
@@ -82,7 +105,7 @@ public sealed class AuthoringLiveTests
     /// Files the documents under three fresh form types and returns which subject stands on which table.
     /// Nothing is declared in Formbase: the fields reach Eyu as records only.
     /// </summary>
-    private static async Task<(Dictionary<string, SubjectSource> Sources, string Suffix)> FileDocumentsAsync(HttpClient http, CancellationToken ct)
+    private static async Task<(Dictionary<string, SubjectSource> Sources, string Suffix)> FileDocumentsAsync(HttpClient http, CancellationToken ct, bool declare = false)
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var workOrders = $"workorders-{suffix}";
@@ -116,12 +139,29 @@ public sealed class AuthoringLiveTests
             }
         }
 
+        if (declare)
+        {
+            await DeclareAsync(http, suppliers, "suppliers", [Field("supplier_id", nullable: false), Field("supplier_name")], [], ct);
+            await DeclareAsync(http, items, "items", [Field("item_code", nullable: false), Field("item_name"), Field("supplier_id")],
+                [new { name = "supplier", kind = "reference", target = suppliers, keyField = "supplier_id" }], ct);
+            await DeclareAsync(http, workOrders, "work_orders", [Field("wo_no", nullable: false), Field("item_code"), Field("qty", "integer"), Field("note")],
+                [new { name = "item", kind = "reference", target = items, keyField = "item_code" }], ct);
+        }
+
         return (new Dictionary<string, SubjectSource>
         {
             [workOrders] = new("formbase", "work_orders", "wo_no"),
             [items] = new("formbase", "items", "item_code"),
             [suppliers] = new("formbase", "suppliers", "supplier_id"),
         }, suffix);
+    }
+
+    private static object Field(string name, string type = "text", bool nullable = true) => new { name, type, nullable };
+
+    private static async Task DeclareAsync(HttpClient http, string type, string table, object[] fields, object[] relations, CancellationToken ct)
+    {
+        using var response = await http.PutAsJsonAsync($"formtypes/{type}/declaration", new { tableName = $"{table}_{type[^8..]}", declarationVersion = 1, fields, relations }, ct);
+        Assert.True(response.IsSuccessStatusCode, $"Declaring {type} answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync(ct)}");
     }
 
     /// <summary>Writes the draft, its notes and Eyu's rejections where <c>SAEM_AUTHORING_REPORT_DIR</c> points, and to the test output.</summary>
@@ -131,6 +171,7 @@ public sealed class AuthoringLiveTests
             .AppendLine(CultureInfo.InvariantCulture, $"# Authoring pass — {name}")
             .AppendLine()
             .AppendLine(CultureInfo.InvariantCulture, $"Records: {pass.Records.Count} · entities proposed: {pass.Proposal.Entities.Count} · relations proposed: {pass.Proposal.Relations.Count} · rejected: {pass.Proposal.Rejections.Count}")
+            .AppendLine(CultureInfo.InvariantCulture, $"Entities denoted by more than one record: {pass.Proposal.Entities.Count(e => e.DenotedBy.Count > 1)} (every record here is a distinct thing)")
             .AppendLine()
             .AppendLine("## Proposed")
             .AppendJoin(Environment.NewLine, pass.Proposal.Entities.Select(e => $"- entity {e.EntityId} `{e.EntityType}` \"{e.Name}\" denoted by [{string.Join(", ", e.DenotedBy)}] mentioned in [{string.Join(", ", e.MentionedIn)}]"))

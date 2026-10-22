@@ -255,6 +255,7 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
         "decimal" => DeclaredValueKind.FractionalNumber,
         "boolean" => DeclaredValueKind.Boolean,
         "timestamp" => DeclaredValueKind.Timestamp,
+        "date" => DeclaredValueKind.Date,
         "uuid" => DeclaredValueKind.Identifier,
         "jsonb" => DeclaredValueKind.Structured,
         _ => throw new FormbaseConnectorException($"Formbase declared a column type this connector does not know how to carry: '{type}'."),
