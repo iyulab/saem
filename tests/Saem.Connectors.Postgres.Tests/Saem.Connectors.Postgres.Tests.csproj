@@ -16,6 +16,11 @@
     <Compile Remove="Live/**/*.cs" />
   </ItemGroup>
 
+  <!-- The measurement procedure every source shares (Q9), so only the source differs between them. -->
+  <ItemGroup Condition="'$(IncludeRigLiveTests)' == 'true'">
+    <Compile Include="..\Shared\Live\*.cs" Link="Live\Shared\%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Saem.Connectors.Postgres\Saem.Connectors.Postgres.csproj" />
   </ItemGroup>

@@ -16,4 +16,19 @@ INSERT INTO supplier_access (login, supplier_id)
 GRANT SELECT ON erp.visible_suppliers TO 'alice_pw'@'%', 'bob_pw'@'%';
 GRANT SELECT ON erp.visible_items TO 'alice_pw'@'%', 'bob_pw'@'%';
 SQL
+    # Fifty synthetic people, u01..u50, measured as many users at once, as on mes: the odd ones see what
+    # alice sees, the even ones what bob sees. And a monitor login that may see every session the
+    # source holds (PROCESS), so a measurement can count them from the source's side.
+    for i in $(seq -w 1 50); do
+        if [ $((10#$i % 2)) -eq 1 ]; then like=alice; else like=bob; fi
+        echo "CREATE USER 'u$i'@'%' IDENTIFIED BY 'rig-synthetic-local-only';"
+        echo "INSERT INTO erp.supplier_access (login, supplier_id) SELECT 'u$i', supplier_id FROM erp.supplier_access WHERE login = '$like';"
+        echo "GRANT SELECT ON erp.visible_suppliers TO 'u$i'@'%';"
+        echo "GRANT SELECT ON erp.visible_items TO 'u$i'@'%';"
+    done | "${mysql[@]}"
+    "${mysql[@]}" <<'SQL'
+CREATE USER 'rig_monitor'@'%' IDENTIFIED BY 'rig-monitor-local-only';
+GRANT PROCESS ON *.* TO 'rig_monitor'@'%';
+GRANT SELECT ON performance_schema.* TO 'rig_monitor'@'%';
+SQL
 fi
