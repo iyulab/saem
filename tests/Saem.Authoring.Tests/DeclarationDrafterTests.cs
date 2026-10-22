@@ -163,6 +163,43 @@ public sealed class DeclarationDrafterTests
     }
 
     [Fact]
+    public void A_relation_also_stated_two_hops_away_is_declared_between_the_pair_a_field_carries()
+    {
+        // Seen from a model: «supplied_by» from the item to its supplier, and again from the work order
+        // to the supplier of its item — the second carried by no field of the work order.
+        var proposal = RigProposal();
+        var transitive = proposal with
+        {
+            Relations = [.. proposal.Relations, Relation("supplied_by", "e1", "e5", "wo-1", "item-1", "sup-1"), Relation("supplied_by", "e2", "e5", "wo-2", "item-2", "sup-1")],
+        };
+
+        var draft = DeclarationDrafter.Draft(transitive, Records, Sources);
+
+        Assert.Contains(new RelationDeclaration("supplied_by", "Item", "supplier_id", "Supplier"), draft.Added);
+        var note = Assert.Single(draft.Notes);
+        Assert.Equal("supplied_by", note.About);
+        Assert.StartsWith("WorkOrder → Supplier: No field", note.Reason, StringComparison.Ordinal);
+        Assert.Equal(["item-1", "sup-1", "item-2"], draft.Evidence["supplied_by"]);
+    }
+
+    [Fact]
+    public void A_name_two_pairs_of_types_each_carry_by_a_field_is_not_declared_as_either()
+    {
+        var proposal = RigProposal();
+        var reused = proposal with
+        {
+            Relations = [.. proposal.Relations.Select(r => r.RelationName == "orders_item"
+                ? RelationProposal.Create("supplied_by", r.FromEntityId, r.ToEntityId, r.Claim, r.Origin, r.Confidence)
+                : r)],
+        };
+
+        var draft = DeclarationDrafter.Draft(reused, Records, Sources);
+
+        Assert.DoesNotContain(draft.Added, d => d is RelationDeclaration);
+        Assert.Contains("own name", Assert.Single(draft.Notes).Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_type_denoted_by_records_of_two_subjects_has_no_one_table()
     {
         var proposal = Proposal([Entity("e1", "Thing", ["wo-1", "item-1"])], []);

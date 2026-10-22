@@ -19,7 +19,9 @@ namespace Saem.Authoring;
 /// <item><description>
 /// <b>A relation</b> leaves its source type through the field whose value, in every proposed instance,
 /// is the key of the entity it leads to. A relation no field carries, or more than one field could
-/// carry, is not declared.
+/// carry, is not declared. A name proposed between several pairs of types — a relation also stated two
+/// hops away, through the entity in between — is read pair by pair, and only a pair a field carries
+/// becomes the declaration.
 /// </description></item>
 /// </list>
 /// What is already declared is the authority: an existing declaration is never changed, and where the
@@ -125,68 +127,106 @@ public static class DeclarationDrafter
             foreach (var group in proposal.Relations.GroupBy(r => r.RelationName, StringComparer.Ordinal).OrderBy(g => g.Key, StringComparer.Ordinal))
             {
                 var name = group.Key;
-                var cited = Distinct(group.SelectMany(r => r.Claim.Sources.Select(s => s.RecordId)));
                 var instances = group
                     .Select(r => (Relation: r, From: _entities.GetValueOrDefault(r.FromEntityId), To: _entities.GetValueOrDefault(r.ToEntityId)))
                     .Where(i => i.From is not null && i.To is not null)
                     .Select(i => (i.Relation, From: i.From!, To: i.To!))
                     .ToList();
-
-                var pairs = instances.Select(i => (i.From.EntityType, To: i.To.EntityType)).Distinct().ToList();
-                if (pairs.Count != 1)
+                if (instances.Count == 0)
                 {
-                    Note(name, pairs.Count == 0
-                        ? "The relation names no entity the proposal holds."
-                        : $"The relation is proposed between more than one pair of types ({string.Join(", ", pairs.Select(p => $"{p.EntityType} → {p.To}"))}); a declared relation leads from one type to one.", cited);
+                    Note(name, "The relation names no entity the proposal holds.", Cited(group));
                     continue;
                 }
 
-                var (fromType, toType) = pairs[0];
-                if (!types.TryGetValue(fromType, out var from) || !types.ContainsKey(toType))
+                // A name may be proposed between several pairs of types — a model that also states the
+                // relation two hops away, through the entity in between, under the same name. Each pair
+                // is read on its own: a pair no field carries is noted, and only a pair a field carries
+                // can become the declaration.
+                var pairs = instances.GroupBy(i => (From: i.From.EntityType, To: i.To.EntityType)).ToList();
+                var readable = new List<(RelationDeclaration Declaration, List<string> Cited)>();
+                foreach (var pair in pairs)
                 {
-                    var missing = types.ContainsKey(fromType) ? toType : fromType;
-                    Note(name, $"It joins '{fromType}' and '{toType}', but '{missing}' is not declared — declare the type first.", cited);
+                    var label = pairs.Count > 1 ? $"{pair.Key.From} → {pair.Key.To}: " : "";
+                    var pairInstances = pair.ToList();
+                    var cited = Cited(pairInstances.Select(i => i.Relation));
+                    if (TryRead(name, label, pair.Key.From, pair.Key.To, pairInstances, cited, types) is { } declaration)
+                    {
+                        readable.Add((declaration, cited));
+                    }
+                }
+
+                if (readable.Count > 1)
+                {
+                    Note(name, $"Fields carry it between more than one pair of types ({string.Join(", ", readable.Select(r => Describe(r.Declaration)))}); a declared name is one relation — declare each under its own name.", Cited(group));
                     continue;
                 }
 
-                if (!TryFindVia(name, instances, cited, out var viaField, out var fromSource))
+                if (readable.Count == 0)
                 {
                     continue;
                 }
 
-                // The field the relation leaves through, by its declared name: the field of the source
-                // type held by the column the instances showed.
-                var column = fromSource.ColumnOf(viaField);
-                var via = from.Fields.FirstOrDefault(f => string.Equals(f.Value, column, StringComparison.Ordinal)).Key;
-                if (via is null)
-                {
-                    Note(name, $"Its value is held by column '{column}', which no field of '{fromType}' declares — declare the field first.", cited);
-                    continue;
-                }
-
-                var declaration = new RelationDeclaration(name, fromType, via, toType);
+                var (relation, evidence) = readable[0];
                 if (declared.Relations.TryGetValue(name, out var existing))
                 {
-                    if (existing != declaration)
+                    if (existing != relation)
                     {
-                        Note(name, $"Already declared as {Describe(existing)}; the proposal reads it as {Describe(declaration)}. The declaration is kept.", cited);
+                        Note(name, $"Already declared as {Describe(existing)}; the proposal reads it as {Describe(relation)}. The declaration is kept.", evidence);
                     }
 
                     continue;
                 }
 
-                var same = declared.Relations.Values.FirstOrDefault(r => r.From == fromType && r.Via == via && r.To == toType);
+                var same = declared.Relations.Values.FirstOrDefault(r => r.From == relation.From && r.Via == relation.Via && r.To == relation.To);
                 if (same is not null)
                 {
-                    Note(name, $"Already declared under the name '{same.Name}'. The declaration is kept.", cited);
+                    Note(name, $"Already declared under the name '{same.Name}'. The declaration is kept.", evidence);
                     continue;
                 }
 
-                drafted.Add(declaration);
-                Evidence[name] = cited;
+                drafted.Add(relation);
+                Evidence[name] = evidence;
             }
 
             return drafted;
+        }
+
+        /// <summary>
+        /// The declaration one pair of types reads as — or null, with a note, when a type is undeclared,
+        /// no single field carries the relation, or the field is not one the source type declares.
+        /// </summary>
+        private RelationDeclaration? TryRead(
+            string name,
+            string label,
+            string fromType,
+            string toType,
+            IReadOnlyList<(RelationProposal Relation, EntityProposal From, EntityProposal To)> instances,
+            IReadOnlyList<string> cited,
+            Dictionary<string, EntityTypeDeclaration> types)
+        {
+            if (!types.TryGetValue(fromType, out var from) || !types.ContainsKey(toType))
+            {
+                var missing = types.ContainsKey(fromType) ? toType : fromType;
+                Note(name, $"{label}It joins '{fromType}' and '{toType}', but '{missing}' is not declared — declare the type first.", cited);
+                return null;
+            }
+
+            if (!TryFindVia(name, label, instances, cited, out var viaField, out var fromSource))
+            {
+                return null;
+            }
+
+            // The field the relation leaves through, by its declared name: the field of the source
+            // type held by the column the instances showed.
+            var column = fromSource.ColumnOf(viaField);
+            var via = from.Fields.FirstOrDefault(f => string.Equals(f.Value, column, StringComparison.Ordinal)).Key;
+            if (via is null)
+            {
+                Note(name, $"{label}Its value is held by column '{column}', which no field of '{fromType}' declares — declare the field first.", cited);
+                return null;
+            }
+
+            return new RelationDeclaration(name, fromType, via, toType);
         }
 
         /// <summary>
@@ -242,6 +282,7 @@ public static class DeclarationDrafter
         /// </summary>
         private bool TryFindVia(
             string name,
+            string label,
             IReadOnlyList<(RelationProposal Relation, EntityProposal From, EntityProposal To)> instances,
             IReadOnlyList<string> cited,
             out string via,
@@ -293,15 +334,15 @@ public static class DeclarationDrafter
 
             if (candidates is null)
             {
-                Note(name, "No instance has both ends denoted by records, so no record shows which field carries the relation.", cited);
+                Note(name, label + "No instance has both ends denoted by records, so no record shows which field carries the relation.", cited);
                 return false;
             }
 
             if (candidates.Count != 1)
             {
-                Note(name, candidates.Count == 0
+                Note(name, label + (candidates.Count == 0
                     ? "No field of the source records holds the target's key in every instance."
-                    : $"More than one field holds the target's key in every instance ({string.Join(", ", candidates.Order(StringComparer.Ordinal))}).", cited);
+                    : $"More than one field holds the target's key in every instance ({string.Join(", ", candidates.Order(StringComparer.Ordinal))})."), cited);
                 return false;
             }
 
@@ -332,6 +373,9 @@ public static class DeclarationDrafter
 
         private static string? KeyOf(RawRecord record, string keyField) =>
             record.Fields.TryGetValue(keyField, out var value) && !string.IsNullOrWhiteSpace(value) ? value.Trim() : null;
+
+        private static List<string> Cited(IEnumerable<RelationProposal> relations) =>
+            Distinct(relations.SelectMany(r => r.Claim.Sources.Select(s => s.RecordId)));
 
         private static List<string> Distinct(IEnumerable<string> ids) => ids.Distinct(StringComparer.Ordinal).ToList();
 

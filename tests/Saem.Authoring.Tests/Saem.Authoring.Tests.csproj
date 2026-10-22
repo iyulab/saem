@@ -6,8 +6,21 @@
     <NoWarn>$(NoWarn);CA1707</NoWarn>
   </PropertyGroup>
 
+  <!--
+    One authoring pass the way it will run: documents in a real Formbase (SAEM_FORMBASE_URL), Eyu's
+    proposer against a real model (EYU_LLM_ENDPOINT / EYU_LLM_API_KEY / EYU_LLM_MODEL, and
+    EYU_LLM_STREAM=true behind a gateway that cuts a slow first byte), the draft compared with the
+    declarations a person would have written.
+      SAEM_FORMBASE_URL=http://127.0.0.1:8080 dotnet test -p:IncludeAuthoringLiveTests=true
+    Excluded by default: it calls a model, so it costs time and money and its answer varies.
+  -->
+  <ItemGroup Condition="'$(IncludeAuthoringLiveTests)' != 'true'">
+    <Compile Remove="Live/**/*.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Saem.Authoring\Saem.Authoring.csproj" />
+    <ProjectReference Include="..\..\src\Saem.Connectors.Formbase\Saem.Connectors.Formbase.csproj" />
   </ItemGroup>
 
   <ItemGroup>
