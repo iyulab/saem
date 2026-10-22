@@ -108,7 +108,10 @@ public sealed record Claim
 /// </summary>
 /// <param name="System">The source system, as the deployment names it.</param>
 /// <param name="Table">The table (or equivalent) in that system.</param>
-/// <param name="Record">The record's key in that table.</param>
+/// <param name="Record">
+/// The record read, as the ontology names it: the columns the entity's type declares as its record,
+/// joined with <c>/</c> — or, where it declares none, the row's key.
+/// </param>
 public sealed record SourceRecord(string System, string Table, string Record);
 
 /// <summary>One relation followed: from one entity to the next.</summary>

@@ -165,7 +165,8 @@ says "does not exist": a source that enforces its own permissions returns no row
 absent and for what this person may not see, and saem cannot tell the two apart.
 
 **The ontology a lookup walks** (`Saem.Ontology`) is a set of declarations: each entity type
-stands on one table of one source system, with its key column and its fields, and each relation
+stands on one table of one source system, with its key column, its fields and — where a row is
+cited by something other than its key — the columns that name the record it is, and each relation
 leads from a field of one type to the key of another. A relation between two systems is not a
 foreign key — neither source holds it — so it exists only as a declaration. A lookup is checked
 against the declarations before any source is asked: a type, relation or field the ontology does
