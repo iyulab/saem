@@ -1,6 +1,3 @@
-using System.Net.Http.Headers;
-using Eyu.Core.Inference.Http;
-using Eyu.Core.Judgment;
 using Saem.Authoring;
 using Saem.Connectors.Formbase;
 using Saem.Ontology;
@@ -79,16 +76,10 @@ public sealed class H2aOneRunLiveTests : IAsyncLifetime
             ["items"] = new("forms", "items", "item_code", Record: ["fb_doc_id"]),
             ["work_orders"] = new("forms", "work_orders", "wo_no", Record: ["fb_doc_id"]),
         };
-        using var model = ModelHttp();
+        using var model = new LiveModel();
         var connector = new FormbaseConnector(_rig.Formbase);
-        var pass = await new DeclarationAuthoring(Proposer(model), connector, connector).DraftAsync(sources, [], 20, ct);
-        var review = pass.ToReview();
-        TestContext.Current.SendDiagnosticMessage(review);
-        if (Environment.GetEnvironmentVariable("SAEM_AUTHORING_REPORT_DIR") is { Length: > 0 } dir)
-        {
-            Directory.CreateDirectory(dir);
-            await File.WriteAllTextAsync(Path.Combine(dir, "h2a-one-run.md"), review, ct);
-        }
+        var pass = await new DeclarationAuthoring(model.Proposer, connector, connector).DraftAsync(sources, [], 20, ct);
+        await LiveModel.ReportAsync("h2a-one-run", pass.ToReview(), ct);
 
         // The draft as the reviewer would accept it, unchanged.
         var ontology = Ontology.Ontology.Create(pass.Draft.Declarations);
@@ -120,24 +111,4 @@ public sealed class H2aOneRunLiveTests : IAsyncLifetime
         Assert.Equal("refused", forBob.GetProperty("kind").GetString());
         Assert.DoesNotContain(Canary, forBob.GetRawText(), StringComparison.Ordinal);
     }
-
-    private static SinglePassOntologyProposer Proposer(HttpClient model)
-    {
-        var stream = bool.TryParse(Environment.GetEnvironmentVariable("EYU_LLM_STREAM"), out var streamed) && streamed;
-        return new SinglePassOntologyProposer(new HttpModelClient(model, Require("EYU_LLM_MODEL"), stream: stream));
-    }
-
-    private static HttpClient ModelHttp()
-    {
-        var http = new HttpClient
-        {
-            BaseAddress = new Uri(Require("EYU_LLM_ENDPOINT").TrimEnd('/') + "/v1/"),
-            Timeout = TimeSpan.FromMinutes(10),
-        };
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Require("EYU_LLM_API_KEY"));
-        return http;
-    }
-
-    private static string Require(string variable) =>
-        Environment.GetEnvironmentVariable(variable) ?? throw new InvalidOperationException($"{variable} is required for the one-run test: it drafts the ontology with a real model.");
 }
