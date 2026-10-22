@@ -355,6 +355,13 @@ that enforce their own row-level rules, two users whose visibility differs, one 
 crosses both systems — and two different answers, each fact citing only records that user can
 read, each lookup shown in the log to have run as that user.
 
+Where it stands: that slice runs on the rig over PostgreSQL and MySQL with per-person password
+logins, and over a MorphDB source with the person's own token — exchanged for one meant for the
+source, which checks it and applies its row-level security as that person. On that source a form
+document accepted by Formbase and projected into MorphDB is answered through the MCP server with the
+document's own id as the record its source names. The relational sources take the token once their
+drivers can present one.
+
 What that slice will not show is part of the plan. It runs on synthetic fixtures, so it says
 nothing about whether a given legacy system can be queried as its end users at all. It links the
 two systems through relations declared by hand, not proposed by Eyu. And it leaves materialization
