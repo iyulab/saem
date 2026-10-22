@@ -267,6 +267,19 @@ The credential is a password for now. Both sources accept an OpenID Connect toke
 reach them, but neither .NET driver can send one yet; when they can, the secret becomes the token and
 nothing else in the path changes.
 
+`Saem.Connectors.MorphDb` reads a [MorphDB](https://github.com/iyulab/MorphDB) project the same way,
+with the person's token already: `MorphDbSource(http, projectId).As(token)` presents the token on every
+read of its REST API (`GET`, filtered by key), MorphDB checks it against the issuer it trusts, and its
+row-level security, evaluated as that person, decides which rows come back. The token is one obtained
+for MorphDB's audience on that person's behalf — not the token saem was called with — and is asked for
+when the session opens. A client that already carries a credential is refused. A refused read
+(`401`, `403`, an unknown table) is an error; a row the person may not see is an empty answer.
+
+```csharp
+var forms = new MorphDbSource(new HttpClient { BaseAddress = new Uri("https://morphdb.internal/") }, projectId);
+var sessions = new PersonSessions(new Dictionary<string, SourceOpener> { ["forms"] = forms.As(ct => ExchangeForMorphDbAsync(ct)) });
+```
+
 ### MCP server
 
 `Saem.Mcp` serves one tool, `lookup`, over MCP's Streamable HTTP transport. Its input is a lookup in

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A MorphDB source read at query time, as the person a lookup is for: every request presents that
+    person's access token, MorphDB checks it against the issuer it trusts, and its row-level security
+    decides what comes back. Reached over HTTP only — its REST API is this source's public interface.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Saem.Query\Saem.Query.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Saem.Connectors.MorphDb.Tests" />
+  </ItemGroup>
+
+</Project>
