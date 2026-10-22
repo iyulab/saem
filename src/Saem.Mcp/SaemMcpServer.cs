@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -45,7 +46,9 @@ public static class SaemMcpServer
         var ontologyPath = saem["Ontology"];
         services.TryAddSingleton<IOntologyCatalog>(_ => new FileOntologyCatalog(
             string.IsNullOrEmpty(ontologyPath) ? throw new InvalidOperationException("Saem:Ontology names the ontology declarations file.") : ontologyPath));
-        services.TryAddSingleton<ISourceLogins, PasswordSourceLogins>();
+        services.AddHttpClient();
+        services.AddHttpContextAccessor();
+        services.TryAddSingleton<ISourceLogins, ConfiguredSourceLogins>();
         services.AddSingleton<LookupTool>();
 
         services.AddAuthentication(options =>
@@ -82,9 +85,14 @@ public static class SaemMcpServer
             .WithHttpTransport(http => http.Stateless = true)
             .WithListToolsHandler((request, ct) => request.Services!.GetRequiredService<LookupTool>().ListAsync(ct))
             .WithCallToolHandler((request, ct) => request.Services!.GetRequiredService<LookupTool>()
-                .CallAsync(request.Params!, Person.From(request.User), ct));
+                .CallAsync(request.Params!, Person.From(request.User), PresentedTokenOf(request.Services!), ct));
         return services;
     }
+
+    // The token the request was authenticated with: authentication has already validated it, so it is
+    // the person's own token, kept only to be exchanged for a source's.
+    private static PresentedToken? PresentedTokenOf(IServiceProvider services) =>
+        PresentedToken.FromAuthorization(services.GetRequiredService<IHttpContextAccessor>().HttpContext?.Request.Headers.Authorization);
 
     /// <summary>Maps the MCP endpoint at <paramref name="pattern"/>; every request to it needs a valid token.</summary>
     public static WebApplication MapSaemMcp(this WebApplication app, string pattern = "/mcp")

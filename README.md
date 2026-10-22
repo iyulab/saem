@@ -292,8 +292,12 @@ Who a lookup runs as is never an argument. Every request carries a bearer token 
 deployment trusts; the server validates it (signature, lifetime, audience) and runs the lookup as the
 token's `sub`, recording the agent named in its `act` claim when an agent obtained the token on the
 person's behalf (RFC 8693). A request without a valid token gets `401` with a pointer to the issuer
-(RFC 9728 protected resource metadata). Each person then logs in to each source with their own login
-— for now a password configured per person, until the person's token can reach the source itself.
+(RFC 9728 protected resource metadata). Each person then logs in to each source the way that source
+can. A MorphDB source takes the person's token itself: the server exchanges the token it was called
+with for one meant for that source (RFC 8693 token exchange at the same issuer, as saem's own client),
+and the source checks it. PostgreSQL and MySQL sources take a password login configured per person,
+until their drivers can present a token. The token the request presented is kept only for the
+exchange and never logged.
 
 Each lookup gets an id — the request's W3C trace id when it has one — which the server logs with the
 person and the agent, and which each source session carries as its name (`application_name=saem/<id>`
@@ -310,6 +314,8 @@ lookup ran as the person comes from the source, not only from saem.
     "Sources": {
       "Postgres": { "mes": "Host=mes;Database=postgres;SSL Mode=Require" },
       "MySql": { "erp": "Server=erp;Database=erp;SslMode=Required" },
+      "MorphDb": { "forms": { "Url": "https://forms.example/", "ProjectId": "…", "Audience": "morphdb" } },
+      "TokenExchange": { "TokenEndpoint": "https://issuer.example/realm/token", "ClientId": "saem", "ClientSecret": "…" },
       "PasswordLogins": {
         "mes": { "alice": { "User": "alice_login", "Password": "…" } },
         "erp": { "alice": { "User": "alice_login", "Password": "…" } }
@@ -328,6 +334,16 @@ SAEM_RIG_ERP="Server=127.0.0.1;Port=53306;Database=erp;SslMode=Required" \
 SAEM_RIG_ISSUER="http://127.0.0.1:58080/rig" \
   dotnet test --solution saem.slnx -p:IncludeRigLiveTests=true
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yaml down -v
+```
+
+```bash
+# the forms source: a MorphDB service that trusts the rig's issuer; saem exchanges each person's token
+# for one meant for it (needs a MorphDB image that accepts tokens)
+SAEM_RIG_MORPHDB_IMAGE=<image> docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml up -d --wait issuer forms
+SAEM_RIG_ISSUER="http://127.0.0.1:58080/rig" SAEM_RIG_FORMS="http://127.0.0.1:58088/" \
+SAEM_RIG_FORMS_MASTER_SECRET=rig-forms-master-local-only \
+  dotnet test --solution saem.slnx -p:IncludeMorphDbLiveTests=true
+docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml down -v
 ```
 
 ## Roadmap

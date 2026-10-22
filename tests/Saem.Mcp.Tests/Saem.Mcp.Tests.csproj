@@ -15,6 +15,14 @@
     <Compile Remove="Live/**/*.cs" />
   </ItemGroup>
 
+  <!--
+    LiveForms/ runs the server against the rig's forms source (tests/rig/compose.morphdb.yaml), where the
+    person's token itself reaches the source; excluded unless IncludeMorphDbLiveTests=true.
+  -->
+  <ItemGroup Condition="'$(IncludeMorphDbLiveTests)' != 'true'">
+    <Compile Remove="LiveForms/**/*.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Saem.Mcp\Saem.Mcp.csproj" />
   </ItemGroup>

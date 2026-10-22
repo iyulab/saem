@@ -53,7 +53,7 @@ internal sealed partial class LookupTool
         };
     }
 
-    public async ValueTask<CallToolResult> CallAsync(CallToolRequestParams request, Person? person, CancellationToken cancellationToken)
+    public async ValueTask<CallToolResult> CallAsync(CallToolRequestParams request, Person? person, PresentedToken? token, CancellationToken cancellationToken)
     {
         if (request.Name != Name)
         {
@@ -64,6 +64,12 @@ internal sealed partial class LookupTool
         {
             // Authentication already demands a token; one that names nobody cannot be run as anyone.
             return Error("The request's token names no person (no 'sub' claim), so there is no one to run the lookup as.");
+        }
+
+        if (token is null)
+        {
+            // Unreachable behind authentication; refused rather than assumed, since a source's token is exchanged from it.
+            return Error("The request presented no bearer token, so no source can be read as its person.");
         }
 
         LookupCall? call;
@@ -88,7 +94,7 @@ internal sealed partial class LookupTool
         LookupAnswer answer;
         try
         {
-            answer = await _walker.RunAsync(call, _logins.SessionsFor(person, lookupId), cancellationToken).ConfigureAwait(false);
+            answer = await _walker.RunAsync(call, _logins.SessionsFor(person, token, lookupId), cancellationToken).ConfigureAwait(false);
         }
         catch (UnknownTermException e)
         {

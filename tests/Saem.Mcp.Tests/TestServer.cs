@@ -137,7 +137,7 @@ internal sealed class FakeLogins(Dictionary<string, Dictionary<string, List<Sour
 
     // A person the test gives no rows to has no login at all, as a person missing from the deployment's
     // logins would; the failing person's source fails when it is opened.
-    public ISourceSessions SessionsFor(Person person, string lookupId) => new PersonSessions(
+    public ISourceSessions SessionsFor(Person person, PresentedToken token, string lookupId) => new PersonSessions(
         person.Subject == failingPerson
             ? new Dictionary<string, SourceOpener> { ["mes"] = _ => throw new IOException(FaultDetail) }
             : rowsByPerson.TryGetValue(person.Subject, out var tables)

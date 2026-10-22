@@ -12,6 +12,7 @@
     <ProjectReference Include="..\Saem.Query\Saem.Query.csproj" />
     <ProjectReference Include="..\Saem.Connectors.Postgres\Saem.Connectors.Postgres.csproj" />
     <ProjectReference Include="..\Saem.Connectors.MySql\Saem.Connectors.MySql.csproj" />
+    <ProjectReference Include="..\Saem.Connectors.MorphDb\Saem.Connectors.MorphDb.csproj" />
   </ItemGroup>
 
   <ItemGroup>
