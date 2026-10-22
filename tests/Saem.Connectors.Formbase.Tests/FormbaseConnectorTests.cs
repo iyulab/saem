@@ -119,7 +119,7 @@ public class FormbaseConnectorTests
         Assert.Equal("""["urgent"]""", records[0].Fields["tags"]);
         Assert.Equal("kim", records[1].Fields["tech"]);
         Assert.All(records, r => Assert.Equal(WorkOrders, r.Subject));
-        Assert.Single(formbase.Requests);
+        Assert.Single(formbase.StreamReads);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class FormbaseConnectorTests
         var records = await Connector(formbase).SampleAsync(WorkOrders, 3, TestContext.Current.CancellationToken);
 
         Assert.Equal(3, records.Count);
-        Assert.Equal(2, formbase.Requests.Count);
+        Assert.Equal(2, formbase.StreamReads.Count);
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public class FormbaseConnectorTests
         var records = await Connector(formbase).SampleAsync(WorkOrders, 50, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, records.Count);
-        Assert.Single(formbase.Requests);
+        Assert.Single(formbase.StreamReads);
     }
 
     /// <summary>
@@ -161,6 +161,94 @@ public class FormbaseConnectorTests
         Assert.Contains("0.11.0", ex.Message);
     }
 
+    /// <summary>
+    /// A repeated section has no documents of its own: its declaration names the parent, and its records
+    /// are the parent's section items — each named by the document and its position, carrying the
+    /// parent's key field value. A parent with no section has no rows, and one with an item that is not
+    /// a row has none read — the projection skips it. Its structure leads back to the parent through that field.
+    /// </summary>
+    [Fact]
+    public async Task A_repeated_section_is_sampled_as_rows_cut_from_its_parent_and_leads_back_to_it()
+    {
+        var lines = SubjectRef.Create("orderlines");
+        const string Declaration = """
+            {
+              "formType": "orderlines", "tableName": "orderlines", "declarationVersion": 1,
+              "fields": [ { "name": "orderNo", "type": "text", "nullable": true }, { "name": "product", "type": "text", "nullable": true },
+                          { "name": "qty", "type": "integer", "nullable": true } ],
+              "relations": [],
+              "sectionOf": { "formType": "orders", "relation": "lines", "sectionField": "lines", "keyField": "orderNo" }
+            }
+            """;
+        var formbase = new StubFormbase()
+            .Answer("GET", "/formtypes/orderlines/declaration", HttpStatusCode.OK, Declaration)
+            .Answer("GET", "/formtypes/orders/documents?after=0&limit=10", HttpStatusCode.OK, """
+                { "documents": [
+                  { "documentId": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e", "watermark": 1, "body": { "orderNo": "A-7", "lines": [ { "product": "bolt", "orderNo": "X" }, { "product": "nut" } ] } },
+                  { "documentId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "watermark": 2, "body": { "orderNo": "A-8" } },
+                  { "documentId": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "watermark": 3, "body": { "orderNo": "A-9", "lines": [ { "product": "washer" }, 3 ] } }
+                ], "rawHead": 3 }
+                """);
+        var connector = Connector(formbase);
+
+        var records = await connector.SampleAsync(lines, 10, TestContext.Current.CancellationToken);
+        var structure = await connector.GetStructureAsync(lines, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e/0", "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e/1"], records.Select(r => r.Id));
+        Assert.Equal(("bolt", "A-7"), (records[0].Fields["product"], records[0].Fields["orderNo"]));
+        Assert.Equal(("nut", "A-7"), (records[1].Fields["product"], records[1].Fields["orderNo"]));
+        Assert.All(records, r => Assert.Equal(lines, r.Subject));
+        Assert.Equal(
+            new DeclaredRelation("lines", SubjectRef.Create("orders"), ViaField: "orderNo", Kind: DeclaredRelationKind.Parent),
+            Assert.Single(structure!.Relations));
+    }
+
+    /// <summary>The array a declared section is held in is the section's records, not a field of the parent.</summary>
+    [Fact]
+    public async Task A_parent_is_sampled_without_the_array_its_section_is_held_in()
+    {
+        var orders = SubjectRef.Create("orders");
+        var formbase = new StubFormbase()
+            .Answer("GET", "/formtypes/orders/declaration", HttpStatusCode.OK, """
+                {
+                  "formType": "orders", "tableName": "orders", "declarationVersion": 1,
+                  "fields": [ { "name": "orderNo", "type": "text", "nullable": true } ],
+                  "relations": [ { "name": "lines", "kind": "child", "target": "orderlines", "keyField": "orderNo", "sectionField": "lines" } ]
+                }
+                """)
+            .Answer("GET", "/formtypes/orders/documents?after=0&limit=5", HttpStatusCode.OK, """
+                { "documents": [ { "documentId": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e", "watermark": 1, "body": { "orderNo": "A-7", "notes": [ "rush" ], "lines": [ { "product": "bolt" } ] } } ], "rawHead": 1 }
+                """);
+
+        var record = Assert.Single(await Connector(formbase).SampleAsync(orders, 5, TestContext.Current.CancellationToken));
+
+        Assert.Equal(["orderNo", "notes"], record.Fields.Keys);
+    }
+
+    /// <summary>In a section of values an item that is a value is the section's one field beside the key.</summary>
+    [Fact]
+    public async Task A_section_of_values_samples_each_value_as_its_one_field()
+    {
+        var tags = SubjectRef.Create("ordertags");
+        var formbase = new StubFormbase()
+            .Answer("GET", "/formtypes/ordertags/declaration", HttpStatusCode.OK, """
+                {
+                  "formType": "ordertags", "tableName": "ordertags", "declarationVersion": 1,
+                  "fields": [ { "name": "orderNo", "type": "text", "nullable": true }, { "name": "tag", "type": "text", "nullable": true } ],
+                  "relations": [],
+                  "sectionOf": { "formType": "orders", "relation": "tags", "sectionField": "tags", "keyField": "orderNo" }
+                }
+                """)
+            .Answer("GET", "/formtypes/orders/documents?after=0&limit=5", HttpStatusCode.OK, """
+                { "documents": [ { "documentId": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e", "watermark": 1, "body": { "orderNo": "A-7", "tags": [ "rush", "fragile" ] } } ], "rawHead": 1 }
+                """);
+
+        var records = await Connector(formbase).SampleAsync(tags, 5, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["rush", "fragile"], records.Select(r => r.Fields["tag"]));
+        Assert.All(records, r => Assert.Equal("A-7", r.Fields["orderNo"]));
+    }
+
     [Fact]
     public async Task The_namespace_travels_on_every_request()
     {
@@ -168,7 +256,8 @@ public class FormbaseConnectorTests
 
         await new FormbaseConnector(formbase.Client, "tenant-a").SampleAsync(WorkOrders, 1, TestContext.Current.CancellationToken);
 
-        Assert.Equal(["tenant-a"], formbase.Requests.Single().Headers.GetValues("Formbase-Namespace"));
+        Assert.Equal(2, formbase.Requests.Count);
+        Assert.All(formbase.Requests, r => Assert.Equal(["tenant-a"], r.Headers.GetValues("Formbase-Namespace")));
     }
 
     /// <summary>
@@ -261,6 +350,9 @@ public class FormbaseConnectorTests
 
         public List<HttpRequestMessage> Requests { get; } = [];
 
+        /// <summary>The requests that read a raw stream — a sample also reads the declaration first.</summary>
+        public List<HttpRequestMessage> StreamReads => [.. Requests.Where(r => r.RequestUri!.AbsolutePath.EndsWith("/documents", StringComparison.Ordinal))];
+
         public StubFormbase Answer(string method, string pathAndQuery, HttpStatusCode status, string body)
         {
             _answers[$"{method} {pathAndQuery}"] = (status, body);
@@ -273,7 +365,10 @@ public class FormbaseConnectorTests
             var key = $"{request.Method} {request.RequestUri!.PathAndQuery}";
             if (!_answers.TryGetValue(key, out var answer))
             {
-                throw new InvalidOperationException($"unexpected request {key}");
+                // A form type nothing was said about has no declaration, as Formbase says it.
+                answer = request.RequestUri.AbsolutePath.EndsWith("/declaration", StringComparison.Ordinal)
+                    ? (HttpStatusCode.NotFound, """{ "type": "/problems/no-declaration", "status": 404 }""")
+                    : throw new InvalidOperationException($"unexpected request {key}");
             }
 
             return Task.FromResult(new HttpResponseMessage(answer.Status)

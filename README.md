@@ -230,6 +230,14 @@ keeps each record's latest document and drops retired ones, the same fold Formba
 applies, so a corrected record reaches Eyu once. Documents without a key are records of their own, which
 is every document on an instance that predates record keys.
 
+A repeated section — the lines of an order sheet, declared as a form type of its own — has no documents:
+its records are cut from the parent's, one per item of the section array, carrying the parent's key
+field and named by the parent document's id, a slash and the item's position, the name Formbase gives
+the projected row. Its declared structure leads back to the parent through that field, and the parent's
+records leave the array out. Finding the parent from the section needs Formbase 0.33.0 or later, whose
+section declaration names it (`sectionOf`); on an older instance a section reads as a form type with
+no documents.
+
 Where the instance is not the only Formbase on its PostgreSQL and MorphDB, pass its namespace
 (`new FormbaseConnector(http, formbaseNamespace: "…")`, sent as `Formbase-Namespace`): a connector
 pointed at the wrong host then fails with `404` instead of reading someone else's documents. The
@@ -344,7 +352,8 @@ docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yam
 
 ```bash
 # the forms source: a MorphDB service that trusts the rig's issuer; saem exchanges each person's token
-# for one meant for it. One test drafts its ontology from the forms with Eyu first, so it calls a model
+# for one meant for it. The tests that draft their ontology from the forms with Eyu first call a model,
+# and the repeated-section one needs a Formbase image that names a section's parent (SAEM_RIG_FORMBASE_IMAGE)
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml up -d --wait issuer forms
 SAEM_RIG_ISSUER="http://127.0.0.1:58080/rig" SAEM_RIG_FORMS="http://127.0.0.1:58088/" \
 SAEM_RIG_FORMS_MASTER_SECRET=rig-forms-master-local-only \

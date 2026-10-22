@@ -43,6 +43,41 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
 
     public async Task<DeclaredStructure?> GetStructureAsync(SubjectRef subject, CancellationToken cancellationToken = default)
     {
+        if (await ReadDeclarationAsync(subject, cancellationToken).ConfigureAwait(false) is not { } declaration)
+        {
+            return null;
+        }
+
+        var fields = (declaration.Fields ?? [])
+            .Select(field => new DeclaredField(field.Name, Kind: ToDeclaredKind(field.Type), Required: !field.Nullable))
+            .ToList();
+
+        var declaredRelations = (declaration.Relations ?? [])
+            .Select(relation => new DeclaredRelation(
+                relation.Name,
+                SubjectRef.Create(relation.Target),
+                ViaField: relation.KeyField,
+                Kind: ToRelationKind(relation.Kind)));
+        var relations = WithBoundFields(WithParent(declaredRelations, declaration.SectionOf), declaration.Fields ?? []);
+
+        return new DeclaredStructure(subject, fields, relations, declaration.DeclarationVersion.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// For a repeated section, the declared relations and the link back to the parent its rows are cut
+    /// from, through the field each row carries the parent's value in — the same link Eyu's in-process
+    /// Formbase adapter reads. Without it, two rows of one sheet agree on that field and nothing says why.
+    /// </summary>
+    private static IEnumerable<DeclaredRelation> WithParent(IEnumerable<DeclaredRelation> declared, SectionOfResponse? section) =>
+        section is null
+            ? declared
+            : [.. declared, new DeclaredRelation(section.Relation, SubjectRef.Create(section.FormType), ViaField: section.KeyField, Kind: DeclaredRelationKind.Parent)];
+
+    /// <summary>
+    /// The declaration in force for <paramref name="subject"/>, or null when it has none.
+    /// </summary>
+    private async Task<DeclarationResponse?> ReadDeclarationAsync(SubjectRef subject, CancellationToken cancellationToken)
+    {
         using var response = await SendAsync($"formtypes/{Uri.EscapeDataString(subject.Value)}/declaration", cancellationToken).ConfigureAwait(false);
 
         if (!response.IsSuccessStatusCode)
@@ -59,22 +94,8 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
             throw Refused(response, problem);
         }
 
-        var declaration = await response.Content.ReadFromJsonAsync<DeclarationResponse>(Json, cancellationToken).ConfigureAwait(false)
+        return await response.Content.ReadFromJsonAsync<DeclarationResponse>(Json, cancellationToken).ConfigureAwait(false)
             ?? throw new FormbaseConnectorException($"Formbase answered the declaration of '{subject}' with an empty body.");
-
-        var fields = (declaration.Fields ?? [])
-            .Select(field => new DeclaredField(field.Name, Kind: ToDeclaredKind(field.Type), Required: !field.Nullable))
-            .ToList();
-
-        var declaredRelations = (declaration.Relations ?? [])
-            .Select(relation => new DeclaredRelation(
-                relation.Name,
-                SubjectRef.Create(relation.Target),
-                ViaField: relation.KeyField,
-                Kind: ToRelationKind(relation.Kind)));
-        var relations = WithBoundFields(declaredRelations, declaration.Fields ?? []);
-
-        return new DeclaredStructure(subject, fields, relations, declaration.DeclarationVersion.ToString(CultureInfo.InvariantCulture));
     }
 
     /// <summary>
@@ -112,7 +133,8 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     /// <summary>
     /// The form type's records in the order Formbase accepted them, oldest first, up to
     /// <paramref name="maxCount"/>. Each record's top-level members become its fields — a string as its
-    /// text, a nested object or array as its JSON — and its id is the Formbase document id, so a claim
+    /// text, a nested object or array as its JSON, except the array a declared repeated section is held
+    /// in, whose items are that section's records — and its id is the Formbase document id, so a claim
     /// Eyu grounds in it points back at a document the instance can show. Each record carries the form
     /// type it was sampled from as its subject, so a field's declared role is read for that form type
     /// rather than guessed from its name.
@@ -124,10 +146,86 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     /// and every document is sampled as before. Reading stops once <paramref name="maxCount"/> records
     /// stand, so a record corrected or retired further along the stream is sampled as it stood there.
     /// </para>
+    /// <para>
+    /// A repeated section has no documents of its own: its declaration names the parent
+    /// (<c>sectionOf</c>), and its records are cut from the parent's standing documents the way the
+    /// projection cuts its rows — one per item of the section array, the item's members as fields, and
+    /// the parent's value of the key field over an item member of the same name (the parent's record
+    /// identity when the parent has no such field). A row's id is the document's, a slash and the item's
+    /// position, the name the projection gives the row. In a section of values an item that is a value
+    /// is the section's one field beside the key. Up to <paramref name="maxCount"/> parent documents are
+    /// read, and up to <paramref name="maxCount"/> rows returned.
+    /// </para>
     /// </summary>
     public async Task<IReadOnlyList<RawRecord>> SampleAsync(SubjectRef subject, int maxCount, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
+
+        var declaration = await ReadDeclarationAsync(subject, cancellationToken).ConfigureAwait(false);
+        if (declaration?.SectionOf is { } section)
+        {
+            var parent = SubjectRef.Create(section.FormType);
+            var valueField = (declaration.Fields ?? []).Select(f => f.Name).Where(f => f != section.KeyField).ToList() is [var only] ? only : null;
+            return [.. (await StandingAsync(parent, maxCount, cancellationToken).ConfigureAwait(false))
+                .SelectMany(document => Rows(document, section, valueField)
+                    .Select((row, position) => new RawRecord($"{document.DocumentId}/{position.ToString(CultureInfo.InvariantCulture)}", row, subject)))
+                .Take(maxCount)];
+        }
+
+        // A section array is not a field of its parent: its items are the section's records, and the
+        // parent's projected table does not carry it.
+        var sectionFields = (declaration?.Relations ?? []).Select(r => r.SectionField).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        return [.. (await StandingAsync(subject, maxCount, cancellationToken).ConfigureAwait(false))
+            .Select(document => new RawRecord(
+                document.DocumentId.ToString(),
+                Flatten(document.Body).Where(f => !sectionFields.Contains(f.Key)).ToDictionary(),
+                subject))];
+    }
+
+    /// <summary>
+    /// The rows a parent document's section array holds, by position. A missing or non-array section
+    /// holds none, and so does a parent with an item that is neither an object nor, in a section of
+    /// values, a value — the projection skips that parent, and its rows are read nowhere.
+    /// </summary>
+    private static List<Dictionary<string, string?>> Rows(DocumentResponse document, SectionOfResponse section, string? valueField)
+    {
+        if (document.Body.ValueKind != JsonValueKind.Object
+            || !document.Body.TryGetProperty(section.SectionField, out var items)
+            || items.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var key = Flatten(document.Body).TryGetValue(section.KeyField, out var value) ? value : document.RecordKey ?? document.DocumentId.ToString();
+        var rows = new List<Dictionary<string, string?>>();
+        foreach (var item in items.EnumerateArray())
+        {
+            Dictionary<string, string?>? row = item.ValueKind switch
+            {
+                JsonValueKind.Object => Flatten(item),
+                JsonValueKind.Array or JsonValueKind.Null or JsonValueKind.Undefined => null,
+                _ when valueField is not null => new() { [valueField] = item.ValueKind == JsonValueKind.String ? item.GetString() : item.GetRawText() },
+                _ => null,
+            };
+            if (row is null)
+            {
+                return [];
+            }
+
+            row[section.KeyField] = key;
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// The standing documents of <paramref name="formType"/>, oldest first, up to <paramref name="maxCount"/>
+    /// — the fold described on <see cref="SampleAsync"/>.
+    /// </summary>
+    private async Task<List<DocumentResponse>> StandingAsync(SubjectRef formType, int maxCount, CancellationToken cancellationToken)
+    {
+        var subject = formType;
 
         // Standing records by position in the stream: the latest document of each key, and every document
         // without one. A later document of a key moves the record to that document's position.
@@ -182,9 +280,7 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
             after = page.Documents[^1].Watermark;
         }
 
-        return [.. standing.Values
-            .Take(maxCount)
-            .Select(document => new RawRecord(document.DocumentId.ToString(), Flatten(document.Body), subject))];
+        return [.. standing.Values.Take(maxCount)];
     }
 
     private async Task<HttpResponseMessage> SendAsync(string path, CancellationToken cancellationToken)
@@ -268,14 +364,21 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
         _ => throw new FormbaseConnectorException($"Formbase declared a relation kind this connector does not know how to carry: '{kind}'."),
     };
 
-    private sealed record DeclarationResponse(long DeclarationVersion, IReadOnlyList<FieldResponse>? Fields, IReadOnlyList<RelationResponse>? Relations);
+    /// <param name="SectionOf">The parent a repeated section's rows are cut from; absent for a form type with documents of its own, and from instances before 0.33.0.</param>
+    private sealed record DeclarationResponse(
+        long DeclarationVersion,
+        IReadOnlyList<FieldResponse>? Fields,
+        IReadOnlyList<RelationResponse>? Relations,
+        SectionOfResponse? SectionOf = null);
+
+    private sealed record SectionOfResponse(string FormType, string Relation, string SectionField, string KeyField);
 
     private sealed record FieldResponse(string Name, string Type, bool Nullable, TargetResponse? Target = null);
 
     /// <param name="ViaField">The field of this declaration carrying the target record's key; absent when the binding names none.</param>
     private sealed record TargetResponse(string FormType, string? ViaField = null);
 
-    private sealed record RelationResponse(string Name, string? Kind, string Target, string? KeyField);
+    private sealed record RelationResponse(string Name, string? Kind, string Target, string? KeyField, string? SectionField = null);
 
     private sealed record DocumentPageResponse(IReadOnlyList<DocumentResponse> Documents, long RawHead);
 
