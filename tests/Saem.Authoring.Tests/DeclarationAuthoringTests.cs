@@ -58,6 +58,44 @@ public sealed class DeclarationAuthoringTests
     }
 
     [Fact]
+    public async Task The_review_shows_each_added_declaration_with_its_records_as_they_read_and_the_draft_to_write()
+    {
+        var pass = await new DeclarationAuthoring(new RecordingProposer(Rig), new Sampler()).DraftAsync(Sources, Existing, 5, TestContext.Current.CancellationToken);
+
+        var review = pass.ToReview();
+
+        Assert.StartsWith("# Ontology draft for review", review, StringComparison.Ordinal);
+        Assert.Contains("1 entity types and 1 relations added · 0 not declared · 0 left out by Eyu · 2 records read.", review, StringComparison.Ordinal);
+        Assert.Contains("- **WorkOrder** — on `mes.work_orders`, keyed by `wo_no`; fields `item_code`", review, StringComparison.Ordinal);
+        Assert.Contains("- **orders_item** — from `WorkOrder` through `item_code` to `Item`", review, StringComparison.Ordinal);
+        Assert.Contains("  - `wo-1` (work_orders): wo_no = WO-1, item_code = I-1", review, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Not declared", review, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Left out by Eyu", review, StringComparison.Ordinal);
+        Assert.Contains("```json\n" + pass.Draft.ToJson() + "```", review.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_review_names_what_was_not_declared_and_entities_several_records_are_said_to_denote()
+    {
+        static OntologyProposal Merged(IReadOnlyList<RawRecord> records)
+        {
+            var both = EntityProposal.Create("e1", "Bolt", "Thing", GroundedClaim.Create("one thing", [new SourceRef("wo-1"), new SourceRef("item-1")]), VocabularyOrigin.Acquired, 0.5);
+            return new OntologyProposal([both], [], [new ProposalRejection(ProposalElement.Relation, "r9", RejectionReason.MissingField, "names no entity")]);
+        }
+
+        var pass = await new DeclarationAuthoring(new RecordingProposer(Merged), new Sampler()).DraftAsync(Sources, Existing, 5, TestContext.Current.CancellationToken);
+
+        var review = pass.ToReview();
+
+        Assert.Contains("## Not declared", review, StringComparison.Ordinal);
+        Assert.Contains("- **Thing** — Records of more than one subject denote it", review, StringComparison.Ordinal);
+        Assert.Contains("## Left out by Eyu", review, StringComparison.Ordinal);
+        Assert.Contains("- **Relation** r9 — MissingField: names no entity", review, StringComparison.Ordinal);
+        Assert.Contains("## Proposed as one thing by several records", review, StringComparison.Ordinal);
+        Assert.Contains("- **Bolt** (`Thing`) — check these records denote one entity", review, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_subjects_declaration_reaches_eyu_when_there_is_one()
     {
         var proposer = new RecordingProposer(Rig);

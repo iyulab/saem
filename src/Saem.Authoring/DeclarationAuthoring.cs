@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Eyu.Core.Declared;
 using Eyu.Core.Ports;
 using Eyu.Core.Primitives;
@@ -71,4 +73,74 @@ public sealed class DeclarationAuthoring(IOntologyProposer proposer, IRecordSamp
 /// <param name="Proposal">What Eyu proposed.</param>
 /// <param name="Records">The records sampled, each with its subject.</param>
 /// <param name="Draft">The declarations drafted from the proposal.</param>
-public sealed record AuthoringPass(OntologyProposal Proposal, IReadOnlyList<RawRecord> Records, DeclarationDraft Draft);
+public sealed record AuthoringPass(OntologyProposal Proposal, IReadOnlyList<RawRecord> Records, DeclarationDraft Draft)
+{
+    /// <summary>How many of a declaration's records the review shows; the rest are counted.</summary>
+    public const int RecordsShownPerItem = 3;
+
+    /// <summary>
+    /// The pass as a person reviews it, in Markdown: what the draft adds, each declaration with the
+    /// records it was drawn from shown as they read; what could not be declared and why; what Eyu left
+    /// out of the model's answer; entities the proposal says several records denote, since that is a
+    /// claim the records are one thing; and the draft itself, the file that would replace the catalog.
+    /// Nothing is decided here — the reviewer accepts the draft, trims it, or declares by hand.
+    /// </summary>
+    public string ToReview()
+    {
+        var records = Records.GroupBy(r => r.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var added = Draft.Added;
+        var merged = Proposal.Entities.Where(e => e.DenotedBy.Count > 1).ToList();
+        var text = new StringBuilder();
+
+        text.AppendLine("# Ontology draft for review").AppendLine();
+        text.AppendLine(CultureInfo.InvariantCulture,
+            $"{added.OfType<EntityTypeDeclaration>().Count()} entity types and {added.OfType<RelationDeclaration>().Count()} relations added · " +
+            $"{Draft.Notes.Count} not declared · {Proposal.Rejections.Count} left out by Eyu · {Records.Count} records read.");
+
+        Section(text, "Added", added, d => $"**{d.Name}** — {Describe(d)}", d => Draft.Evidence.GetValueOrDefault(d.Name, []));
+        Section(text, "Not declared", Draft.Notes, n => $"**{n.About}** — {n.Reason}", n => n.Records);
+        Section(text, "Left out by Eyu", Proposal.Rejections, r => $"**{r.Element}** {r.Id} — {r.Reason}: {r.Detail}", _ => []);
+        Section(text, "Proposed as one thing by several records", merged,
+            e => $"**{e.Name}** (`{e.EntityType}`) — check these records denote one entity", e => e.DenotedBy);
+
+        text.AppendLine().AppendLine("## The draft").AppendLine();
+        text.AppendLine("The catalog file as it would be written — the declarations in force first, then the added ones.").AppendLine();
+        text.AppendLine("```json").Append(Draft.ToJson()).AppendLine("```");
+        return text.ToString();
+
+        void Section<T>(StringBuilder into, string title, IReadOnlyList<T> items, Func<T, string> line, Func<T, IReadOnlyList<string>> cited)
+        {
+            if (items.Count == 0)
+            {
+                return;
+            }
+
+            into.AppendLine().AppendLine(CultureInfo.InvariantCulture, $"## {title}").AppendLine();
+            foreach (var item in items)
+            {
+                into.AppendLine(CultureInfo.InvariantCulture, $"- {line(item)}");
+                var ids = cited(item);
+                foreach (var id in ids.Take(RecordsShownPerItem))
+                {
+                    into.AppendLine(CultureInfo.InvariantCulture, $"  - `{id}`{(records.TryGetValue(id, out var record) ? " " + Show(record) : "")}");
+                }
+
+                if (ids.Count > RecordsShownPerItem)
+                {
+                    into.AppendLine(CultureInfo.InvariantCulture, $"  - … and {ids.Count - RecordsShownPerItem} more");
+                }
+            }
+        }
+    }
+
+    private static string Describe(Declaration declaration) => declaration switch
+    {
+        EntityTypeDeclaration t => $"on `{t.System}.{t.Table}`, keyed by `{t.Key}`; fields {string.Join(", ", t.Fields.Select(f => f.Key == f.Value ? $"`{f.Key}`" : $"`{f.Key}` (`{f.Value}`)"))}",
+        RelationDeclaration r => $"from `{r.From}` through `{r.Via}` to `{r.To}`",
+        _ => declaration.Name,
+    };
+
+    private static string Show(RawRecord record) =>
+        $"({record.Subject?.Value ?? "no subject"}): " +
+        string.Join(", ", record.Fields.Where(f => !string.IsNullOrWhiteSpace(f.Value)).Select(f => $"{f.Key} = {f.Value}"));
+}

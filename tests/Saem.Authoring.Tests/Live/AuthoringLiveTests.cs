@@ -1,7 +1,5 @@
-using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using Eyu.Core.Inference.Http;
 using Eyu.Core.Judgment;
 using Saem.Connectors.Formbase;
@@ -164,34 +162,10 @@ public sealed class AuthoringLiveTests
         Assert.True(response.IsSuccessStatusCode, $"Declaring {type} answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync(ct)}");
     }
 
-    /// <summary>Writes the draft, its notes and Eyu's rejections where <c>SAEM_AUTHORING_REPORT_DIR</c> points, and to the test output.</summary>
+    /// <summary>Writes the pass's review where <c>SAEM_AUTHORING_REPORT_DIR</c> points, and to the test output.</summary>
     private static async Task ReportAsync(string name, AuthoringPass pass, CancellationToken ct)
     {
-        var report = new StringBuilder()
-            .AppendLine(CultureInfo.InvariantCulture, $"# Authoring pass — {name}")
-            .AppendLine()
-            .AppendLine(CultureInfo.InvariantCulture, $"Records: {pass.Records.Count} · entities proposed: {pass.Proposal.Entities.Count} · relations proposed: {pass.Proposal.Relations.Count} · rejected: {pass.Proposal.Rejections.Count}")
-            .AppendLine(CultureInfo.InvariantCulture, $"Entities denoted by more than one record: {pass.Proposal.Entities.Count(e => e.DenotedBy.Count > 1)} (every record here is a distinct thing)")
-            .AppendLine()
-            .AppendLine("## Proposed")
-            .AppendJoin(Environment.NewLine, pass.Proposal.Entities.Select(e => $"- entity {e.EntityId} `{e.EntityType}` \"{e.Name}\" denoted by [{string.Join(", ", e.DenotedBy)}] mentioned in [{string.Join(", ", e.MentionedIn)}]"))
-            .AppendLine()
-            .AppendJoin(Environment.NewLine, pass.Proposal.Relations.Select(r => $"- relation `{r.RelationName}` {r.FromEntityId} → {r.ToEntityId} [{string.Join(", ", r.Claim.Sources.Select(s => s.FieldName is null ? s.RecordId : $"{s.RecordId}#{s.FieldName}"))}]"))
-            .AppendLine()
-            .AppendLine()
-            .AppendLine("## Rejected by Eyu")
-            .AppendJoin(Environment.NewLine, pass.Proposal.Rejections.Select(r => $"- {r.Element} {r.Id}: {r.Reason} — {r.Detail}"))
-            .AppendLine()
-            .AppendLine()
-            .AppendLine("## Notes")
-            .AppendJoin(Environment.NewLine, pass.Draft.Notes.Select(n => $"- {n.About}: {n.Reason} [{string.Join(", ", n.Records)}]"))
-            .AppendLine()
-            .AppendLine()
-            .AppendLine("## Draft")
-            .AppendLine("```json")
-            .Append(pass.Draft.ToJson())
-            .AppendLine("```")
-            .ToString();
+        var report = $"<!-- pass: {name} -->\n" + pass.ToReview();
 
         TestContext.Current.SendDiagnosticMessage(report);
         if (Environment.GetEnvironmentVariable("SAEM_AUTHORING_REPORT_DIR") is { Length: > 0 } dir)

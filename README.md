@@ -190,7 +190,11 @@ draft is written in the catalog file's own form, existing declarations first, so
 diff a person accepts or trims before the file is replaced. `DeclarationAuthoring` runs one such
 pass end to end: it samples each subject through a connector, hands Eyu the types already declared
 as names in use — so a kind the ontology has is proposed under its name, not a new one — and
-returns the draft with the proposal and the records it cites.
+returns the draft with the proposal and the records it cites. A type is its table, not its name: a
+proposed type on a table a declared type already stands on is read as that type, whatever the proposal
+called it. `AuthoringPass.ToReview()` writes the pass as a person reviews it — each added declaration
+with the records it was drawn from, what could not be declared and why, what Eyu left out, and the
+file that would replace the catalog.
 
 **Model access** goes through a single provider-neutral entry point, so saem runs fully
 on-premises against whatever inference an organization already operates — a local model farm or a
