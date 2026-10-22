@@ -50,6 +50,12 @@ public sealed class Ontology
                 continue;
             }
 
+            if (type.Record is not null && (type.Record.Count == 0 || type.Record.Any(string.IsNullOrWhiteSpace)))
+            {
+                problems.Add($"Entity type '{type.Name}' declares its record by no column or an empty one.");
+                continue;
+            }
+
             if (!types.TryAdd(type.Name, type))
             {
                 problems.Add($"Entity type '{type.Name}' is declared more than once.");

@@ -196,6 +196,12 @@ called it. `AuthoringPass.ToReview()` writes the pass as a person reviews it —
 with the records it was drawn from, what could not be declared and why, what Eyu left out, and the
 file that would replace the catalog.
 
+An answer cites the record it read: by default the row's key, and where a table's rows are copies of
+records kept elsewhere, the columns a type declares as its `record` — joined with `/` when there are
+several. A form's projected rows are keyed by the record's own key, so relations follow it, and cited
+by the document they were projected from (`"record": ["fb_doc_id"]`); a subject's `SubjectSource`
+carries that choice into the declarations it drafts.
+
 **Model access** goes through a single provider-neutral entry point, so saem runs fully
 on-premises against whatever inference an organization already operates — a local model farm or a
 hosted provider. Local inference is available out of the box, not required.
@@ -338,10 +344,11 @@ docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yam
 
 ```bash
 # the forms source: a MorphDB service that trusts the rig's issuer; saem exchanges each person's token
-# for one meant for it
+# for one meant for it. One test drafts its ontology from the forms with Eyu first, so it calls a model
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml up -d --wait issuer forms
 SAEM_RIG_ISSUER="http://127.0.0.1:58080/rig" SAEM_RIG_FORMS="http://127.0.0.1:58088/" \
 SAEM_RIG_FORMS_MASTER_SECRET=rig-forms-master-local-only \
+EYU_LLM_ENDPOINT=… EYU_LLM_API_KEY=… EYU_LLM_MODEL=… \
   dotnet test --solution saem.slnx -p:IncludeMorphDbLiveTests=true
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml down -v
 ```
@@ -359,12 +366,13 @@ Where it stands: that slice runs on the rig over PostgreSQL and MySQL with per-p
 logins, and over a MorphDB source with the person's own token — exchanged for one meant for the
 source, which checks it and applies its row-level security as that person. On that source a form
 document accepted by Formbase and projected into MorphDB is answered through the MCP server with the
-document's own id as the record its source names. The relational sources take the token once their
-drivers can present one.
+document's own id as the record its source names — and in one run, the ontology that answer is asked
+in is the draft an authoring pass made from the forms, unedited, the relation followed included. The
+relational sources take the token once their drivers can present one.
 
 What that slice will not show is part of the plan. It runs on synthetic fixtures, so it says
-nothing about whether a given legacy system can be queried as its end users at all. It links the
-two systems through relations declared by hand, not proposed by Eyu. And it leaves materialization
+nothing about whether a given legacy system can be queried as its end users at all. Across the two
+relational systems the relations are declared by hand, not proposed by Eyu. And it leaves materialization
 out — the "edges by group" half of the permission principle, and the question of how to show a
 path whose middle hop the user may not read, stay open.
 

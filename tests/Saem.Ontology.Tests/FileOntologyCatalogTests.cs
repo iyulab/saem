@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 
 namespace Saem.Ontology.Tests;
@@ -36,6 +37,24 @@ public sealed class FileOntologyCatalogTests : IDisposable
         Assert.Equal(OntologyTests.WorkOrder.Fields, ontology.EntityTypes["WorkOrder"].Fields);
         Assert.Equal(OntologyTests.Item with { Fields = ontology.EntityTypes["Item"].Fields }, ontology.EntityTypes["Item"]);
         Assert.Equal(OntologyTests.SuppliedBy, ontology.Relations["supplied_by"]);
+    }
+
+    [Fact]
+    public async Task A_declared_record_is_read_from_the_file_and_written_back_only_where_declared()
+    {
+        const string json = """
+            [
+              { "kind": "entityType", "name": "Inspection", "system": "forms", "table": "inspections", "key": "inspection_no",
+                "fields": { "finding": "finding" }, "record": [ "fb_doc_id" ] }
+            ]
+            """;
+        await File.WriteAllTextAsync(_path, json, TestContext.Current.CancellationToken);
+
+        var inspection = (await new FileOntologyCatalog(_path).GetAsync(TestContext.Current.CancellationToken)).EntityTypes["Inspection"];
+
+        Assert.Equal(["fb_doc_id"], inspection.Record);
+        Assert.Contains("\"record\":[\"fb_doc_id\"]", JsonSerializer.Serialize<Declaration>(inspection, OntologyJson.Default.Options), StringComparison.Ordinal);
+        Assert.DoesNotContain("record", JsonSerializer.Serialize<Declaration>(OntologyTests.Item, OntologyJson.Default.Options), StringComparison.Ordinal);
     }
 
     [Fact]

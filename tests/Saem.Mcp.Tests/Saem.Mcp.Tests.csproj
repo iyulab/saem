@@ -23,6 +23,12 @@
     <Compile Remove="LiveForms/**/*.cs" />
   </ItemGroup>
 
+  <!-- The one-run test drafts its ontology from the forms with Eyu before asking saem. -->
+  <ItemGroup Condition="'$(IncludeMorphDbLiveTests)' == 'true'">
+    <ProjectReference Include="..\..\src\Saem.Authoring\Saem.Authoring.csproj" />
+    <ProjectReference Include="..\..\src\Saem.Connectors.Formbase\Saem.Connectors.Formbase.csproj" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Saem.Mcp\Saem.Mcp.csproj" />
   </ItemGroup>

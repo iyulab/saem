@@ -29,16 +29,27 @@ public abstract record Declaration
 /// <param name="Table">The table (or equivalent) in that system.</param>
 /// <param name="Key">The column whose value is an entity's key.</param>
 /// <param name="Fields">The type's fields, each mapped to the column that holds it.</param>
+/// <param name="Record">
+/// The columns whose values name the source record a row is — what an answer's source cites — joined
+/// with <c>/</c> when there are several. Omitted, the key names it. Declared where the two differ: a
+/// table whose rows are copies of records kept elsewhere (a form's projected rows name the document
+/// they were projected from) is keyed by what an entity is, and cited by what was read.
+/// </param>
 public sealed record EntityTypeDeclaration(
     string Name,
     string System,
     string Table,
     string Key,
-    IReadOnlyDictionary<string, string> Fields) : Declaration
+    IReadOnlyDictionary<string, string> Fields,
+    IReadOnlyList<string>? Record = null) : Declaration
 {
     /// <inheritdoc />
     [JsonPropertyOrder(-1)]
     public override string Name { get; } = Name;
+
+    /// <inheritdoc cref="EntityTypeDeclaration" path="/param[@name='Record']"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Record { get; init; } = Record;
 }
 
 /// <summary>

@@ -59,6 +59,22 @@ public sealed class DeclarationDrafterTests
         ]);
 
     [Fact]
+    public void A_subject_cited_by_another_record_than_its_key_drafts_a_type_that_declares_it()
+    {
+        var sources = new Dictionary<string, SubjectSource>(Sources)
+        {
+            ["items"] = new("forms", "items", "item_code", Record: ["fb_doc_id"]),
+        };
+
+        var draft = DeclarationDrafter.Draft(RigProposal(), Records, sources);
+        var ontology = Ontology.Ontology.Create(draft.Declarations);
+
+        Assert.Equal(["fb_doc_id"], ontology.EntityTypes["Item"].Record);
+        Assert.Null(ontology.EntityTypes["WorkOrder"].Record);
+        Assert.Contains("\"record\": [", draft.ToJson(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_proposal_over_the_rig_records_drafts_the_rig_ontology()
     {
         var draft = DeclarationDrafter.Draft(RigProposal(), Records, Sources);

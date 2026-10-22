@@ -12,11 +12,17 @@ namespace Saem.Authoring;
 /// Field name → column name, for the fields whose column is named otherwise. A field not listed
 /// here is held by the column of the same name.
 /// </param>
+/// <param name="Record">
+/// The columns that name the source record a row is, where that is not the key — declared on the
+/// subject's type as its <see cref="Ontology.EntityTypeDeclaration.Record"/>. A form's projected table
+/// is keyed by the record's own key and cited by the document it was projected from.
+/// </param>
 public sealed record SubjectSource(
     string System,
     string Table,
     string KeyField,
-    IReadOnlyDictionary<string, string>? Columns = null)
+    IReadOnlyDictionary<string, string>? Columns = null,
+    IReadOnlyList<string>? Record = null)
 {
     /// <summary>The column that holds <paramref name="field"/>.</summary>
     public string ColumnOf(string field) =>

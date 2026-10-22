@@ -108,7 +108,7 @@ public static class DeclarationDrafter
                     .Distinct(StringComparer.Ordinal)
                     .Order(StringComparer.Ordinal)
                     .ToDictionary(f => f, source.ColumnOf, StringComparer.Ordinal);
-                var declaration = new EntityTypeDeclaration(type, source.System, source.Table, source.ColumnOf(source.KeyField), fields);
+                var declaration = new EntityTypeDeclaration(type, source.System, source.Table, source.ColumnOf(source.KeyField), fields, source.Record);
 
                 if (declared.EntityTypes.TryGetValue(type, out var existing))
                 {

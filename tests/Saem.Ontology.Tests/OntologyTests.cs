@@ -95,12 +95,14 @@ public class OntologyTests
             new RelationDeclaration("orders_item", "WorkOrder", "item", "Item"),
             new RelationDeclaration("supplied_by", "Item", "vendor", "Supplier"),
             new EntityTypeDeclaration("Blank", "erp", " ", "id", new Dictionary<string, string>()),
+            new EntityTypeDeclaration("Unnamed", "forms", "inspections", "inspection_no", new Dictionary<string, string>(), ["fb_doc_id", " "]),
         ]));
 
         Assert.Equal(
             [
                 "Entity type 'Item' is declared more than once.",
                 "Entity type 'Blank' leaves its name, system, table or key empty.",
+                "Entity type 'Unnamed' declares its record by no column or an empty one.",
                 "Relation 'orders_item' is declared more than once.",
                 "Relation 'supplied_by' leaves 'Item' through 'vendor', which is not one of its fields.",
                 "Relation 'supplied_by' leads to 'Supplier', which is not a declared entity type.",

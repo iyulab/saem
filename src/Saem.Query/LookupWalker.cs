@@ -93,7 +93,8 @@ public sealed class LookupWalker
             open.Add(type.System, session);
         }
 
-        var columns = fields.Select(f => type.Fields[f]).Distinct(StringComparer.Ordinal).ToList();
+        // The record columns are read beside the asked ones: the answer cites the record a row is.
+        var columns = fields.Select(f => type.Fields[f]).Concat(type.Record ?? []).Distinct(StringComparer.Ordinal).ToList();
         var rows = await session.ReadAsync(type.Table, type.Key, key, columns, cancellationToken).ConfigureAwait(false);
         return rows.Count switch
         {
@@ -107,9 +108,15 @@ public sealed class LookupWalker
     private static Answered Answer(EntityTypeDeclaration type, SourceRow row, IReadOnlyList<string> read, List<Hop> hops)
     {
         var entity = new EntityKey(type.Name, row.Key);
-        var source = new SourceRecord(type.System, type.Table, row.Key);
+        var source = new SourceRecord(type.System, type.Table, RecordOf(type, row));
         return new Answered([.. read.Select(field => new Claim(entity, field, row.Values[type.Fields[field]], [source], [.. hops]))]);
     }
+
+    private static string RecordOf(EntityTypeDeclaration type, SourceRow row) =>
+        type.Record is null ? row.Key : string.Join('/', type.Record.Select(column => Text(row.Values[column])));
+
+    private static string Text(JsonElement value) =>
+        value.ValueKind == JsonValueKind.String ? value.GetString()! : value.GetRawText();
 
     private static Refused Refuse(int atHop, string? relation, string system) =>
         new(new Refusal(RefusalReason.NoVisibleResult, atHop, relation, system));

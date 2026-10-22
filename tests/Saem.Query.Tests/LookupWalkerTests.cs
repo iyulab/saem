@@ -20,6 +20,9 @@ public class LookupWalkerTests
         new EntityTypeDeclaration("WorkOrder", "mes", "work_orders", "wo_no", new Dictionary<string, string> { ["item"] = "item_code", ["quantity"] = "qty" }),
         new EntityTypeDeclaration("Item", "erp", "visible_items", "item_code", new Dictionary<string, string> { ["name"] = "item_name", ["supplier"] = "supplier_id" }),
         new EntityTypeDeclaration("Supplier", "erp", "visible_suppliers", "supplier_id", new Dictionary<string, string> { ["name"] = "supplier_name" }),
+        // Form documents projected into rows: keyed by what each one is, cited by the document read.
+        new EntityTypeDeclaration("Inspection", "forms", "inspections", "inspection_no", new Dictionary<string, string> { ["finding"] = "finding" }, ["fb_doc_id"]),
+        new EntityTypeDeclaration("Defect", "forms", "inspection_defects", "defect_no", new Dictionary<string, string> { ["part"] = "part" }, ["fb_doc_id", "fb_row"]),
         new RelationDeclaration("orders_item", "WorkOrder", "item", "Item"),
         new RelationDeclaration("supplied_by", "Item", "supplier", "Supplier"),
     ];
@@ -37,6 +40,8 @@ public class LookupWalkerTests
         ("erp", "visible_items", "I-200", new() { ["item_name"] = "Gasket", ["supplier_id"] = "S-2" }, ["alice", "bob"]),
         ("erp", "visible_suppliers", "S-1", new() { ["supplier_name"] = "Hanbit Parts" }, ["alice", "bob"]),
         ("erp", "visible_suppliers", "S-2", new() { ["supplier_name"] = Canary }, ["alice"]),
+        ("forms", "inspections", "IN-7", new() { ["finding"] = "dent", ["fb_doc_id"] = "0f8e2c4a-1b2d-4c6e-9a0b-7d5e3f1a2b4c" }, ["alice"]),
+        ("forms", "inspection_defects", "D-1", new() { ["part"] = "left door", ["fb_doc_id"] = "0f8e2c4a-1b2d-4c6e-9a0b-7d5e3f1a2b4c", ["fb_row"] = 1 }, ["alice"]),
     ];
 
     private static Task<LookupAnswer> Run(FakeSessions sessions, string start, string key, string[] path, string[] read) =>
@@ -111,6 +116,22 @@ public class LookupWalkerTests
             ["mes work_orders wo_no=WO-2 [item_code]", "erp visible_items item_code=I-200 [supplier_id]", "erp visible_suppliers supplier_id=S-2 [supplier_name]"],
             sessions.Reads);
         Assert.Equal(2, sessions.Disposed);
+    }
+
+    [Fact]
+    public async Task A_type_that_declares_its_record_is_cited_by_the_record_read_not_by_its_key()
+    {
+        var sessions = new FakeSessions("alice");
+
+        var inspection = Assert.Single(Assert.IsType<Answered>(await Run(sessions, "Inspection", "IN-7", [], ["finding"])).Claims);
+        var defect = Assert.Single(Assert.IsType<Answered>(await Run(sessions, "Defect", "D-1", [], ["part"])).Claims);
+
+        Assert.Equal(new EntityKey("Inspection", "IN-7"), inspection.Entity);
+        Assert.Equal([new SourceRecord("forms", "inspections", "0f8e2c4a-1b2d-4c6e-9a0b-7d5e3f1a2b4c")], inspection.Sources);
+        Assert.Equal([new SourceRecord("forms", "inspection_defects", "0f8e2c4a-1b2d-4c6e-9a0b-7d5e3f1a2b4c/1")], defect.Sources);
+        Assert.Equal(
+            ["forms inspections inspection_no=IN-7 [finding,fb_doc_id]", "forms inspection_defects defect_no=D-1 [part,fb_doc_id,fb_row]"],
+            sessions.Reads);
     }
 
     [Fact]
