@@ -20,7 +20,7 @@ public sealed class H2aGroundingChainLiveTests : IAsyncLifetime
     private static readonly string Issuer = Required("SAEM_RIG_ISSUER");
     private static readonly string Forms = Required("SAEM_RIG_FORMS");
     private static readonly string MasterSecret = Required("SAEM_RIG_FORMS_MASTER_SECRET");
-    private static readonly string FormbaseImage = Environment.GetEnvironmentVariable("SAEM_RIG_FORMBASE_IMAGE") ?? "ghcr.io/iyulab/formbase:0.31.0";
+    private static readonly string FormbaseImage = Environment.GetEnvironmentVariable("SAEM_RIG_FORMBASE_IMAGE") ?? "ghcr.io/iyulab/formbase:0.32.0";
     private static readonly string Network = Environment.GetEnvironmentVariable("SAEM_RIG_NETWORK") ?? "saem-rig_default";
 
     private Guid _project;

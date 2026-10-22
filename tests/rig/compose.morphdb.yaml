@@ -3,7 +3,6 @@
 # for -- saem exchanges the person's token for one meant for MorphDB, and MorphDB's row-level security
 # decides what comes back.
 #
-#   SAEM_RIG_MORPHDB_IMAGE=ghcr.io/iyulab/morphdb:<a version that accepts tokens> \
 #   docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml up -d --wait issuer forms
 #   SAEM_RIG_ISSUER="http://127.0.0.1:58080/rig" SAEM_RIG_FORMS="http://127.0.0.1:58088/" \
 #   SAEM_RIG_FORMS_MASTER_SECRET=rig-forms-master-local-only \
@@ -33,7 +32,8 @@ services:
       retries: 20
 
   forms:
-    image: ${SAEM_RIG_MORPHDB_IMAGE:?set SAEM_RIG_MORPHDB_IMAGE to a MorphDB image that accepts tokens}
+    # The first release that accepts tokens; SAEM_RIG_MORPHDB_IMAGE runs another (a local build, say).
+    image: ${SAEM_RIG_MORPHDB_IMAGE:-ghcr.io/iyulab/morphdb:0.31.0}
     environment:
       ConnectionStrings__MorphDB: Host=forms-db;Port=5432;Database=forms;Username=morph;Password=rig-morph-local-only
       Security__MasterSecret: rig-forms-master-local-only

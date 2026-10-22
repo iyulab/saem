@@ -338,8 +338,8 @@ docker compose -f tests/rig/compose.yaml -f tests/rig/compose.password-login.yam
 
 ```bash
 # the forms source: a MorphDB service that trusts the rig's issuer; saem exchanges each person's token
-# for one meant for it (needs a MorphDB image that accepts tokens)
-SAEM_RIG_MORPHDB_IMAGE=<image> docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml up -d --wait issuer forms
+# for one meant for it
+docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml up -d --wait issuer forms
 SAEM_RIG_ISSUER="http://127.0.0.1:58080/rig" SAEM_RIG_FORMS="http://127.0.0.1:58088/" \
 SAEM_RIG_FORMS_MASTER_SECRET=rig-forms-master-local-only \
   dotnet test --solution saem.slnx -p:IncludeMorphDbLiveTests=true
