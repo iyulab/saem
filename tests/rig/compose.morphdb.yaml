@@ -1,0 +1,50 @@
+# The forms source: a MorphDB service that takes a person's token, beside the issuer it trusts. It is
+# where a form's records live once projected (Formbase over MorphDB), read as the person a lookup is
+# for -- saem exchanges the person's token for one meant for MorphDB, and MorphDB's row-level security
+# decides what comes back.
+#
+#   SAEM_RIG_MORPHDB_IMAGE=ghcr.io/iyulab/morphdb:<a version that accepts tokens> \
+#   docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml up -d --wait issuer forms
+#   SAEM_RIG_ISSUER="http://127.0.0.1:58080/rig" SAEM_RIG_FORMS="http://127.0.0.1:58088/" \
+#   SAEM_RIG_FORMS_MASTER_SECRET=rig-forms-master-local-only \
+#     dotnet test --solution saem.slnx -p:IncludeMorphDbLiveTests=true
+#   docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml down -v
+#
+# The issuer names itself after the address it is asked at, so a token the host asks for says
+# iss = http://127.0.0.1:58080/rig while the service reaches the issuer as http://issuer:8080. The
+# service therefore trusts the host's spelling and reads the keys from the in-network address; a real
+# deployment has one address and sets only the issuer.
+
+services:
+  issuer:
+    ports:
+      - "127.0.0.1:${SAEM_RIG_ISSUER_PORT:-58080}:8080"
+
+  forms-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: rig-superuser-local-only
+      POSTGRES_DB: forms
+    volumes:
+      - ./forms/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d forms"]
+      interval: 3s
+      retries: 20
+
+  forms:
+    image: ${SAEM_RIG_MORPHDB_IMAGE:?set SAEM_RIG_MORPHDB_IMAGE to a MorphDB image that accepts tokens}
+    environment:
+      ConnectionStrings__MorphDB: Host=forms-db;Port=5432;Database=forms;Username=morph;Password=rig-morph-local-only
+      Security__MasterSecret: rig-forms-master-local-only
+      Security__Tokens__Issuer: http://127.0.0.1:${SAEM_RIG_ISSUER_PORT:-58080}/rig
+      Security__Tokens__MetadataAddress: http://issuer:8080/rig/.well-known/openid-configuration
+      Security__Tokens__RequireHttpsMetadata: "false"
+      Security__Tokens__Audience: morphdb
+    depends_on:
+      forms-db:
+        condition: service_healthy
+      issuer:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${SAEM_RIG_FORMS_PORT:-58088}:8080"
