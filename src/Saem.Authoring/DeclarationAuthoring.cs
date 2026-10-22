@@ -11,7 +11,8 @@ namespace Saem.Authoring;
 
 /// <summary>
 /// One pass of the authoring step, from the sources to a draft: sample each subject, read what each
-/// declares, ask Eyu for a proposal, and draft declarations from it. The types already declared are
+/// declares, ask Eyu for a proposal, and draft declarations from it. Each subject reaches Eyu declared
+/// with its key, so rows of one table with different keys are never taken for one entity. The types already declared are
 /// handed to Eyu as names in use, so an entity of a kind the ontology already has is proposed under
 /// that name rather than a new one for the same kind — the draft then adds to the type instead of
 /// declaring a second.
@@ -52,10 +53,12 @@ public sealed class DeclarationAuthoring(IOntologyProposer proposer, IRecordSamp
             var sample = await records.SampleAsync(subject, recordsPerSubject, cancellationToken).ConfigureAwait(false);
             sampled.AddRange(sample.Select(r => r.Subject is null ? r with { Subject = subject } : r));
 
-            if (structures is not null && await structures.GetStructureAsync(subject, cancellationToken).ConfigureAwait(false) is { } structure)
-            {
-                declarations.Add(structure);
-            }
+            // The subject's key is a fact the caller knows: two rows of one table with different keys are
+            // different things. Told to Eyu, its pre-filter never weighs such a pair — without it, a small
+            // sample with no true duplicate can read values two rows happen to share as identity. A
+            // subject with nothing else declared is declared by its name and key.
+            var structure = structures is null ? null : await structures.GetStructureAsync(subject, cancellationToken).ConfigureAwait(false);
+            declarations.Add((structure ?? new DeclaredStructure(subject, [], [])) with { KeyField = sources[name].KeyField });
         }
 
         var prior = new PriorKnowledge([], [], [.. declared.EntityTypes.Keys.Select(type => new KnownType(type))]);

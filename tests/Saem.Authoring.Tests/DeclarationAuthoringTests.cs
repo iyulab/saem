@@ -42,7 +42,8 @@ public sealed class DeclarationAuthoringTests
         Assert.Equal(["item-1", "wo-1"], proposer.Records!.Select(r => r.Id));
         Assert.Equal(["items", "work_orders"], proposer.Records!.Select(r => r.Subject?.Value));
         Assert.Equal(["Item"], proposer.Prior!.KnownTypes.Select(t => t.Name));
-        Assert.Empty(proposer.Declared!);
+        Assert.Equal([("items", "item_code"), ("work_orders", "wo_no")], proposer.Declared!.Select(d => (d.Subject.Value, d.KeyField)));
+        Assert.All(proposer.Declared!, d => Assert.Empty(d.Fields));
         Assert.Equal(pass.Records, proposer.Records);
     }
 
@@ -103,8 +104,9 @@ public sealed class DeclarationAuthoringTests
 
         await new DeclarationAuthoring(proposer, new Sampler(), structures).DraftAsync(Sources, Existing, 5, TestContext.Current.CancellationToken);
 
-        var declared = Assert.Single(proposer.Declared!);
-        Assert.Equal("items", declared.Subject.Value);
+        var declared = proposer.Declared!.Single(d => d.Subject.Value == "items");
+        Assert.Equal(["item_name"], declared.Fields.Select(f => f.Name));
+        Assert.Equal("item_code", declared.KeyField);
     }
 
     [Fact]
