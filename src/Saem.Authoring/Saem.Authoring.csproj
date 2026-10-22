@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The authoring step between Eyu and the ontology: Eyu proposes entities and relations from records,
+    this turns the proposal into declarations in saem's own form, and a person reviews them as a diff
+    against the declarations already in force before any of them is written. Nothing here writes a
+    catalog or calls a model; it reads a proposal and the records the proposal cites.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Saem.Ontology\Saem.Ontology.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Eyu.Core" />
+  </ItemGroup>
+
+</Project>

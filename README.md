@@ -179,6 +179,15 @@ relation and the system.
 **Ontology authoring** combines standard domain packs, entity/relation proposals from
 [Eyu](https://github.com/iyulab/Eyu) (the LLM-assisted extraction and mapping engine, consumed —
 not built here), and human review. Changes flow as changesets through simulate → apply → rollback.
+The first step of that path is `Saem.Authoring`: Eyu speaks of entities — this record is a supplier,
+that work order names this item — and the ontology speaks of types, so `DeclarationDrafter` reads
+the declarations off the records a proposal cites. A type stands on the table of the subject whose
+records denote its entities, keyed by that subject's key field; a relation leaves its type through
+the field that, in every proposed instance, holds the key of the entity it leads to. Declarations
+already in force are never changed, and anything the proposal said that cannot be declared — a type
+only mentioned, a relation two fields could carry — comes back as a note naming its records. The
+draft is written in the catalog file's own form, existing declarations first, so the review is a
+diff a person accepts or trims before the file is replaced.
 
 **Model access** goes through a single provider-neutral entry point, so saem runs fully
 on-premises against whatever inference an organization already operates — a local model farm or a

@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Saem.Authoring/Saem.Authoring.csproj" />
     <Project Path="src/Saem.Connectors.Formbase/Saem.Connectors.Formbase.csproj" />
     <Project Path="src/Saem.Connectors.MySql/Saem.Connectors.MySql.csproj" />
     <Project Path="src/Saem.Connectors.Postgres/Saem.Connectors.Postgres.csproj" />
@@ -9,6 +10,7 @@
     <Project Path="src/Saem.Query/Saem.Query.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Saem.Authoring.Tests/Saem.Authoring.Tests.csproj" />
     <Project Path="tests/Saem.Connectors.Formbase.Tests/Saem.Connectors.Formbase.Tests.csproj" />
     <Project Path="tests/Saem.Connectors.MySql.Tests/Saem.Connectors.MySql.Tests.csproj" />
     <Project Path="tests/Saem.Connectors.Postgres.Tests/Saem.Connectors.Postgres.Tests.csproj" />

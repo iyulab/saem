@@ -37,6 +37,7 @@ public sealed record EntityTypeDeclaration(
     IReadOnlyDictionary<string, string> Fields) : Declaration
 {
     /// <inheritdoc />
+    [JsonPropertyOrder(-1)]
     public override string Name { get; } = Name;
 }
 
@@ -52,5 +53,6 @@ public sealed record EntityTypeDeclaration(
 public sealed record RelationDeclaration(string Name, string From, string Via, string To) : Declaration
 {
     /// <inheritdoc />
+    [JsonPropertyOrder(-1)]
     public override string Name { get; } = Name;
 }
