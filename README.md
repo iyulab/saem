@@ -187,7 +187,10 @@ the field that, in every proposed instance, holds the key of the entity it leads
 already in force are never changed, and anything the proposal said that cannot be declared — a type
 only mentioned, a relation two fields could carry — comes back as a note naming its records. The
 draft is written in the catalog file's own form, existing declarations first, so the review is a
-diff a person accepts or trims before the file is replaced.
+diff a person accepts or trims before the file is replaced. `DeclarationAuthoring` runs one such
+pass end to end: it samples each subject through a connector, hands Eyu the types already declared
+as names in use — so a kind the ontology has is proposed under its name, not a new one — and
+returns the draft with the proposal and the records it cites.
 
 **Model access** goes through a single provider-neutral entry point, so saem runs fully
 on-premises against whatever inference an organization already operates — a local model farm or a

@@ -116,6 +116,7 @@ public class FormbaseConnectorTests
         Assert.Null(records[0].Fields["note"]);
         Assert.Equal("""["urgent"]""", records[0].Fields["tags"]);
         Assert.Equal("kim", records[1].Fields["tech"]);
+        Assert.All(records, r => Assert.Equal(WorkOrders, r.Subject));
         Assert.Single(formbase.Requests);
     }
 

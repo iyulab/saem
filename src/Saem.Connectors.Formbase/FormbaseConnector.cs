@@ -113,7 +113,9 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     /// The form type's records in the order Formbase accepted them, oldest first, up to
     /// <paramref name="maxCount"/>. Each record's top-level members become its fields — a string as its
     /// text, a nested object or array as its JSON — and its id is the Formbase document id, so a claim
-    /// Eyu grounds in it points back at a document the instance can show.
+    /// Eyu grounds in it points back at a document the instance can show. Each record carries the form
+    /// type it was sampled from as its subject, so a field's declared role is read for that form type
+    /// rather than guessed from its name.
     /// <para>
     /// Records, not appends. A document that names its record (<c>recordKey</c>) replaces that record's
     /// earlier documents, and a retirement removes the record — the same fold Formbase's own projection
@@ -182,7 +184,7 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
 
         return [.. standing.Values
             .Take(maxCount)
-            .Select(document => new RawRecord(document.DocumentId.ToString(), Flatten(document.Body)))];
+            .Select(document => new RawRecord(document.DocumentId.ToString(), Flatten(document.Body), subject))];
     }
 
     private async Task<HttpResponseMessage> SendAsync(string path, CancellationToken cancellationToken)
