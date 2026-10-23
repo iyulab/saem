@@ -281,6 +281,10 @@ decides what comes back, and a row the person may not see is simply not there. `
 binds one person's login for each system the ontology names; it is made per lookup and dropped with
 it.
 
+A session reads a row by key (`ReadAsync`, what a walk does at each hop) or every row of a table in key
+order (`ScanAsync`) — a pass over a whole table, for building what a group may see ahead of a question.
+Either way the source's rules decide which rows come back.
+
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its
 own interface: the session logs in with the person's credential (`PostgresSource.As(user, secret)`,

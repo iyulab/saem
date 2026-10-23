@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Npgsql;
 using Saem.Query;
@@ -56,6 +57,33 @@ internal sealed class PostgresSourceSession : ISourceSession
         command.Parameters.AddWithValue("key", key);
 
         var rows = new List<SourceRow>();
+        await foreach (var row in RowsAsync(command, columns, cancellationToken).ConfigureAwait(false))
+        {
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    /// <inheritdoc />
+    public async IAsyncEnumerable<SourceRow> ScanAsync(
+        string table,
+        string keyColumn,
+        IReadOnlyList<string> columns,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+
+        await using var command = new NpgsqlCommand(SelectAll(table, keyColumn, columns), _connection, _transaction);
+        await foreach (var row in RowsAsync(command, columns, cancellationToken).ConfigureAwait(false))
+        {
+            yield return row;
+        }
+    }
+
+    private static async IAsyncEnumerable<SourceRow> RowsAsync(
+        NpgsqlCommand command, IReadOnlyList<string> columns, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -67,10 +95,8 @@ internal sealed class PostgresSourceSession : ISourceSession
                     : JsonSerializer.SerializeToElement(reader.GetValue(i + 1));
             }
 
-            rows.Add(new SourceRow(reader.GetString(0), values));
+            yield return new SourceRow(reader.GetString(0), values);
         }
-
-        return rows;
     }
 
     /// <summary>
@@ -83,6 +109,13 @@ internal sealed class PostgresSourceSession : ISourceSession
         var key = Identifier(keyColumn);
         var select = string.Join(", ", columns.Select(Identifier));
         return $"SELECT {key}::text{(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} WHERE {key}::text = @key";
+    }
+
+    /// <summary><c>SELECT key::text, columns… FROM table ORDER BY 1</c> — every row, in key order as text.</summary>
+    internal static string SelectAll(string table, string keyColumn, IReadOnlyList<string> columns)
+    {
+        var select = string.Join(", ", columns.Select(Identifier));
+        return $"SELECT {Identifier(keyColumn)}::text{(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} ORDER BY 1";
     }
 
     /// <summary>A table name, optionally <c>schema.table</c>, each part quoted.</summary>

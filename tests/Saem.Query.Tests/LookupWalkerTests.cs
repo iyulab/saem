@@ -177,6 +177,9 @@ public class LookupWalkerTests
                 return ValueTask.FromResult(rows);
             }
 
+            public IAsyncEnumerable<SourceRow> ScanAsync(string table, string keyColumn, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException("A walk reads rows by key; it never scans a table.");
+
             public ValueTask DisposeAsync()
             {
                 owner.Disposed++;

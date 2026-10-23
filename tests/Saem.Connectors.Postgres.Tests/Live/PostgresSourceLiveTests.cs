@@ -46,6 +46,25 @@ public class PostgresSourceLiveTests
     }
 
     [Fact]
+    public async Task A_scan_reads_every_row_the_person_may_see_in_key_order()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await using (var alice = await As("alice")(ct))
+        {
+            var rows = await alice.ScanAsync("work_orders", "wo_no", ["note"], ct).ToListAsync(ct);
+            Assert.Contains(rows, r => r.Key == "WO-3" && r.Values["note"].GetString() == Canary);
+            Assert.Equal(rows.Select(r => r.Key).Order(StringComparer.Ordinal), rows.Select(r => r.Key));
+        }
+
+        await using var bob = await As("bob")(ct);
+        var seen = await bob.ScanAsync("work_orders", "wo_no", ["note"], ct).ToListAsync(ct);
+        Assert.Contains(seen, r => r.Key == "WO-1");
+        Assert.DoesNotContain(seen, r => r.Key == "WO-3");
+        Assert.DoesNotContain(Canary, string.Join(" ", seen.Select(r => r.Values["note"].ToString())), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_session_is_read_only_at_the_source()
     {
         var ct = TestContext.Current.CancellationToken;

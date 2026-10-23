@@ -34,6 +34,15 @@ public class PostgresSourceTests
     }
 
     [Fact]
+    public void A_scan_selects_every_row_in_key_order_as_text()
+    {
+        Assert.Equal(
+            """SELECT "wo_no"::text, "item_code" FROM "mes"."work_orders" ORDER BY 1""",
+            PostgresSourceSession.SelectAll("mes.work_orders", "wo_no", ["item_code"]));
+        Assert.Equal("""SELECT "wo_no"::text FROM "work_orders" ORDER BY 1""", PostgresSourceSession.SelectAll("work_orders", "wo_no", []));
+    }
+
+    [Fact]
     public void Every_name_is_quoted_as_an_identifier_even_a_hostile_one()
     {
         var sql = PostgresSourceSession.SelectByKey("erp.items", "id", ["name\"; DROP TABLE x; --"]);

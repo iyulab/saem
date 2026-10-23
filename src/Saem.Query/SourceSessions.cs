@@ -30,6 +30,18 @@ public interface ISourceSession : IAsyncDisposable
         string key,
         IReadOnlyList<string> columns,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads every row of <paramref name="table"/> the person may see, with the named columns, ordered by
+    /// <paramref name="keyColumn"/> (as the source orders it, so two passes meet the rows in the same order) — a pass over a whole table, as the
+    /// materialization of a group's edges makes, rather than one row a walk asked for. Rows arrive as
+    /// the source sends them; the source's rules decide which, exactly as for <see cref="ReadAsync"/>.
+    /// </summary>
+    IAsyncEnumerable<SourceRow> ScanAsync(
+        string table,
+        string keyColumn,
+        IReadOnlyList<string> columns,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>A row as the source returned it: its key, and the asked columns' values.</summary>

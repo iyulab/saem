@@ -113,6 +113,9 @@ internal static class DelegationCost
         public ValueTask<IReadOnlyList<SourceRow>> ReadAsync(string table, string keyColumn, string key, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
             inner.ReadAsync(table, keyColumn, key, columns, cancellationToken);
 
+        public IAsyncEnumerable<SourceRow> ScanAsync(string table, string keyColumn, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
+            inner.ScanAsync(table, keyColumn, columns, cancellationToken);
+
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
@@ -120,6 +123,9 @@ internal static class DelegationCost
     {
         public ValueTask<IReadOnlyList<SourceRow>> ReadAsync(string table, string keyColumn, string key, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
             inner.ReadAsync(table, keyColumn, key, columns, cancellationToken);
+
+        public IAsyncEnumerable<SourceRow> ScanAsync(string table, string keyColumn, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
+            inner.ScanAsync(table, keyColumn, columns, cancellationToken);
 
         public async ValueTask DisposeAsync()
         {

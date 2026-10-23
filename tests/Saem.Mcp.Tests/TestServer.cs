@@ -154,6 +154,10 @@ internal sealed class FakeLogins(Dictionary<string, Dictionary<string, List<Sour
                 [.. (tables.GetValueOrDefault(table) ?? []).Where(r => r.Key == key)
                     .Select(r => new SourceRow(r.Key, columns.ToDictionary(c => c, c => r.Values[c])))]);
 
+        public IAsyncEnumerable<SourceRow> ScanAsync(string table, string keyColumn, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
+            (tables.GetValueOrDefault(table) ?? []).OrderBy(r => r.Key, StringComparer.Ordinal)
+                .Select(r => new SourceRow(r.Key, columns.ToDictionary(c => c, c => r.Values[c]))).ToAsyncEnumerable();
+
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

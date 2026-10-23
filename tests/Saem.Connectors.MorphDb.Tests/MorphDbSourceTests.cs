@@ -112,6 +112,27 @@ public class MorphDbSourceTests
     }
 
     [Fact]
+    public async Task A_scan_asks_for_every_row_in_key_order_and_follows_the_pages()
+    {
+        var pages = new Queue<HttpResponseMessage>([
+            Page(true, new { wo_no = "WO-1", item_code = "I-1" }),
+            Page(false, new { wo_no = "WO-2", item_code = "I-2" }),
+        ]);
+        var (source, recorder) = Source(_ => pages.Dequeue());
+        await using var session = await source.As(_ => ValueTask.FromResult("group-token"))(TestContext.Current.CancellationToken);
+
+        var rows = await session.ScanAsync("work_orders", "wo_no", ["item_code"], TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(["WO-1", "WO-2"], rows.Select(r => r.Key));
+        Assert.Equal("I-2", rows[1].Values["item_code"].GetString());
+        Assert.Equal(
+            "api/data/work_orders?select=wo_no%2Citem_code&orderBy=wo_no%3Aasc&page=1&pageSize=1000",
+            recorder.Requests[0].RequestUri!.PathAndQuery.TrimStart('/'));
+        Assert.EndsWith("page=2&pageSize=1000", recorder.Requests[1].RequestUri!.ToString(), StringComparison.Ordinal);
+        Assert.All(recorder.Requests, r => Assert.Equal("group-token", r.Headers.Authorization!.Parameter));
+    }
+
+    [Fact]
     public async Task No_row_the_person_may_see_is_an_empty_answer_not_an_error()
     {
         var (source, _) = Source(_ => Page(false));

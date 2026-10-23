@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Saem.Query;
 
@@ -40,9 +41,38 @@ internal sealed class MorphDbSourceSession : ISourceSession
         ArgumentNullException.ThrowIfNull(columns);
 
         var rows = new List<SourceRow>();
+        await foreach (var row in PagesAsync(table, keyColumn, columns, page => ReadByKey(table, keyColumn, key, columns, page), cancellationToken).ConfigureAwait(false))
+        {
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    /// <inheritdoc />
+    public IAsyncEnumerable<SourceRow> ScanAsync(
+        string table,
+        string keyColumn,
+        IReadOnlyList<string> columns,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(table);
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyColumn);
+        ArgumentNullException.ThrowIfNull(columns);
+
+        return PagesAsync(table, keyColumn, columns, page => ReadAll(table, keyColumn, columns, page), cancellationToken);
+    }
+
+    private async IAsyncEnumerable<SourceRow> PagesAsync(
+        string table,
+        string keyColumn,
+        IReadOnlyList<string> columns,
+        Func<int, string> pageUri,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         for (var page = 1; ; page++)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, ReadByKey(table, keyColumn, key, columns, page));
+            using var request = new HttpRequestMessage(HttpMethod.Get, pageUri(page));
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
             request.Headers.Add("X-Project-Id", _projectId.ToString());
 
@@ -68,12 +98,12 @@ internal sealed class MorphDbSourceSession : ISourceSession
                         : JsonSerializer.SerializeToElement<object?>(null);
                 }
 
-                rows.Add(new SourceRow(AsText(data.GetProperty(keyColumn)), values));
+                yield return new SourceRow(AsText(data.GetProperty(keyColumn)), values);
             }
 
             if (!body.RootElement.GetProperty("pagination").TryGetProperty("hasNext", out var hasNext) || !hasNext.GetBoolean())
             {
-                return rows;
+                yield break;
             }
         }
     }
@@ -89,6 +119,19 @@ internal sealed class MorphDbSourceSession : ISourceSession
         return string.Create(CultureInfo.InvariantCulture,
             $"api/data/{Uri.EscapeDataString(table)}?filter={Uri.EscapeDataString($"{keyColumn}:eq:{key}")}" +
             $"&select={Uri.EscapeDataString(select)}&page={page}&pageSize={PageSize}");
+    }
+
+    /// <summary>
+    /// <c>api/data/{table}?select={key},{columns…}&amp;orderBy={key}:asc&amp;page=…&amp;pageSize=…</c> — every row,
+    /// in key order; the service ends every page's order with <c>_id</c>, so consecutive pages neither
+    /// repeat nor skip a row.
+    /// </summary>
+    internal static string ReadAll(string table, string keyColumn, IReadOnlyList<string> columns, int page)
+    {
+        var select = string.Join(',', new[] { keyColumn }.Concat(columns.Where(c => c != keyColumn)));
+        return string.Create(CultureInfo.InvariantCulture,
+            $"api/data/{Uri.EscapeDataString(table)}?select={Uri.EscapeDataString(select)}" +
+            $"&orderBy={Uri.EscapeDataString($"{keyColumn}:asc")}&page={page}&pageSize={PageSize}");
     }
 
     private static string AsText(JsonElement value) => value.ValueKind switch

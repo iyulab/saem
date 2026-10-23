@@ -61,6 +61,24 @@ public class MySqlSourceLiveTests
     }
 
     [Fact]
+    public async Task A_scan_reads_every_row_the_person_may_see_in_key_order()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await using (var alice = await Erp.As("alice_pw", _ => ValueTask.FromResult(Secret("alice")))(ct))
+        {
+            var rows = await alice.ScanAsync("visible_suppliers", "supplier_id", ["supplier_name"], ct).ToListAsync(ct);
+            Assert.Contains(rows, r => r.Key == "S-2" && r.Values["supplier_name"].GetString() == Canary);
+            Assert.Equal(rows.Select(r => r.Key).Order(StringComparer.Ordinal), rows.Select(r => r.Key));
+        }
+
+        await using var bob = await Erp.As("bob_pw", _ => ValueTask.FromResult(Secret("bob")))(ct);
+        var seen = await bob.ScanAsync("visible_suppliers", "supplier_id", ["supplier_name"], ct).ToListAsync(ct);
+        Assert.Contains(seen, r => r.Key == "S-1");
+        Assert.DoesNotContain(seen, r => r.Key == "S-2");
+    }
+
+    [Fact]
     public async Task A_session_carries_its_name_where_the_source_records_it()
     {
         var ct = TestContext.Current.CancellationToken;

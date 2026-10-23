@@ -25,6 +25,14 @@ public class MySqlSourceTests
     }
 
     [Fact]
+    public void A_scan_selects_every_row_in_key_order_as_text()
+    {
+        Assert.Equal(
+            "SELECT CAST(`item_code` AS CHAR), `item_name` FROM `erp`.`items` ORDER BY 1",
+            MySqlSourceSession.SelectAll("erp.items", "item_code", ["item_name"]));
+    }
+
+    [Fact]
     public void A_read_selects_the_key_as_text_and_the_asked_columns_by_key()
     {
         Assert.Equal(
