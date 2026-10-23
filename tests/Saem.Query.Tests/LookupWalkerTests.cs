@@ -23,7 +23,7 @@ public class LookupWalkerTests
         // Form documents projected into rows: keyed by what each one is, cited by the document read.
         new EntityTypeDeclaration("Inspection", "forms", "inspections", "inspection_no", new Dictionary<string, string> { ["finding"] = "finding" }, ["fb_doc_id"]),
         new EntityTypeDeclaration("Defect", "forms", "inspection_defects", "defect_no", new Dictionary<string, string> { ["part"] = "part" }, ["fb_doc_id", "fb_row"]),
-        new RelationDeclaration("orders_item", "WorkOrder", "item", "Item"),
+        new RelationDeclaration("orders_item", "WorkOrder", "item", "Item", Inverse: "ordered_by"),
         new RelationDeclaration("supplied_by", "Item", "supplier", "Supplier"),
     ];
 
@@ -142,6 +142,98 @@ public class LookupWalkerTests
         await Assert.ThrowsAsync<UnknownTermException>(() => Run(sessions, "WorkOrder", "WO-1", ["supplied_by"], ["name"]));
 
         Assert.Empty(sessions.Opened);
+    }
+
+    private static Task<LookupAnswer> Back(FakeSessions sessions, IMaterializedRelations relations, string start, string key, string[] path, string[] read) =>
+        Walker.RunAsync(new LookupCall(new EntityKey(start, key), path, read), sessions, relations, TestContext.Current.CancellationToken);
+
+    // g-plant's edges: the work orders that make I-100, as its pass found them.
+    private static readonly Partitions Plant = new() { ["g-plant"] = [("orders_item", "I-100", "WO-1"), ("orders_item", "I-100", "WO-3")] };
+
+    private static Hop Backwards(string item, string workOrder, string partition) =>
+        new("ordered_by", new EntityKey("Item", item), new EntityKey("WorkOrder", workOrder)) { Partition = partition };
+
+    /// <summary>Walked backwards, a relation answers every entity that leads to the one reached, read as the person, the hop naming its partition.</summary>
+    [Fact]
+    public async Task A_relation_walked_backwards_answers_each_entity_its_partition_leads_from()
+    {
+        var answer = await Back(new FakeSessions("alice"), Plant, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        var claims = Assert.IsType<Answered>(answer).Claims;
+        Assert.Equal([("WO-1", 50), ("WO-3", 10)], claims.Select(c => (c.Entity.Key, c.Value.GetInt32())));
+        Assert.Equal([new SourceRecord("mes", "work_orders", "WO-1")], claims[0].Sources);
+        Assert.Equal([Backwards("I-100", "WO-1", "g-plant")], claims[0].Path);
+    }
+
+    /// <summary>The edges are the group's; whether the person may read each entity is still the source's (R-5).</summary>
+    [Fact]
+    public async Task An_entity_the_person_may_not_read_is_not_answered_though_their_group_has_its_edge()
+    {
+        var answer = await Back(new FakeSessions("bob"), Plant, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        Assert.Equal(["WO-1"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Entity.Key));
+    }
+
+    /// <summary>An edge built before the source changed adds nothing: the entity is kept only while its field still names the one reached.</summary>
+    [Fact]
+    public async Task An_edge_the_source_no_longer_agrees_with_is_not_answered()
+    {
+        var stale = new Partitions { ["g-plant"] = [("orders_item", "I-100", "WO-2"), ("orders_item", "I-100", "WO-1")] };
+
+        var answer = await Back(new FakeSessions("alice"), stale, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        Assert.Equal(["WO-1"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Entity.Key));
+    }
+
+    [Fact]
+    public async Task Two_partitions_are_answered_each_on_its_own_never_merged()
+    {
+        var both = new Partitions { ["g-office"] = [("orders_item", "I-100", "WO-1")], ["g-plant"] = [("orders_item", "I-100", "WO-1")] };
+
+        var answer = await Back(new FakeSessions("alice"), both, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        Assert.Equal(["g-office", "g-plant"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Path[^1].Partition));
+    }
+
+    /// <summary>T-41: a person in no group with a partition is refused with that reason, and no source is read.</summary>
+    [Fact]
+    public async Task A_person_in_no_partition_is_refused_for_that_reason_before_any_source_is_read()
+    {
+        var sessions = new FakeSessions("alice");
+
+        var answer = await Back(sessions, NoMaterializedRelations.Instance, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        Assert.Equal(new Refusal(RefusalReason.NoMaterializedPartition, 1, "ordered_by", "mes"), Assert.IsType<Refused>(answer).Refusal);
+        Assert.Empty(sessions.Opened);
+    }
+
+    [Fact]
+    public async Task A_partition_without_an_edge_to_the_entity_is_refused_at_the_backward_step()
+    {
+        var answer = await Back(new FakeSessions("alice"), Plant, "Item", "I-200", ["ordered_by"], ["quantity"]);
+
+        Assert.Equal(new Refusal(RefusalReason.NoVisibleResult, 1, "ordered_by", "mes"), Assert.IsType<Refused>(answer).Refusal);
+    }
+
+    [Fact]
+    public async Task A_backward_step_follows_the_forward_ones_and_the_path_carries_them_all()
+    {
+        var answer = await Back(new FakeSessions("alice"), Plant, "WorkOrder", "WO-3", ["orders_item", "ordered_by"], ["quantity"]);
+
+        var claims = Assert.IsType<Answered>(answer).Claims;
+        Assert.Equal(["WO-1", "WO-3"], claims.Select(c => c.Entity.Key));
+        Assert.Equal(
+            [new Hop("orders_item", new EntityKey("WorkOrder", "WO-3"), new EntityKey("Item", "I-100")), Backwards("I-100", "WO-1", "g-plant")],
+            claims[0].Path);
+    }
+
+    /// <summary>Each group's edges as its pass found them: (relation, entity led to, entity it leaves).</summary>
+    private sealed class Partitions : Dictionary<string, (string Relation, string To, string From)[]>, IMaterializedRelations
+    {
+        IReadOnlyList<string> IMaterializedRelations.Partitions => [.. Keys.Order(StringComparer.Ordinal)];
+
+        public IAsyncEnumerable<string> LeadingToAsync(string partition, RelationDeclaration relation, string toKey, CancellationToken cancellationToken = default) =>
+            this[partition].Where(e => e.Relation == relation.Name && e.To == toKey).Select(e => e.From).ToAsyncEnumerable();
     }
 
     private sealed class FixedCatalog(Ontology.Ontology ontology) : IOntologyCatalog

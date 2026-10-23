@@ -12,11 +12,13 @@ public sealed class Ontology
 {
     private readonly Dictionary<string, EntityTypeDeclaration> _types;
     private readonly Dictionary<string, RelationDeclaration> _relations;
+    private readonly Dictionary<string, RelationDeclaration> _inverses;
 
     private Ontology(Dictionary<string, EntityTypeDeclaration> types, Dictionary<string, RelationDeclaration> relations)
     {
         _types = types;
         _relations = relations;
+        _inverses = relations.Values.Where(r => r.Inverse is not null).ToDictionary(r => r.Inverse!, StringComparer.Ordinal);
     }
 
     /// <summary>The declared entity types, by name.</summary>
@@ -24,6 +26,9 @@ public sealed class Ontology
 
     /// <summary>The declared relations, by name.</summary>
     public IReadOnlyDictionary<string, RelationDeclaration> Relations => _relations;
+
+    /// <summary>The relations that may be walked backwards, by the name of the inverse.</summary>
+    public IReadOnlyDictionary<string, RelationDeclaration> Inverses => _inverses;
 
     /// <summary>Builds an ontology from declarations, or refuses them with every problem named.</summary>
     /// <exception cref="OntologyDeclarationException">The declarations are not consistent.</exception>
@@ -91,6 +96,20 @@ public sealed class Ontology
             }
         }
 
+        // An inverse is walked by its name, so it shares the relations' names: one name, one walk.
+        var inverses = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var relation in relations.Values.Where(r => r.Inverse is not null))
+        {
+            if (string.IsNullOrWhiteSpace(relation.Inverse))
+            {
+                problems.Add($"Relation '{relation.Name}' names an empty inverse.");
+            }
+            else if (relations.ContainsKey(relation.Inverse) || !inverses.Add(relation.Inverse))
+            {
+                problems.Add($"Relation '{relation.Name}' names its inverse '{relation.Inverse}', which is already the name of a relation or another inverse.");
+            }
+        }
+
         if (problems.Count > 0)
         {
             throw new OntologyDeclarationException(problems);
@@ -116,10 +135,31 @@ public sealed class Ontology
 
         var problems = new List<string>();
         var steps = new List<RelationDeclaration>();
+        RelationDeclaration? inverse = null;
         var at = start;
         for (var i = 0; i < call.Path.Count; i++)
         {
             var name = call.Path[i];
+            if (_inverses.TryGetValue(name, out var walkedBack))
+            {
+                if (i != call.Path.Count - 1)
+                {
+                    // Backwards, a relation leads to many entities; a walk goes on from one.
+                    problems.Add($"Path step {i + 1}: '{name}' walks '{walkedBack.Name}' backwards, which only the last step of a path may do.");
+                    break;
+                }
+
+                if (!string.Equals(walkedBack.To, at.Name, StringComparison.Ordinal))
+                {
+                    problems.Add($"Path step {i + 1}: '{name}' leaves '{walkedBack.To}', but the walk is at '{at.Name}'.");
+                    break;
+                }
+
+                inverse = walkedBack;
+                at = _types[walkedBack.From];
+                break;
+            }
+
             if (!_relations.TryGetValue(name, out var relation))
             {
                 problems.Add($"Path step {i + 1}: '{name}' is not a declared relation.");
@@ -153,7 +193,7 @@ public sealed class Ontology
             throw new UnknownTermException(problems);
         }
 
-        return new LookupPlan(start, steps, at, call.Read);
+        return new LookupPlan(start, steps, at, call.Read) { Inverse = inverse };
     }
 
     private static bool Blank(params string?[] values) => values.Any(string.IsNullOrWhiteSpace);
@@ -168,4 +208,11 @@ public sealed record LookupPlan(
     EntityTypeDeclaration Start,
     IReadOnlyList<RelationDeclaration> Steps,
     EntityTypeDeclaration End,
-    IReadOnlyList<string> Read);
+    IReadOnlyList<string> Read)
+{
+    /// <summary>
+    /// The relation the last step walks backwards — from the entity <see cref="Steps"/> reach to every
+    /// entity of <see cref="End"/> that leads to it — or null when every step walks forwards.
+    /// </summary>
+    public RelationDeclaration? Inverse { get; init; }
+}

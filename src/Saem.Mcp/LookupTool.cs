@@ -24,13 +24,15 @@ internal sealed partial class LookupTool
     private readonly IOntologyCatalog _catalog;
     private readonly LookupWalker _walker;
     private readonly ISourceLogins _logins;
+    private readonly IGroupStores _groups;
     private readonly ILogger<LookupTool> _logger;
 
-    public LookupTool(IOntologyCatalog catalog, ISourceLogins logins, ILogger<LookupTool> logger)
+    public LookupTool(IOntologyCatalog catalog, ISourceLogins logins, IGroupStores groups, ILogger<LookupTool> logger)
     {
         _catalog = catalog;
         _walker = new LookupWalker(catalog);
         _logins = logins;
+        _groups = groups;
         _logger = logger;
     }
 
@@ -94,7 +96,8 @@ internal sealed partial class LookupTool
         LookupAnswer answer;
         try
         {
-            answer = await _walker.RunAsync(call, _logins.SessionsFor(person, token, lookupId), cancellationToken).ConfigureAwait(false);
+            var relations = new GroupRelations(_groups.StoresOf(person), _groups.Iris);
+            answer = await _walker.RunAsync(call, _logins.SessionsFor(person, token, lookupId), relations, cancellationToken).ConfigureAwait(false);
         }
         catch (UnknownTermException e)
         {
@@ -148,6 +151,17 @@ internal sealed partial class LookupTool
             }
         }
 
+        if (ontology.Inverses.Count > 0)
+        {
+            text.Append("\n\nRelations walked backwards (last step of a path only; each leads to every entity that names the one reached, ")
+                .Append("found among the relations built ahead of time for the groups the person is in, then read as the person):");
+            foreach (var (inverse, relation) in ontology.Inverses.OrderBy(i => i.Key, StringComparer.Ordinal))
+            {
+                text.Append("\n- ").Append(inverse).Append(": ").Append(relation.To).Append(" -> ").Append(relation.From)
+                    .Append(" (").Append(relation.Name).Append(" backwards)");
+            }
+        }
+
         return text.ToString();
     }
 
@@ -175,8 +189,8 @@ internal sealed partial class LookupTool
                 ["path"] = new JsonObject
                 {
                     ["type"] = "array",
-                    ["description"] = "The relations to follow, in order; empty to read the start entity itself.",
-                    ["items"] = new JsonObject { ["type"] = "string", ["enum"] = Names(ontology.Relations.Keys) },
+                    ["description"] = "The relations to follow, in order; empty to read the start entity itself. A relation walked backwards may only be the last.",
+                    ["items"] = new JsonObject { ["type"] = "string", ["enum"] = Names(ontology.Relations.Keys.Concat(ontology.Inverses.Keys)) },
                 },
                 ["read"] = new JsonObject
                 {

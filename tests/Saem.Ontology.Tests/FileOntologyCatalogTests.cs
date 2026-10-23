@@ -21,7 +21,7 @@ public sealed class FileOntologyCatalogTests : IDisposable
             "fields": { "name": "item_name", "supplier": "supplier_id" }, "kind": "entityType" },
           { "kind": "entityType", "name": "Supplier", "system": "erp", "table": "suppliers", "key": "supplier_id",
             "fields": { "name": "supplier_name" } },
-          { "kind": "relation", "name": "orders_item", "from": "WorkOrder", "via": "item", "to": "Item" },
+          { "kind": "relation", "name": "orders_item", "from": "WorkOrder", "via": "item", "to": "Item", "inverse": "ordered_by" },
           { "kind": "relation", "name": "supplied_by", "from": "Item", "via": "supplier", "to": "Supplier" }
         ]
         """;
@@ -37,6 +37,7 @@ public sealed class FileOntologyCatalogTests : IDisposable
         Assert.Equal(OntologyTests.WorkOrder.Fields, ontology.EntityTypes["WorkOrder"].Fields);
         Assert.Equal(OntologyTests.Item with { Fields = ontology.EntityTypes["Item"].Fields }, ontology.EntityTypes["Item"]);
         Assert.Equal(OntologyTests.SuppliedBy, ontology.Relations["supplied_by"]);
+        Assert.Equal(OntologyTests.OrdersItem with { Inverse = "ordered_by" }, ontology.Relations["orders_item"]);
     }
 
     [Fact]

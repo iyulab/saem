@@ -1,5 +1,8 @@
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Options;
 using Saem.Materialization;
+using Saem.Ontology;
+using Saem.Query;
 
 namespace Saem.Mcp;
 
@@ -76,4 +79,30 @@ internal sealed class ConfiguredGroupStores : IGroupStores
 
     public IReadOnlyList<GroupStore> StoresOf(Person person) =>
         [.. person.Groups.Where(_stores.ContainsKey).Select(g => _stores[g])];
+}
+
+/// <summary>
+/// The materialized relations one person reads: the edge stores of their groups, each asked by the IRI of
+/// the entity walked back from — the same IRI the materializing pass named it by.
+/// </summary>
+internal sealed class GroupRelations(IReadOnlyList<GroupStore> stores, EntityIris? iris) : IMaterializedRelations
+{
+    public IReadOnlyList<string> Partitions { get; } = iris is null ? [] : [.. stores.Select(s => s.Group)];
+
+    public async IAsyncEnumerable<string> LeadingToAsync(
+        string partition,
+        RelationDeclaration relation,
+        string toKey,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var store = stores.Single(s => s.Group == partition).Edges;
+        await foreach (var edge in store.LeadingToAsync(relation.Name, iris!.For(relation.To, toKey), cancellationToken).ConfigureAwait(false))
+        {
+            // An edge naming its entity under another base or type was not built by this deployment's pass.
+            if (iris.KeyOf(relation.From, edge.From) is { } key)
+            {
+                yield return key;
+            }
+        }
+    }
 }

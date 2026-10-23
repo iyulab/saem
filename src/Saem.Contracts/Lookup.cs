@@ -115,10 +115,20 @@ public sealed record Claim
 public sealed record SourceRecord(string System, string Table, string Record);
 
 /// <summary>One relation followed: from one entity to the next.</summary>
-/// <param name="Relation">The relation, as the ontology declares it.</param>
+/// <param name="Relation">The relation, as the ontology declares it — or its inverse's name, when it was walked backwards.</param>
 /// <param name="From">The entity the relation was followed from.</param>
 /// <param name="To">The entity it led to.</param>
-public sealed record Hop(string Relation, EntityKey From, EntityKey To);
+public sealed record Hop(string Relation, EntityKey From, EntityKey To)
+{
+    /// <summary>
+    /// The group whose materialized relations the hop was read from, when it was walked backwards; null
+    /// when the hop followed a field read from the source. A relation walked backwards is answered from
+    /// the edges built ahead of time for each of the person's groups, partition by partition and never
+    /// merged, so the hop says which partition led to the entity.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Partition { get; init; }
+}
 
 /// <summary>
 /// Why a lookup states nothing, and where its walk stopped. A source that enforces its own permissions
@@ -128,7 +138,7 @@ public sealed record Hop(string Relation, EntityKey From, EntityKey To);
 /// <param name="Reason">Why nothing is stated.</param>
 /// <param name="AtHop">Where the walk stopped: 0 for the start entity, n for the n-th relation of the path.</param>
 /// <param name="Relation">The relation being followed when the walk stopped; null at the start entity.</param>
-/// <param name="System">The source system that returned nothing.</param>
+/// <param name="System">The source system that returned nothing — or, for a relation walked backwards, the one its entities stand on.</param>
 public sealed record Refusal(RefusalReason Reason, int AtHop, string? Relation, string System)
 {
     /// <summary>
@@ -139,6 +149,8 @@ public sealed record Refusal(RefusalReason Reason, int AtHop, string? Relation, 
     {
         RefusalReason.NoVisibleResult =>
             "The source returned no rows to this person. Whether no such rows exist or they are not visible to this person, saem cannot tell.",
+        RefusalReason.NoMaterializedPartition =>
+            "This relation is answered from relations built ahead of time for the groups a person is in, and this person is in none that has them. Nothing is said about whether such entities exist.",
         _ => throw new InvalidOperationException($"No statement for {Reason}."),
     };
 }
@@ -152,4 +164,12 @@ public enum RefusalReason
     /// </summary>
     [JsonStringEnumMemberName("noVisibleResult")]
     NoVisibleResult,
+
+    /// <summary>
+    /// The path walks a relation backwards, which is answered from the edges materialized for the
+    /// person's groups, and the person is in no group the deployment keeps them for. <c>system</c> names
+    /// the system the entities walked to stand on; nothing was read from it.
+    /// </summary>
+    [JsonStringEnumMemberName("noMaterializedPartition")]
+    NoMaterializedPartition,
 }

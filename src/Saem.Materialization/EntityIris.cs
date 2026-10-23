@@ -31,4 +31,18 @@ public sealed class EntityIris
         ArgumentNullException.ThrowIfNull(key);
         return _base + Uri.EscapeDataString(entityType) + "/" + Uri.EscapeDataString(key);
     }
+
+    /// <summary>
+    /// The key of the entity of <paramref name="entityType"/> that <paramref name="iri"/> names — the
+    /// inverse of <see cref="For"/> — or null when it names no entity of that type under this base.
+    /// </summary>
+    public string? KeyOf(string entityType, string iri)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(entityType);
+        ArgumentNullException.ThrowIfNull(iri);
+        var prefix = _base + Uri.EscapeDataString(entityType) + "/";
+        return iri.StartsWith(prefix, StringComparison.Ordinal) && iri.Length > prefix.Length && !iri.AsSpan(prefix.Length).Contains('/')
+            ? Uri.UnescapeDataString(iri[prefix.Length..])
+            : null;
+    }
 }

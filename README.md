@@ -177,6 +177,14 @@ as the person the lookup is for, follows each relation by the value it read, and
 from those reads alone — where a read returns nothing, the lookup is refused at that hop, naming the
 relation and the system.
 
+A relation may also declare an `inverse` — its name walked backwards, from an entity to every entity
+that leads to it (`owl:inverseOf`). No single read finds every row that names an entity, so a backward
+step, which may only be a path's last, asks the edges materialized for the person's groups (below) which
+entities lead there, then reads each of them as the person and keeps only the ones the source shows and
+still says lead there: the edges find candidates, the answer is still the person's own reads. Each
+group's partition is answered on its own and the hop names it. A person in no group the deployment keeps
+edges for is refused for that reason (`noMaterializedPartition`), and no source is read.
+
 **Ontology authoring** combines standard domain packs, entity/relation proposals from
 [Eyu](https://github.com/iyulab/Eyu) (the LLM-assisted extraction and mapping engine, consumed —
 not built here), and human review. Changes flow as changesets through simulate → apply → rollback.
@@ -293,6 +301,8 @@ edge. `FormbaseEdgeStore` keeps a group's edges in that group's own Formbase —
 MorphDB project with a secret confined to it, so no other group's store or account reaches them. The edges
 are one form type whose declaration has the edge's six text fields and nothing else; a pass sends only the
 edges that changed, corrects an entity that now leads elsewhere, and retires the edges it no longer finds.
+The server reads a person's groups from their token's `groups` claim and each group's store from
+`Saem:Materialization` (the base IRI the pass named entities under, and each group's Formbase).
 
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its

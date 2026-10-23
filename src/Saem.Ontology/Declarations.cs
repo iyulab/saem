@@ -61,9 +61,19 @@ public sealed record EntityTypeDeclaration(
 /// <param name="From">The entity type the relation is followed from.</param>
 /// <param name="Via">The field of <paramref name="From"/> whose value is the key of the entity it leads to.</param>
 /// <param name="To">The entity type the relation leads to.</param>
-public sealed record RelationDeclaration(string Name, string From, string Via, string To) : Declaration
+/// <param name="Inverse">
+/// The name of the relation walked backwards — from an entity of <paramref name="To"/> to every entity of
+/// <paramref name="From"/> that leads to it (<c>owl:inverseOf</c>). Omitted, the relation is walked forwards
+/// only. Walking it backwards needs every row of <paramref name="From"/> that names the entity, which no
+/// single read answers, so it is answered from the edges materialized for the person's groups.
+/// </param>
+public sealed record RelationDeclaration(string Name, string From, string Via, string To, string? Inverse = null) : Declaration
 {
     /// <inheritdoc />
     [JsonPropertyOrder(-1)]
     public override string Name { get; } = Name;
+
+    /// <inheritdoc cref="RelationDeclaration" path="/param[@name='Inverse']"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Inverse { get; init; } = Inverse;
 }

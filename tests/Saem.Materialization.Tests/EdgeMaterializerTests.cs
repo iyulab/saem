@@ -73,6 +73,16 @@ public sealed class EdgeMaterializerTests
         Assert.Throws<ArgumentException>(() => new EntityIris(new Uri("relative/", UriKind.Relative)));
     }
 
+    /// <summary>An IRI reads back to the key it was minted from, and only under its own base and type.</summary>
+    [Fact]
+    public void An_iri_reads_back_as_its_key_under_its_own_type_only()
+    {
+        Assert.Equal("A/B?1", Iris.KeyOf("Work Order", Iris.For("Work Order", "A/B?1")));
+        Assert.Null(Iris.KeyOf("Item", Iris.For("WorkOrder", "WO-1")));
+        Assert.Null(Iris.KeyOf("WorkOrder", "https://elsewhere.org/ontology/WorkOrder/WO-1"));
+        Assert.Null(Iris.KeyOf("WorkOrder", Iris.For("WorkOrder", "")));
+    }
+
     private static SourceRow Row(string key, params (string Column, object? Value)[] values) =>
         new(key, values.ToDictionary(v => v.Column, v => JsonSerializer.SerializeToElement(v.Value)));
 

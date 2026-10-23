@@ -55,6 +55,31 @@ public class LookupAnswerJsonTests
         Assert.Equal(new Refusal(RefusalReason.NoVisibleResult, 1, "supplied_by", "erp"), read.Refusal);
     }
 
+    /// <summary>A hop walked backwards names the partition it was read from; a forward hop carries no such property.</summary>
+    [Fact]
+    public void A_backward_hop_carries_its_partition_and_a_forward_one_none()
+    {
+        var back = new Hop("supplies", Supplier, Order) { Partition = "g-plant" };
+        var json = Write(new Answered([new Claim(Order, "qty", Value("5"), [Erp], [new Hop("supplied_by", Order, Supplier), back])]));
+
+        using var document = JsonDocument.Parse(json);
+        var path = document.RootElement.GetProperty("claims")[0].GetProperty("path");
+        Assert.False(path[0].TryGetProperty("partition", out _));
+        Assert.Equal("g-plant", path[1].GetProperty("partition").GetString());
+        Assert.Equal(back, Assert.IsType<Answered>(Read(json)).Claims[0].Path[1]);
+    }
+
+    [Fact]
+    public void A_refusal_for_want_of_a_partition_says_so_by_name()
+    {
+        var json = Write(new Refused(new Refusal(RefusalReason.NoMaterializedPartition, AtHop: 1, Relation: "supplies", System: "mes")));
+
+        using var document = JsonDocument.Parse(json);
+        var refusal = document.RootElement.GetProperty("refusal");
+        Assert.Equal("noMaterializedPartition", refusal.GetProperty("reason").GetString());
+        Assert.Contains("in none that has them", refusal.GetProperty("statement").GetString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void An_empty_field_travels_as_null_and_stays_a_claim()
     {

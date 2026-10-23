@@ -84,6 +84,41 @@ public class OntologyTests
     }
 
     [Fact]
+    public void A_relation_walked_backwards_ends_the_plan_at_the_type_it_leaves()
+    {
+        var ontology = Ontology.Create([WorkOrder, Item, Supplier, OrdersItem with { Inverse = "ordered_by" }, SuppliedBy]);
+
+        var plan = ontology.Plan(new LookupCall(new EntityKey("Item", "I-100"), ["ordered_by"], ["quantity"]));
+
+        Assert.Equal(Item, plan.Start);
+        Assert.Empty(plan.Steps);
+        Assert.Equal("orders_item", plan.Inverse!.Name);
+        Assert.Equal(WorkOrder, plan.End);
+        Assert.Equal("orders_item", ontology.Inverses["ordered_by"].Name);
+    }
+
+    [Fact]
+    public void A_relation_walked_backwards_is_the_last_step_and_leaves_the_type_it_led_to()
+    {
+        var ontology = Ontology.Create([WorkOrder, Item, Supplier, OrdersItem with { Inverse = "ordered_by" }, SuppliedBy]);
+
+        var notLast = Assert.Throws<UnknownTermException>(() => ontology.Plan(new LookupCall(new EntityKey("Item", "I-100"), ["ordered_by", "orders_item"], ["name"])));
+        var wrongType = Assert.Throws<UnknownTermException>(() => ontology.Plan(new LookupCall(new EntityKey("Supplier", "S-1"), ["ordered_by"], ["quantity"])));
+
+        Assert.Contains("only the last step", Assert.Single(notLast.Problems), StringComparison.Ordinal);
+        Assert.Contains("leaves 'Item', but the walk is at 'Supplier'", Assert.Single(wrongType.Problems), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_inverse_named_like_a_relation_or_another_inverse_is_refused()
+    {
+        var problems = Assert.Throws<OntologyDeclarationException>(() => Ontology.Create(
+            [WorkOrder, Item, Supplier, OrdersItem with { Inverse = "supplied_by" }, SuppliedBy with { Inverse = "  " }])).Problems;
+
+        Assert.Equal(2, problems.Count);
+    }
+
+    [Fact]
     public void Inconsistent_declarations_are_refused_whole_with_every_problem_named()
     {
         var e = Assert.Throws<OntologyDeclarationException>(() => Ontology.Create(

@@ -10,6 +10,12 @@ namespace Saem.Query;
 /// the asked fields of the entity the walk ends at. Every read goes through a session opened as the
 /// person the lookup is for. The answer is built from what the reads returned and nothing else;
 /// where a read returns nothing, the lookup is refused at that hop.
+/// <para>
+/// A last step that walks a relation backwards asks the person's materialized partitions which entities
+/// lead to the one reached, then reads each of those as the person — keeping only the ones the source
+/// shows them and still says lead there. The edges find the candidates; the answer is still only what
+/// the person's own reads returned.
+/// </para>
 /// </summary>
 public sealed class LookupWalker
 {
@@ -22,13 +28,23 @@ public sealed class LookupWalker
         _catalog = catalog;
     }
 
-    /// <summary>Runs <paramref name="call"/> for the person <paramref name="sessions"/> reads as.</summary>
+    /// <summary>Runs <paramref name="call"/> for the person <paramref name="sessions"/> reads as, who reads no materialized partition.</summary>
     /// <exception cref="UnknownTermException">The lookup is not in the ontology's terms; no source was read.</exception>
     /// <exception cref="InvalidOperationException">A source returned more than one row for a declared key.</exception>
-    public async Task<LookupAnswer> RunAsync(LookupCall call, ISourceSessions sessions, CancellationToken cancellationToken = default)
+    public Task<LookupAnswer> RunAsync(LookupCall call, ISourceSessions sessions, CancellationToken cancellationToken = default) =>
+        RunAsync(call, sessions, NoMaterializedRelations.Instance, cancellationToken);
+
+    /// <summary>
+    /// Runs <paramref name="call"/> for the person <paramref name="sessions"/> reads as, walking a relation
+    /// backwards through <paramref name="relations"/> — the partitions of that person's groups.
+    /// </summary>
+    /// <exception cref="UnknownTermException">The lookup is not in the ontology's terms; no source was read.</exception>
+    /// <exception cref="InvalidOperationException">A source returned more than one row for a declared key.</exception>
+    public async Task<LookupAnswer> RunAsync(LookupCall call, ISourceSessions sessions, IMaterializedRelations relations, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(call);
         ArgumentNullException.ThrowIfNull(sessions);
+        ArgumentNullException.ThrowIfNull(relations);
 
         var ontology = await _catalog.GetAsync(cancellationToken).ConfigureAwait(false);
         var plan = ontology.Plan(call);
@@ -43,6 +59,12 @@ public sealed class LookupWalker
             for (var hop = 0; ; hop++)
             {
                 var next = hop < plan.Steps.Count ? plan.Steps[hop] : null;
+                if (next is null && plan.Inverse is { } inverse)
+                {
+                    // The entity reached is not read: what is asked is the entities that lead to it.
+                    return await BackwardsAsync(open, sessions, relations, inverse, new EntityKey(at.Name, key), plan, hops, cancellationToken).ConfigureAwait(false);
+                }
+
                 var fields = next is null ? plan.Read : [next.Via];
                 var row = await ReadAsync(open, sessions, at, key, fields, cancellationToken).ConfigureAwait(false);
                 if (row is null)
@@ -79,6 +101,48 @@ public sealed class LookupWalker
         }
     }
 
+    /// <summary>
+    /// The last step, walked backwards: in each partition, the entities whose relation leads to
+    /// <paramref name="to"/>, each read as the person with the asked fields and the relation's own field —
+    /// kept when the source shows the row and the field still names <paramref name="to"/>, so an edge built
+    /// before the source changed, or a row this person may not see, adds nothing.
+    /// </summary>
+    private static async Task<LookupAnswer> BackwardsAsync(
+        Dictionary<string, ISourceSession> open,
+        ISourceSessions sessions,
+        IMaterializedRelations relations,
+        RelationDeclaration relation,
+        EntityKey to,
+        LookupPlan plan,
+        List<Hop> hops,
+        CancellationToken cancellationToken)
+    {
+        var from = plan.End;
+        var atHop = plan.Steps.Count + 1;
+        if (relations.Partitions.Count == 0)
+        {
+            return new Refused(new Refusal(RefusalReason.NoMaterializedPartition, atHop, relation.Inverse, from.System));
+        }
+
+        var claims = new List<Claim>();
+        foreach (var partition in relations.Partitions)
+        {
+            await foreach (var key in relations.LeadingToAsync(partition, relation, to.Key, cancellationToken).ConfigureAwait(false))
+            {
+                var row = await ReadAsync(open, sessions, from, key, [.. plan.Read, relation.Via], cancellationToken).ConfigureAwait(false);
+                if (row is null || Text(row.Values[from.Fields[relation.Via]]) != to.Key)
+                {
+                    continue;
+                }
+
+                var back = new Hop(relation.Inverse!, to, new EntityKey(from.Name, row.Key)) { Partition = partition };
+                claims.AddRange(Answer(from, row, plan.Read, [.. hops, back]).Claims);
+            }
+        }
+
+        return claims.Count > 0 ? new Answered(claims) : Refuse(atHop, relation.Inverse, from.System);
+    }
+
     private static async Task<SourceRow?> ReadAsync(
         Dictionary<string, ISourceSession> open,
         ISourceSessions sessions,
@@ -105,7 +169,7 @@ public sealed class LookupWalker
         };
     }
 
-    private static Answered Answer(EntityTypeDeclaration type, SourceRow row, IReadOnlyList<string> read, List<Hop> hops)
+    private static Answered Answer(EntityTypeDeclaration type, SourceRow row, IReadOnlyList<string> read, IReadOnlyList<Hop> hops)
     {
         var entity = new EntityKey(type.Name, row.Key);
         var source = new SourceRecord(type.System, type.Table, RecordOf(type, row));
@@ -113,10 +177,14 @@ public sealed class LookupWalker
     }
 
     private static string RecordOf(EntityTypeDeclaration type, SourceRow row) =>
-        type.Record is null ? row.Key : string.Join('/', type.Record.Select(column => Text(row.Values[column])));
+        type.Record is null ? row.Key : string.Join('/', type.Record.Select(column => Text(row.Values[column]) ?? ""));
 
-    private static string Text(JsonElement value) =>
-        value.ValueKind == JsonValueKind.String ? value.GetString()! : value.GetRawText();
+    private static string? Text(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Null or JsonValueKind.Undefined => null,
+        JsonValueKind.String => value.GetString(),
+        _ => value.GetRawText(),
+    };
 
     private static Refused Refuse(int atHop, string? relation, string system) =>
         new(new Refusal(RefusalReason.NoVisibleResult, atHop, relation, system));

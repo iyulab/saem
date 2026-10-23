@@ -21,7 +21,7 @@ public sealed class LookupToolTests : IAsyncLifetime
             "fields": { "note": "note", "item": "item_code" } },
           { "kind": "entityType", "name": "Item", "system": "mes", "table": "items", "key": "item_code",
             "fields": { "name": "name" } },
-          { "kind": "relation", "name": "producesItem", "from": "WorkOrder", "via": "item", "to": "Item" }
+          { "kind": "relation", "name": "producesItem", "from": "WorkOrder", "via": "item", "to": "Item", "inverse": "producedBy" }
         ]
         """;
 
@@ -62,6 +62,27 @@ public sealed class LookupToolTests : IAsyncLifetime
         Assert.Contains("producesItem: WorkOrder -> Item", tool.Description, StringComparison.Ordinal);
         var types = tool.JsonSchema.GetProperty("properties").GetProperty("start").GetProperty("properties").GetProperty("type").GetProperty("enum");
         Assert.Equal(["Item", "WorkOrder"], types.EnumerateArray().Select(e => e.GetString()));
+        Assert.Contains("producedBy: Item -> WorkOrder (producesItem backwards)", tool.Description, StringComparison.Ordinal);
+        var relations = tool.JsonSchema.GetProperty("properties").GetProperty("path").GetProperty("items").GetProperty("enum");
+        Assert.Equal(["producedBy", "producesItem"], relations.EnumerateArray().Select(e => e.GetString()));
+    }
+
+    /// <summary>
+    /// T-41 through the tool: the server keeps no group's partition for this person (it keeps none at all),
+    /// so a relation walked backwards is refused for that reason — an answer, not an error.
+    /// </summary>
+    [Fact]
+    public async Task A_relation_walked_backwards_for_a_person_in_no_kept_group_is_refused_for_that_reason()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var alice = await _server.ClientAsync(TestServer.Token("alice"), ct);
+
+        var result = await alice.CallToolAsync("lookup", Call("Item", "I-200", ["producedBy"], ["note"]), cancellationToken: ct);
+
+        Assert.NotEqual(true, result.IsError);
+        var refusal = result.StructuredContent!.Value.GetProperty("refusal");
+        Assert.Equal("noMaterializedPartition", refusal.GetProperty("reason").GetString());
+        Assert.Equal("producedBy", refusal.GetProperty("relation").GetString());
     }
 
     [Fact]
