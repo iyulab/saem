@@ -199,6 +199,18 @@ public class PersonTests
         Assert.Equal(new Person("bob", null), Person.From(Claims.Of(("sub", "bob", "string"))));
     }
 
+    /// <summary>A token's groups claim — one value or several — is the person's groups, each once and in name order.</summary>
+    [Fact]
+    public void The_groups_are_the_tokens_groups_claim()
+    {
+        var person = Person.From(Claims.Of(("sub", "alice", "string"), ("groups", "g-plant", "string"), ("groups", "g-office", "string"), ("groups", "g-plant", "string")));
+
+        Assert.Equal(["g-office", "g-plant"], person!.Groups);
+        Assert.Equal(new Person("alice", null) { Groups = ["g-office", "g-plant"] }, person);
+        Assert.NotEqual(new Person("alice", null), person);
+        Assert.Empty(Person.From(Claims.Of(("sub", "bob", "string")))!.Groups);
+    }
+
     [Fact]
     public void Without_sub_there_is_no_person()
     {

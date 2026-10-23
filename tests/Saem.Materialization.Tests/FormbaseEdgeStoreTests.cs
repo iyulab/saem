@@ -75,6 +75,20 @@ public sealed class FormbaseEdgeStoreTests
         Assert.Equal([Edge("WO-1", "I-9")], await store.ReadAsync(TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken));
     }
 
+    /// <summary>Walked backwards, a relation gives the edges that lead to one entity — asked of the store by its fields.</summary>
+    [Fact]
+    public async Task The_edges_leading_to_an_entity_are_those_of_the_relation_whose_target_it_is()
+    {
+        var formbase = new FakeFormbase();
+        var store = new FormbaseEdgeStore(formbase.Client);
+        await store.ReplaceAsync(Of(Edge("WO-1", "I-1"), Edge("WO-2", "I-2"), Edge("WO-3", "I-1"), Edge("WO-4", "I-1", relation: "replaces")), TestContext.Current.CancellationToken);
+
+        var leading = await store.LeadingToAsync("orders_item", "https://example.org/Item/I-1", TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal([Edge("WO-1", "I-1"), Edge("WO-3", "I-1")], leading);
+        Assert.Empty(await new FormbaseEdgeStore(new FakeFormbase().Client).LeadingToAsync("orders_item", "https://example.org/Item/I-1", TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task A_form_type_declared_with_another_shape_is_not_written_over()
     {
@@ -169,7 +183,8 @@ public sealed class FormbaseEdgeStoreTests
                         return Answer(HttpStatusCode.Conflict, new { type = "/problems/not-projected" });
                     }
 
-                    var page = _projected.Skip(int.Parse(query["offset"]!, System.Globalization.CultureInfo.InvariantCulture)).Take(int.Parse(query["limit"]!, System.Globalization.CultureInfo.InvariantCulture));
+                    var filters = (query.GetValues("filter") ?? []).Select(f => (Column: f[..f.IndexOf(':', StringComparison.Ordinal)], Value: f[(f.IndexOf(':', StringComparison.Ordinal) + 1)..])).ToList();
+                    var page = _projected.Where(d => filters.All(f => (string?)d.Body![f.Column] == f.Value)).Skip(int.Parse(query["offset"]!, System.Globalization.CultureInfo.InvariantCulture)).Take(int.Parse(query["limit"]!, System.Globalization.CultureInfo.InvariantCulture));
                     return Answer(HttpStatusCode.OK, new
                     {
                         rows = page.Select(d => new { record = new { document = Guid.NewGuid(), key = d.Key }, fields = d.Body }),

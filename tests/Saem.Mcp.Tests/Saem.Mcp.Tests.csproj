@@ -23,13 +23,9 @@
     <Compile Remove="LiveForms/**/*.cs" />
   </ItemGroup>
 
-  <!--
-    The one-run test drafts its ontology from the forms with Eyu before asking saem; the group tests write
-    edges into each group's own store.
-  -->
+  <!-- The one-run test drafts its ontology from the forms with Eyu before asking saem. -->
   <ItemGroup Condition="'$(IncludeMorphDbLiveTests)' == 'true'">
     <ProjectReference Include="..\..\src\Saem.Authoring\Saem.Authoring.csproj" />
-    <ProjectReference Include="..\..\src\Saem.Materialization\Saem.Materialization.csproj" />
     <ProjectReference Include="..\..\src\Saem.Connectors.Formbase\Saem.Connectors.Formbase.csproj" />
     <Compile Include="..\Shared\Model\*.cs" Link="LiveForms\Shared\%(Filename)%(Extension)" />
   </ItemGroup>

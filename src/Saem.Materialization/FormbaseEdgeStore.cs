@@ -44,7 +44,7 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
         ArgumentNullException.ThrowIfNull(edges);
 
         await DeclareAsync(cancellationToken).ConfigureAwait(false);
-        var held = await HeldAsync(cancellationToken).ConfigureAwait(false);
+        var held = await HeldAsync("", cancellationToken).ConfigureAwait(false);
 
         var given = new HashSet<string>(StringComparer.Ordinal);
         int written = 0, unchanged = 0;
@@ -86,9 +86,24 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     }
 
     /// <summary>The edges the store holds now, in key order.</summary>
-    public async IAsyncEnumerable<MaterializedEdge> ReadAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<MaterializedEdge> ReadAsync(CancellationToken cancellationToken = default) =>
+        EdgesAsync("", cancellationToken);
+
+    /// <summary>
+    /// The held edges of <paramref name="relation"/> that lead to the entity named <paramref name="to"/> —
+    /// the relation walked backwards — in the order of the entities they leave. Asked of the store, so only
+    /// the matching edges are read.
+    /// </summary>
+    public IAsyncEnumerable<MaterializedEdge> LeadingToAsync(string relation, string to, CancellationToken cancellationToken = default)
     {
-        foreach (var (_, fields) in (await HeldAsync(cancellationToken).ConfigureAwait(false)).OrderBy(p => p.Key, StringComparer.Ordinal))
+        ArgumentException.ThrowIfNullOrEmpty(relation);
+        ArgumentException.ThrowIfNullOrEmpty(to);
+        return EdgesAsync($"&filter={Uri.EscapeDataString("relation:" + relation)}&filter={Uri.EscapeDataString("to_iri:" + to)}", cancellationToken);
+    }
+
+    private async IAsyncEnumerable<MaterializedEdge> EdgesAsync(string filter, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        foreach (var (_, fields) in (await HeldAsync(filter, cancellationToken).ConfigureAwait(false)).OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             yield return new MaterializedEdge(fields[0], fields[1], fields[2], new SourceRecord(fields[3], fields[4], fields[5]));
         }
@@ -134,13 +149,16 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
         await SendAsync(put, "Declaring the edges", cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>The projected edges by record key; none before the first pass declared and projected them.</summary>
-    private async Task<Dictionary<string, string[]>> HeldAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// The projected edges <paramref name="filter"/> admits (query parameters, each led by <c>&amp;</c>), by
+    /// record key; none before the first pass declared and projected them.
+    /// </summary>
+    private async Task<Dictionary<string, string[]>> HeldAsync(string filter, CancellationToken cancellationToken)
     {
         var held = new Dictionary<string, string[]>(StringComparer.Ordinal);
         for (var offset = 0; ; offset += PageSize)
         {
-            using var request = Request(HttpMethod.Get, $"formtypes/{FormType}/records?limit={PageSize}&offset={offset}");
+            using var request = Request(HttpMethod.Get, $"formtypes/{FormType}/records?limit={PageSize}&offset={offset}{filter}");
             using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound
                 && await ProblemAsync(response, cancellationToken).ConfigureAwait(false) is "/problems/not-projected" or "/problems/no-declaration")

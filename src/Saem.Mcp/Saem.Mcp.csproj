@@ -13,6 +13,7 @@
     <ProjectReference Include="..\Saem.Connectors.Postgres\Saem.Connectors.Postgres.csproj" />
     <ProjectReference Include="..\Saem.Connectors.MySql\Saem.Connectors.MySql.csproj" />
     <ProjectReference Include="..\Saem.Connectors.MorphDb\Saem.Connectors.MorphDb.csproj" />
+    <ProjectReference Include="..\Saem.Materialization\Saem.Materialization.csproj" />
   </ItemGroup>
 
   <ItemGroup>

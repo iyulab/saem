@@ -26,8 +26,8 @@ public sealed class IdentityOptions
 /// <summary>
 /// Wires the MCP server: bearer-token authentication against the configured issuer, the one
 /// lookup tool, and Streamable HTTP. Configuration lives under <c>Saem</c>: <c>Ontology</c> (the
-/// declarations file), <c>Identity</c> (<see cref="IdentityOptions"/>) and <c>Sources</c>
-/// (<see cref="SourceOptions"/>).
+/// declarations file), <c>Identity</c> (<see cref="IdentityOptions"/>), <c>Sources</c>
+/// (<see cref="SourceOptions"/>) and <c>Materialization</c> (<see cref="MaterializationOptions"/>).
 /// </summary>
 public static class SaemMcpServer
 {
@@ -42,6 +42,7 @@ public static class SaemMcpServer
             .Validate(i => !string.IsNullOrEmpty(i.Authority) && !string.IsNullOrEmpty(i.Audience), "Saem:Identity names the trusted issuer (Authority) and this server's audience (Audience).")
             .ValidateOnStart();
         services.Configure<SourceOptions>(saem.GetSection("Sources"));
+        services.Configure<MaterializationOptions>(saem.GetSection("Materialization"));
 
         var ontologyPath = saem["Ontology"];
         services.TryAddSingleton<IOntologyCatalog>(_ => new FileOntologyCatalog(
@@ -49,6 +50,7 @@ public static class SaemMcpServer
         services.AddHttpClient();
         services.AddHttpContextAccessor();
         services.TryAddSingleton<ISourceLogins, ConfiguredSourceLogins>();
+        services.TryAddSingleton<IGroupStores, ConfiguredGroupStores>();
         services.AddSingleton<LookupTool>();
 
         services.AddAuthentication(options =>
