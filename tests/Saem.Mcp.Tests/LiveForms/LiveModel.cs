@@ -1,12 +1,14 @@
 using System.Net.Http.Headers;
 using Eyu.Core.Inference.Http;
 using Eyu.Core.Judgment;
+using Saem.Rig.Model;
 
 namespace Saem.Mcp.Tests.LiveForms;
 
 /// <summary>
 /// Eyu's proposer against the real model the tests that draft an ontology call — named by
-/// <c>EYU_LLM_ENDPOINT</c>, <c>EYU_LLM_API_KEY</c> and <c>EYU_LLM_MODEL</c>, streamed when <c>EYU_LLM_STREAM</c> is true.
+/// <c>EYU_LLM_ENDPOINT</c>, <c>EYU_LLM_API_KEY</c> and <c>EYU_LLM_MODEL</c>, streamed when <c>EYU_LLM_STREAM</c> is true,
+/// each call retried once when the gateway drops it (<see cref="RetryOnceModelClient"/>).
 /// </summary>
 internal sealed class LiveModel : IDisposable
 {
@@ -21,7 +23,7 @@ internal sealed class LiveModel : IDisposable
         };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Require("EYU_LLM_API_KEY"));
         var stream = bool.TryParse(Environment.GetEnvironmentVariable("EYU_LLM_STREAM"), out var streamed) && streamed;
-        Proposer = new SinglePassOntologyProposer(new HttpModelClient(_http, Require("EYU_LLM_MODEL"), stream: stream));
+        Proposer = new SinglePassOntologyProposer(new RetryOnceModelClient(new HttpModelClient(_http, Require("EYU_LLM_MODEL"), stream: stream)));
     }
 
     public SinglePassOntologyProposer Proposer { get; }

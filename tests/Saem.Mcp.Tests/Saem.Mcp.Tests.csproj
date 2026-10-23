@@ -27,6 +27,7 @@
   <ItemGroup Condition="'$(IncludeMorphDbLiveTests)' == 'true'">
     <ProjectReference Include="..\..\src\Saem.Authoring\Saem.Authoring.csproj" />
     <ProjectReference Include="..\..\src\Saem.Connectors.Formbase\Saem.Connectors.Formbase.csproj" />
+    <Compile Include="..\Shared\Model\*.cs" Link="LiveForms\Shared\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

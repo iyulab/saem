@@ -18,6 +18,10 @@
     <Compile Remove="Live/**/*.cs" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(IncludeAuthoringLiveTests)' == 'true'">
+    <Compile Include="..\Shared\Model\*.cs" Link="Live\Shared\%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Saem.Authoring\Saem.Authoring.csproj" />
     <ProjectReference Include="..\..\src\Saem.Connectors.Formbase\Saem.Connectors.Formbase.csproj" />
