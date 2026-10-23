@@ -95,7 +95,7 @@ public sealed class AuthoringLiveTests
     private static DeclarationAuthoring Authoring(HttpClient formbase, HttpClient model)
     {
         var stream = bool.TryParse(Environment.GetEnvironmentVariable("EYU_LLM_STREAM"), out var streamed) && streamed;
-        var proposer = new SinglePassOntologyProposer(new RetryOnceModelClient(new HttpModelClient(model, Require("EYU_LLM_MODEL"), stream: stream)));
+        var proposer = new SinglePassOntologyProposer(LiveModelRetry.Around(new HttpModelClient(model, Require("EYU_LLM_MODEL"), stream: stream)));
         var connector = new FormbaseConnector(formbase);
         return new DeclarationAuthoring(proposer, connector, connector);
     }
