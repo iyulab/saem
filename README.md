@@ -285,6 +285,12 @@ A session reads a row by key (`ReadAsync`, what a walk does at each hop) or ever
 order (`ScanAsync`) — a pass over a whole table, for building what a group may see ahead of a question.
 Either way the source's rules decide which rows come back.
 
+`Saem.Materialization` is that pass's first step: `EdgeMaterializer` reads, through one group's sessions,
+the table of every type a relation leaves and gives an edge per row whose relation field holds a key — the
+two entities' IRIs (`EntityIris`: the base, the type and the key, the same on every pass and with no group in
+it) and the record the edge was read from, never the record's fields. A row the group may not see leaves no
+edge. Storing a group's edges where only that group's account can reach them is not built yet.
+
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its
 own interface: the session logs in with the person's credential (`PostgresSource.As(user, secret)`,
