@@ -6,6 +6,26 @@
       "tokenExpiry": 20,
       "requestMappings": [
         {
+          "requestParam": "client_id",
+          "match": "pat",
+          "claims": {
+            "sub": "${clientId}",
+            "scope": "${scope}",
+            "aud": ["${audience}"],
+            "groups": ["g-plant"]
+          }
+        },
+        {
+          "requestParam": "client_id",
+          "match": "olive",
+          "claims": {
+            "sub": "${clientId}",
+            "scope": "${scope}",
+            "aud": ["${audience}"],
+            "groups": ["g-office"]
+          }
+        },
+        {
           "requestParam": "grant_type",
           "match": "client_credentials",
           "claims": {
