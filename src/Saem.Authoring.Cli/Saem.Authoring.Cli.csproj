@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The authoring pass as a command an administrator runs: documents read from a Formbase instance,
+    Eyu's proposer against a model, the declarations in force read from the catalog file; out come a
+    review document and the draft catalog. Nothing is written anywhere else — the catalog changes when
+    a person accepts the draft as an edit of that file.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>saem-author</AssemblyName>
+    <RootNamespace>Saem.Authoring.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Saem.Authoring\Saem.Authoring.csproj" />
+    <ProjectReference Include="..\Saem.Connectors.Formbase\Saem.Connectors.Formbase.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Saem.Authoring.Tests" />
+  </ItemGroup>
+
+</Project>

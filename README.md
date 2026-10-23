@@ -197,6 +197,25 @@ called it. `AuthoringPass.ToReview()` writes the pass as a person reviews it —
 with the records it was drawn from, what could not be declared and why, what Eyu left out, and the
 file that would replace the catalog.
 
+`saem-author` (`src/Saem.Authoring.Cli`) runs that pass from a terminal, for an administrator: the
+documents are read from a Formbase instance, the declarations in force from the catalog file, and
+the subjects from a sources file that says where each one's rows stand for a lookup. Out come two
+files, a review and a draft catalog; nothing else is written, and an existing file is replaced only
+with `--overwrite`.
+
+```sh
+# sources.json: { "items": { "system": "forms", "table": "items", "keyField": "item_code", "record": ["fb_doc_id"] } }
+SAEM_MODEL_API_KEY=… saem-author --formbase http://localhost:8080 --sources sources.json \
+  --catalog ontology.json --model-endpoint https://models.example/v1 --model <name> --model-stream \
+  --draft ontology.json --overwrite        # the review is then `git diff ontology.json` + review.md
+```
+
+A model call that fails transiently — a dropped stream, a 5xx — is tried again (`--retries`, default
+one), and the review lists every retried attempt. Secrets come from the environment
+(`SAEM_MODEL_API_KEY`, and `SAEM_FORMBASE_TOKEN` when something in front of Formbase asks for one),
+never from the command line. This is direct authoring: the draft is a reviewed edit of the catalog
+file, not a changeset — nothing is simulated or applied against the sources.
+
 An answer cites the record it read: by default the row's key, and where a table's rows are copies of
 records kept elsewhere, the columns a type declares as its `record` — joined with `/` when there are
 several. A form's projected rows are keyed by the record's own key, so relations follow it, and cited

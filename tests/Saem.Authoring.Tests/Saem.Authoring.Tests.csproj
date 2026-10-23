@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Saem.Authoring\Saem.Authoring.csproj" />
+    <ProjectReference Include="..\..\src\Saem.Authoring.Cli\Saem.Authoring.Cli.csproj" />
     <ProjectReference Include="..\..\src\Saem.Connectors.Formbase\Saem.Connectors.Formbase.csproj" />
   </ItemGroup>
 
