@@ -108,6 +108,12 @@ internal sealed partial class LookupTool
         {
             return Error(e.Message);
         }
+        catch (MaterializedRelationsException e)
+        {
+            // The group's store failed, not a source: said as such, with its detail kept in the log.
+            LogLookupFailed(e, lookupId, person.Subject);
+            return Error($"The materialized relations of the group '{e.Partition}' could not be read, so the lookup was not answered. This is a failure, not a refusal: nothing is known about what they hold.");
+        }
         catch (Exception e) when (e is not OperationCanceledException)
         {
             // A source that fails is a fault, not a refusal. Its detail (hosts, server messages) stays in the log.

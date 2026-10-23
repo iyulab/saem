@@ -68,6 +68,31 @@ public sealed class LookupToolTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// A group store that cannot be reached is a failure of that store — an error that says so, not a refusal
+    /// and not a source's failure — and its detail stays in the log.
+    /// </summary>
+    [Fact]
+    public async Task A_group_store_that_cannot_be_reached_is_a_failure_of_that_store_not_a_refusal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var server = await TestServer.StartAsync(OntologyJson, new FakeLogins(new() { ["alice"] = new() }), new Dictionary<string, string?>
+        {
+            ["Saem:Materialization:BaseIri"] = "https://example.org/ontology/",
+            // The discard port: nothing listens there.
+            ["Saem:Materialization:Groups:g-plant:Url"] = "http://127.0.0.1:9/",
+        });
+        await using var alice = await server.ClientAsync(TestServer.Token("alice", groups: ["g-plant"]), ct);
+
+        var result = await alice.CallToolAsync("lookup", Call("Item", "I-200", ["producedBy"], ["note"]), cancellationToken: ct);
+
+        Assert.True(result.IsError);
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
+        Assert.Contains("materialized relations of the group 'g-plant' could not be read", text, StringComparison.Ordinal);
+        Assert.Contains("not a refusal", text, StringComparison.Ordinal);
+        Assert.Contains(server.Logs.Lines, l => l.Contains("failed", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// T-41 through the tool: the server keeps no group's partition for this person (it keeps none at all),
     /// so a relation walked backwards is refused for that reason — an answer, not an error.
     /// </summary>

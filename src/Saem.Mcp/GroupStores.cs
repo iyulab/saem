@@ -96,7 +96,17 @@ internal sealed class GroupRelations(IReadOnlyList<GroupStore> stores, EntityIri
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var store = stores.Single(s => s.Group == partition).Edges;
-        await foreach (var edge in store.LeadingToAsync(relation.Name, iris!.For(relation.To, toKey), cancellationToken).ConfigureAwait(false))
+        List<MaterializedEdge> edges;
+        try
+        {
+            edges = await store.LeadingToAsync(relation.Name, iris!.For(relation.To, toKey), cancellationToken).ToListAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is EdgeStoreException or HttpRequestException or TaskCanceledException { InnerException: TimeoutException })
+        {
+            throw MaterializedRelationsException.For(partition, e);
+        }
+
+        foreach (var edge in edges)
         {
             // An edge naming its entity under another base or type was not built by this deployment's pass.
             if (iris.KeyOf(relation.From, edge.From) is { } key)

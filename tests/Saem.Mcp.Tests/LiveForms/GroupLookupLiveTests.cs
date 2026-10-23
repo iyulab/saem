@@ -11,8 +11,9 @@ namespace Saem.Mcp.Tests.LiveForms;
 /// H2b's question on the rig (D-22): which work orders make item I-100 — a relation walked backwards, which
 /// only the edges materialized for a group answer. Each group's edges are built from what the mes source
 /// shows that group's account (g_plant every line, g_office line 1) into the group's own store; the server
-/// reads a person's groups from the issuer's token. pat is in g-plant and reads mes as alice does; olive is in
-/// g-office and reads it as bob does; nobody is in no group. The line-2 work order is the canary.
+/// reads a person's groups from the issuer's token. pat is in g-plant and reads mes as alice does; quinn is in
+/// g-plant too but reads mes as bob does; olive is in g-office and reads it as bob does; nobody is in no group.
+/// The line-2 work order is the canary.
 /// </summary>
 public sealed class GroupLookupLiveTests : IAsyncLifetime
 {
@@ -73,6 +74,8 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
             ["Saem:Sources:Postgres:mes"] = Mes,
             ["Saem:Sources:PasswordLogins:mes:pat:User"] = "alice_pw",
             ["Saem:Sources:PasswordLogins:mes:pat:Password"] = "rig-alice-local-only",
+            ["Saem:Sources:PasswordLogins:mes:quinn:User"] = "bob_pw",
+            ["Saem:Sources:PasswordLogins:mes:quinn:Password"] = "rig-bob-local-only",
             ["Saem:Sources:PasswordLogins:mes:olive:User"] = "bob_pw",
             ["Saem:Sources:PasswordLogins:mes:olive:Password"] = "rig-bob-local-only",
             ["Saem:Sources:PasswordLogins:mes:nobody:User"] = "alice_pw",
@@ -121,6 +124,21 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
         Assert.DoesNotContain("WO-3", forOlive.GetRawText(), StringComparison.Ordinal);
         var source = forPat.GetProperty("claims")[1].GetProperty("sources")[0];
         Assert.Equal(("mes", "work_orders", "WO-3"), (source.GetProperty("system").GetString(), source.GetProperty("table").GetString(), source.GetProperty("record").GetString()));
+    }
+
+    /// <summary>
+    /// R-5: the edges are the group's, the answer is the person's. quinn's group holds the canary's edge, but the
+    /// source does not show quinn the canary's row, so quinn's answer is what pat's would be minus that row.
+    /// </summary>
+    [Fact]
+    public async Task Within_one_group_each_person_is_answered_only_what_the_source_shows_them()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var forQuinn = await AskAsync("quinn", ct);
+
+        Assert.Equal([("WO-1", 50, "g-plant")], Claims(forQuinn));
+        Assert.DoesNotContain("WO-3", forQuinn.GetRawText(), StringComparison.Ordinal);
     }
 
     /// <summary>T-41: someone in no group the server keeps edges for sees nothing materialized — refused for that reason.</summary>

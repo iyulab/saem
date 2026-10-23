@@ -42,11 +42,11 @@ internal sealed class TestServer : IAsyncDisposable
 
     public Uri Endpoint => new(_app.Urls.First() + "/mcp");
 
-    /// <summary>The server with the test's signing key and in-memory sources.</summary>
-    public static Task<TestServer> StartAsync(string ontologyJson, ISourceLogins logins) =>
+    /// <summary>The server with the test's signing key and in-memory sources, and any further <paramref name="settings"/>.</summary>
+    public static Task<TestServer> StartAsync(string ontologyJson, ISourceLogins logins, Dictionary<string, string?>? settings = null) =>
         StartAsync(
             ontologyJson,
-            new Dictionary<string, string?> { ["Saem:Identity:Authority"] = Issuer, ["Saem:Identity:Audience"] = Audience },
+            new Dictionary<string, string?>(settings ?? []) { ["Saem:Identity:Authority"] = Issuer, ["Saem:Identity:Audience"] = Audience },
             services =>
             {
                 services.AddSingleton(logins);
@@ -90,12 +90,17 @@ internal sealed class TestServer : IAsyncDisposable
         return new TestServer(app, ontologyFile, logs);
     }
 
-    public static string Token(string? subject, string audience = Audience, string? actor = null)
+    public static string Token(string? subject, string audience = Audience, string? actor = null, string[]? groups = null)
     {
         var claims = new Dictionary<string, object>();
         if (subject is not null)
         {
             claims["sub"] = subject;
+        }
+
+        if (groups is not null)
+        {
+            claims["groups"] = groups;
         }
 
         if (actor is not null)

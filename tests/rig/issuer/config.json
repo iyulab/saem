@@ -17,6 +17,16 @@
         },
         {
           "requestParam": "client_id",
+          "match": "quinn",
+          "claims": {
+            "sub": "${clientId}",
+            "scope": "${scope}",
+            "aud": ["${audience}"],
+            "groups": ["g-plant"]
+          }
+        },
+        {
+          "requestParam": "client_id",
           "match": "olive",
           "claims": {
             "sub": "${clientId}",
