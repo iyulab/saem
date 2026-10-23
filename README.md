@@ -289,7 +289,10 @@ Either way the source's rules decide which rows come back.
 the table of every type a relation leaves and gives an edge per row whose relation field holds a key — the
 two entities' IRIs (`EntityIris`: the base, the type and the key, the same on every pass and with no group in
 it) and the record the edge was read from, never the record's fields. A row the group may not see leaves no
-edge. Storing a group's edges where only that group's account can reach them is not built yet.
+edge. `FormbaseEdgeStore` keeps a group's edges in that group's own Formbase — one started over the group's
+MorphDB project with a secret confined to it, so no other group's store or account reaches them. The edges
+are one form type whose declaration has the edge's six text fields and nothing else; a pass sends only the
+edges that changed, corrects an entity that now leads elsewhere, and retires the edges it no longer finds.
 
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its

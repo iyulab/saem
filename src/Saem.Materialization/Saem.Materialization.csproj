@@ -4,8 +4,8 @@
     Materialization: the instance edges of the ontology's relations, built ahead of a question from what
     one group may read — read through sessions opened with that group's account, so a row the group may
     not see leaves no edge. An edge carries which entity leads to which and the record it was read from,
-    never the record's body. Writing the edges into the group's own store is the next step; nothing here
-    writes.
+    never the record's body. The edges are kept in the group's own Formbase, written over its HTTP surface
+    with nothing but the edge's own fields.
   -->
 
   <ItemGroup>

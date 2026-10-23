@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -8,32 +7,28 @@ namespace Saem.Mcp.Tests.LiveForms;
 
 /// <summary>
 /// Formbase over the rig's forms source, for one test class: a MorphDB project of its own, and Formbase
-/// running as its published image on the rig's network — its own stream in the rig's database (a schema
-/// of its own per run), its projected tables in that project, written with the master secret. Started
-/// here because Formbase needs the project to exist before it starts.
+/// (<see cref="RigFormbase"/>) projecting into it with the master secret. Started here because Formbase
+/// needs the project to exist before it starts.
 /// </summary>
 internal sealed class FormsRig : IAsyncDisposable
 {
     private static readonly string Issuer = Required("SAEM_RIG_ISSUER");
     private static readonly string Forms = Required("SAEM_RIG_FORMS");
     private static readonly string MasterSecret = Required("SAEM_RIG_FORMS_MASTER_SECRET");
-    private static readonly string FormbaseImage = Environment.GetEnvironmentVariable("SAEM_RIG_FORMBASE_IMAGE") ?? "ghcr.io/iyulab/formbase:0.34.0";
-    private static readonly string Network = Environment.GetEnvironmentVariable("SAEM_RIG_NETWORK") ?? "saem-rig_default";
 
-    private readonly string _container;
+    private readonly RigFormbase _formbase;
 
-    private FormsRig(Guid project, string container, HttpClient formbase)
+    private FormsRig(Guid project, RigFormbase formbase)
     {
         Project = project;
-        _container = container;
-        Formbase = formbase;
+        _formbase = formbase;
     }
 
     /// <summary>The MorphDB project Formbase projects into.</summary>
     public Guid Project { get; }
 
     /// <summary>Formbase's HTTP API.</summary>
-    public HttpClient Formbase { get; }
+    public HttpClient Formbase => _formbase.Http;
 
     /// <summary>The server settings that read the forms source as the person whose token reached saem.</summary>
     public Dictionary<string, string?> ServerSettings => new()
@@ -56,21 +51,7 @@ internal sealed class FormsRig : IAsyncDisposable
         created.EnsureSuccessStatusCode();
         var project = (await created.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("id").GetGuid();
 
-        var container = (await DockerAsync(
-        [
-            "run", "-d", "--network", Network, "-p", "127.0.0.1::8080",
-            "-e", "Formbase__Store=Durable",
-            "-e", "ConnectionStrings__Formbase=Host=forms-db;Database=formbase;Username=formbase;Password=rig-formbase-local-only",
-            "-e", $"Formbase__Schema=fb_{project:N}",
-            "-e", "Formbase__MorphDb__Url=http://forms:8080",
-            "-e", $"Formbase__MorphDb__ProjectId={project}",
-            "-e", $"Formbase__MorphDb__Secret={MasterSecret}",
-            FormbaseImage,
-        ], ct)).Trim();
-        var port = (await DockerAsync(["port", container, "8080"], ct)).Split('\n')[0].Split(':')[^1].Trim();
-        var rig = new FormsRig(project, container, new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") });
-        await rig.WaitHealthyAsync(ct);
-        return rig;
+        return new FormsRig(project, await RigFormbase.StartAsync(project, MasterSecret, ct));
     }
 
     /// <summary>Declares a form type whose projected table is <paramref name="table"/>.</summary>
@@ -124,8 +105,7 @@ internal sealed class FormsRig : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        Formbase.Dispose();
-        await DockerAsync(["rm", "-f", _container], CancellationToken.None);
+        await _formbase.DisposeAsync();
         using var master = Master();
         await master.DeleteAsync($"api/projects/{Project}");
     }
@@ -138,44 +118,5 @@ internal sealed class FormsRig : IAsyncDisposable
         var master = new HttpClient { BaseAddress = new Uri(Forms) };
         master.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", MasterSecret);
         return master;
-    }
-
-    private async Task WaitHealthyAsync(CancellationToken ct)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(60);
-        while (true)
-        {
-            try
-            {
-                if ((await Formbase.GetAsync("health", ct)).IsSuccessStatusCode)
-                {
-                    return;
-                }
-            }
-            catch (HttpRequestException) when (DateTime.UtcNow < deadline)
-            {
-            }
-
-            if (DateTime.UtcNow >= deadline)
-            {
-                throw new TimeoutException("Formbase did not become healthy: " + await DockerAsync(["logs", "--tail", "20", _container], ct));
-            }
-
-            await Task.Delay(500, ct);
-        }
-    }
-
-    private static async Task<string> DockerAsync(string[] arguments, CancellationToken ct)
-    {
-        using var docker = Process.Start(new ProcessStartInfo("docker", arguments)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        })!;
-        var stdout = docker.StandardOutput.ReadToEndAsync(ct);
-        var stderr = docker.StandardError.ReadToEndAsync(ct);
-        await docker.WaitForExitAsync(ct);
-        Assert.True(docker.ExitCode == 0, $"docker {string.Join(' ', arguments)} failed: {await stderr}");
-        return await stdout;
     }
 }
