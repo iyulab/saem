@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The materializing pass as a command a deployment schedules, one group per run: the ontology from its
+    catalog file, the sources read as that group's accounts, the edges written into that group's own store.
+    A run holds one group's secrets only, so a scheduler gives each group's run its own environment.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>saem-materialize</AssemblyName>
+    <RootNamespace>Saem.Materialization.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Saem.Materialization\Saem.Materialization.csproj" />
+    <ProjectReference Include="..\Saem.Connectors.Postgres\Saem.Connectors.Postgres.csproj" />
+    <ProjectReference Include="..\Saem.Connectors.MySql\Saem.Connectors.MySql.csproj" />
+    <ProjectReference Include="..\Saem.Connectors.MorphDb\Saem.Connectors.MorphDb.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Saem.Materialization.Tests" />
+  </ItemGroup>
+
+</Project>

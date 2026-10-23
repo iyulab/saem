@@ -304,6 +304,12 @@ edges that changed, corrects an entity that now leads elsewhere, and retires the
 The server reads a person's groups from their token's `groups` claim and each group's store from
 `Saem:Materialization` (the base IRI the pass named entities under, and each group's Formbase).
 
+`saem-materialize` is the pass as a command a deployment schedules, one group per run: the catalog, a
+sources file saying where each system is and which login the group's account uses, the group's store and
+the base IRI. Each account's secret comes from the environment (`SAEM_SOURCE_SECRET_<SYSTEM>`), so a run
+holds one group's secrets only. A system the relations need but the sources file does not name is refused
+before the store is touched; the run reports how many edges it wrote, left unchanged and retired.
+
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its
 own interface: the session logs in with the person's credential (`PostgresSource.As(user, secret)`,

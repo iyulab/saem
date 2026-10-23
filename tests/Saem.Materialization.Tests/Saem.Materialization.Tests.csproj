@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Saem.Materialization\Saem.Materialization.csproj" />
+    <ProjectReference Include="..\..\src\Saem.Materialization.Cli\Saem.Materialization.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>
