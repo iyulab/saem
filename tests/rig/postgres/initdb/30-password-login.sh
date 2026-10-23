@@ -22,6 +22,12 @@ CREATE ROLE alice_pw LOGIN PASSWORD 'rig-alice-local-only' IN ROLE alice, rig_pa
 CREATE ROLE bob_pw LOGIN PASSWORD 'rig-bob-local-only' IN ROLE bob, rig_password_login;
 ALTER ROLE alice_pw SET default_transaction_read_only = on;
 ALTER ROLE bob_pw SET default_transaction_read_only = on;
+-- The groups' accounts, which materialization reads as (saem D-22): one login per group, a member of
+-- the group's role, so the group's row rules are what a pass reads under.
+CREATE ROLE g_plant_pw LOGIN PASSWORD 'rig-plant-local-only' IN ROLE g_plant, rig_password_login;
+CREATE ROLE g_office_pw LOGIN PASSWORD 'rig-office-local-only' IN ROLE g_office, rig_password_login;
+ALTER ROLE g_plant_pw SET default_transaction_read_only = on;
+ALTER ROLE g_office_pw SET default_transaction_read_only = on;
 DO $$
 BEGIN
     FOR i IN 1..50 LOOP
