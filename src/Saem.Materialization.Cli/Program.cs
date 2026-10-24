@@ -29,10 +29,11 @@ if (args is ["check", .. var checkArgs])
 
     try
     {
-        var (catalog, sourcesFile) = CheckRun.Parse(checkArgs);
+        var (catalog, sourcesFile, beforeFile) = CheckRun.Parse(checkArgs);
         var declared = await new FileOntologyCatalog(catalog).GetAsync(cancellation.Token);
+        var before = beforeFile is null ? null : await new FileOntologyCatalog(beforeFile).GetAsync(cancellation.Token);
         using var accounts = GroupSources.Load(await File.ReadAllTextAsync(sourcesFile, cancellation.Token), Environment.GetEnvironmentVariable);
-        return await CheckRun.RunAsync(declared, accounts.Openers, Console.Out, cancellation.Token) ? 0 : 1;
+        return await CheckRun.RunAsync(declared, accounts.Openers, Console.Out, cancellation.Token, before) ? 0 : 1;
     }
     catch (MaterializeUsageException e)
     {

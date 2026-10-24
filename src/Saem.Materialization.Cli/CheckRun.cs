@@ -1,3 +1,4 @@
+using System.Globalization;
 using Saem.Ontology;
 using Saem.Query;
 
@@ -13,26 +14,30 @@ internal static class CheckRun
         saem-materialize check — check the declarations against the sources, as one account.
 
         Usage:
-          saem-materialize check --catalog <file> --sources <file>
+          saem-materialize check --catalog <file> --sources <file> [--before <file>]
 
           --catalog <file>               The ontology declarations to check.
+          --before <file>                The declarations the catalog is to replace: checked against the same sources,
+                                         and what changes between the two is reported — a change simulated before it
+                                         is put in force.
           --sources <file>               As for a pass: system -> how the account reads it. Its secrets come from
                                          SAEM_SOURCE_SECRET_<SYSTEM>.
 
         Every declared table is read whole as that account: whether it and its columns are there, whether a key
         names one row, whether a number key spells an integer, whether the record columns are filled, and how many
         of each relation's values name an entity of the type it leads to. Findings cite up to five records by key —
-        source values: keep the report as you keep the server's logs. Exit status 1 when a declaration does not hold.
+        source values: keep the report as you keep the server's logs. Exit status 1 when a declaration does not hold —
+        with --before, when the change makes one hold for fewer rows than it did.
         """;
 
-    /// <summary>The catalog and sources files a check is told.</summary>
+    /// <summary>The catalog, sources and (when given) before files a check is told.</summary>
     /// <exception cref="MaterializeUsageException">The command line is incomplete or malformed.</exception>
-    public static (string Catalog, string Sources) Parse(IReadOnlyList<string> args)
+    public static (string Catalog, string Sources, string? Before) Parse(IReadOnlyList<string> args)
     {
-        string? catalog = null, sources = null;
+        string? catalog = null, sources = null, before = null;
         for (var i = 0; i < args.Count; i += 2)
         {
-            if (args[i] is not ("--catalog" or "--sources"))
+            if (args[i] is not ("--catalog" or "--sources" or "--before"))
             {
                 throw new MaterializeUsageException($"Unknown argument '{args[i]}'.");
             }
@@ -42,22 +47,32 @@ internal static class CheckRun
                 throw new MaterializeUsageException($"{args[i]} needs a value.");
             }
 
-            if (args[i] == "--catalog")
+            switch (args[i])
             {
-                catalog = args[i + 1];
-            }
-            else
-            {
-                sources = args[i + 1];
+                case "--catalog":
+                    catalog = args[i + 1];
+                    break;
+                case "--sources":
+                    sources = args[i + 1];
+                    break;
+                default:
+                    before = args[i + 1];
+                    break;
             }
         }
 
         return (catalog ?? throw new MaterializeUsageException("--catalog names the declarations to check."),
-            sources ?? throw new MaterializeUsageException("--sources names how the account reads each system."));
+            sources ?? throw new MaterializeUsageException("--sources names how the account reads each system."),
+            before);
     }
 
-    /// <summary>Runs the check and writes its findings; true when every declaration holds.</summary>
-    public static async Task<bool> RunAsync(Ontology.Ontology ontology, IReadOnlyDictionary<string, SourceOpener> openers, TextWriter output, CancellationToken cancellationToken)
+    /// <summary>
+    /// Runs the check and writes its findings; true when every declaration holds. With <paramref name="before"/>, the
+    /// declarations it is to replace are checked against the same sources too, what changes is written after the
+    /// findings, and true means the change makes no declaration hold for fewer rows.
+    /// </summary>
+    public static async Task<bool> RunAsync(
+        Ontology.Ontology ontology, IReadOnlyDictionary<string, SourceOpener> openers, TextWriter output, CancellationToken cancellationToken, Ontology.Ontology? before = null)
     {
         var report = await new DeclarationCheck(ontology).RunAsync(new PersonSessions(openers), cancellationToken).ConfigureAwait(false);
         foreach (var finding in report.Findings)
@@ -71,6 +86,26 @@ internal static class CheckRun
         await output.WriteLineAsync(violations == 0
             ? "Every declaration holds for the rows this account reads."
             : $"{violations} declaration finding(s) do not hold for the rows this account reads.").ConfigureAwait(false);
-        return violations == 0;
+        if (before is null)
+        {
+            return violations == 0;
+        }
+
+        var differences = report.Against(await new DeclarationCheck(before).RunAsync(new PersonSessions(openers), cancellationToken).ConfigureAwait(false));
+        await output.WriteLineAsync("Against the declarations it replaces:").ConfigureAwait(false);
+        foreach (var difference in differences)
+        {
+            var subject = difference.Relation is null ? difference.Type : $"{difference.Type}.{difference.Relation}";
+            var mark = difference.IsWorse ? "  WORSE" : "       ";
+            await output.WriteLineAsync($"{mark} {subject} [{difference.Kind}] {difference.Before?.ToString(CultureInfo.InvariantCulture) ?? "-"} -> {difference.After?.ToString(CultureInfo.InvariantCulture) ?? "-"}").ConfigureAwait(false);
+        }
+
+        var worse = differences.Count(d => d.IsWorse);
+        await output.WriteLineAsync(differences.Count == 0
+            ? "The change finds the same against the sources."
+            : worse == 0
+                ? "The change makes no declaration hold for fewer rows."
+                : $"{worse} finding(s) are worse with the change.").ConfigureAwait(false);
+        return worse == 0;
     }
 }

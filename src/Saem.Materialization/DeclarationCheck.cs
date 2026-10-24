@@ -169,7 +169,38 @@ public sealed class DeclarationCheck(Ontology.Ontology ontology)
 public sealed record CheckReport(IReadOnlyList<CheckFinding> Findings)
 {
     /// <summary>The findings that say a declaration does not hold for the rows the account reads.</summary>
-    public IReadOnlyList<CheckFinding> Violations => [.. Findings.Where(f => f.Kind is not ("read" or "resolved"))];
+    public IReadOnlyList<CheckFinding> Violations => [.. Findings.Where(f => f.IsViolation)];
+
+    /// <summary>
+    /// What changed from <paramref name="before"/> — the same sources checked against the declarations a change replaces —
+    /// to this report: each finding whose count differs, or that one of the two has and the other has not, by type,
+    /// relation and kind. The change a catalog makes, simulated against the sources before it is put in force.
+    /// </summary>
+    public IReadOnlyList<CheckDifference> Against(CheckReport before)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        static Dictionary<(string, string?, string), int> Counts(CheckReport report) =>
+            report.Findings.ToDictionary(f => (f.Type, f.Relation, f.Kind), f => f.Count);
+
+        var was = Counts(before);
+        var now = Counts(this);
+        return [.. was.Keys.Union(now.Keys)
+            .Select(k => new CheckDifference(k.Item1, k.Item2, k.Item3, was.TryGetValue(k, out var b) ? b : null, now.TryGetValue(k, out var a) ? a : null))
+            .Where(d => d.Before != d.After)
+            .OrderBy(d => d.Type, StringComparer.Ordinal).ThenBy(d => d.Relation, StringComparer.Ordinal).ThenBy(d => d.Kind, StringComparer.Ordinal)];
+    }
+}
+
+/// <summary>A finding that differs between two checks of the same sources.</summary>
+/// <param name="Type">The entity type it is about.</param>
+/// <param name="Relation">The relation it is about, or null when it is about the type's own table.</param>
+/// <param name="Kind">The finding's kind.</param>
+/// <param name="Before">Its count in the check before; null when that check did not find it.</param>
+/// <param name="After">Its count in the check after; null when that check does not find it.</param>
+public sealed record CheckDifference(string Type, string? Relation, string Kind, int? Before, int? After)
+{
+    /// <summary>Whether the change makes a declaration hold for fewer rows: a violation found anew, or found of more of them.</summary>
+    public bool IsWorse => CheckFinding.IsViolationKind(Kind) && After is { } after && (Before is not { } before || after > before);
 }
 
 /// <summary>One finding of a check.</summary>
@@ -179,4 +210,10 @@ public sealed record CheckReport(IReadOnlyList<CheckFinding> Findings)
 /// <param name="What">The finding, in words.</param>
 /// <param name="Count">How many rows or values it is about.</param>
 /// <param name="Records">Up to <see cref="DeclarationCheck.SampleSize"/> of the records it is about, by key.</param>
-public sealed record CheckFinding(string Type, string? Relation, string Kind, string What, int Count, IReadOnlyList<string> Records);
+public sealed record CheckFinding(string Type, string? Relation, string Kind, string What, int Count, IReadOnlyList<string> Records)
+{
+    /// <summary>Whether it says a declaration does not hold — every kind but the counts <c>read</c> and <c>resolved</c>.</summary>
+    public bool IsViolation => IsViolationKind(Kind);
+
+    internal static bool IsViolationKind(string kind) => kind is not ("read" or "resolved");
+}

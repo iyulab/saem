@@ -412,7 +412,11 @@ the sources can say: a table or column that is not there, rows that share a key 
 key that spells no integer, an empty record column, and how many of each relation's values name an
 entity of the type it leads to. Findings hold for the rows that account may read, cite up to five
 records by key (keep the report as you keep the server's logs), and the exit status is 1 when a
-declaration does not hold.
+declaration does not hold. With `--before <file>` — the declarations a change is to replace — both are
+checked against the same sources and what changes is listed after the findings: each finding whose count
+differs, or that one has and the other has not, marked `WORSE` when a declaration would hold for fewer
+rows. The exit status is then 1 when the change makes something worse — a change simulated against the
+sources before it is put in force, beside `saem-author diff`'s breaking and additive vocabulary.
 
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its

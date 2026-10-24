@@ -105,6 +105,43 @@ public sealed class DeclarationCheckTests
     }
 
     /// <summary>Sessions over fixed tables, keyed by <c>system/table</c>; a table not given, or the failing one, cannot be read.</summary>
+    /// <summary>
+    /// SD-12 simulate ②: a change checked against the same sources before it is put in force. Declaring the item key as
+    /// text, not as the number it spells, leaves a work order's «0100» naming no item — worse, and said so by count.
+    /// </summary>
+    [Fact]
+    public async Task A_change_checked_against_the_same_sources_says_what_it_makes_worse()
+    {
+        var sessions = new Tables(new()
+        {
+            ["mes/work_orders"] = [Row("WO-1", ("item_code", "0100")), Row("WO-2", ("item_code", "100"))],
+            ["erp/items"] = [Row("100", ("item_name", "Bracket"))],
+            ["forms/inspections"] = [],
+        });
+        var textKeyed = Ontology.Ontology.Create(
+        [
+            .. Plant.EntityTypes.Values.Select(t => t.Name == "Item" ? t with { KeyKind = null } : t),
+            .. Plant.Relations.Values,
+        ]);
+
+        var before = await new DeclarationCheck(Plant).RunAsync(sessions, TestContext.Current.CancellationToken);
+        var after = await new DeclarationCheck(textKeyed).RunAsync(sessions, TestContext.Current.CancellationToken);
+        var differences = after.Against(before);
+
+        Assert.Equal(
+            [new CheckDifference("WorkOrder", "orders_item", "resolved", 0, null), new CheckDifference("WorkOrder", "orders_item", "unresolved", null, 1)],
+            differences);
+        Assert.Equal([false, true], differences.Select(d => d.IsWorse));
+        Assert.Empty(before.Against(before));
+        Assert.DoesNotContain(before.Against(after), d => d.IsWorse);
+
+        var output = new StringWriter();
+        var openers = new Dictionary<string, SourceOpener> { ["mes"] = ct => sessions.OpenAsync("mes", ct), ["erp"] = ct => sessions.OpenAsync("erp", ct), ["forms"] = ct => sessions.OpenAsync("forms", ct) };
+        Assert.False(await Cli.CheckRun.RunAsync(textKeyed, openers, output, TestContext.Current.CancellationToken, before: Plant));
+        Assert.Contains("  WORSE WorkOrder.orders_item [unresolved] - -> 1", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("1 finding(s) are worse with the change.", output.ToString(), StringComparison.Ordinal);
+    }
+
     private sealed class Tables(Dictionary<string, List<SourceRow>> tables, string? failing = null) : ISourceSessions
     {
         public int Closed { get; private set; }
