@@ -167,6 +167,19 @@ public class LookupWalkerTests
         Assert.Equal([Backwards("I-100", "WO-1", "g-plant")], claims[0].Path);
     }
 
+    [Fact]
+    public async Task A_hop_walked_backwards_says_when_its_partition_was_read()
+    {
+        var asOf = new DateTimeOffset(2026, 10, 24, 22, 0, 0, TimeSpan.Zero);
+        var plant = new Partitions { ["g-plant"] = Plant["g-plant"], ["g-office"] = [] };
+        plant.AsOf["g-plant"] = asOf;
+
+        var answer = await Back(new FakeSessions("alice"), plant, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        Assert.All(Assert.IsType<Answered>(answer).Claims, c => Assert.Equal(asOf, Assert.Single(c.Path).PartitionAsOf));
+        Assert.Equal(["g-plant"], plant.AsOfAsked);
+    }
+
     /// <summary>The edges are the group's; whether the person may read each entity is still the source's (R-5).</summary>
     [Fact]
     public async Task An_entity_the_person_may_not_read_is_not_answered_though_their_group_has_its_edge()
@@ -234,8 +247,18 @@ public class LookupWalkerTests
     {
         IReadOnlyList<string> IMaterializedRelations.Partitions => [.. Keys.Order(StringComparer.Ordinal)];
 
+        public Dictionary<string, DateTimeOffset> AsOf { get; } = [];
+
+        public List<string> AsOfAsked { get; } = [];
+
         public IAsyncEnumerable<string> LeadingToAsync(string partition, RelationDeclaration relation, string toKey, CancellationToken cancellationToken = default) =>
             this[partition].Where(e => e.Relation == relation.Name && e.To == toKey).Select(e => e.From).ToAsyncEnumerable();
+
+        public ValueTask<DateTimeOffset?> AsOfAsync(string partition, CancellationToken cancellationToken = default)
+        {
+            AsOfAsked.Add(partition);
+            return ValueTask.FromResult<DateTimeOffset?>(AsOf.TryGetValue(partition, out var asOf) ? asOf : null);
+        }
     }
 
     private sealed class FixedCatalog(Ontology.Ontology ontology) : IOntologyCatalog

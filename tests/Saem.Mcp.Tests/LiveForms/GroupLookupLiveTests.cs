@@ -101,6 +101,11 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
         await using var client = await _server.ClientAsync(await FormsRig.TokenAsync(person, ct), ct);
         var result = await client.CallToolAsync("lookup", WhoMakesI100, cancellationToken: ct);
         Assert.NotEqual(true, result.IsError);
+        // Every hop walked backwards says when its partition's edges were read.
+        if (result.StructuredContent!.Value.TryGetProperty("claims", out var claims))
+        {
+            Assert.All(claims.EnumerateArray(), c => Assert.True(c.GetProperty("path")[0].TryGetProperty("partitionAsOf", out _)));
+        }
         return result.StructuredContent!.Value;
     }
 

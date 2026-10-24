@@ -239,7 +239,10 @@ file, not a changeset — nothing is simulated or applied against the sources.
 
 Each source an answer cites says when saem read it (`readAt`): every source is read at the moment the
 lookup is asked, as the person, so that is the time the value is as of — an agent holding the answer
-knows how old the fact is.
+knows how old the fact is. A relation walked backwards is found through edges built ahead of time, and
+its hop says when its group's edges were read from the sources (`partitionAsOf`): the entities it leads
+to are read again as the person, so what is stated of them is current, but one that came to lead there
+after that time has no edge yet and is not among the answers.
 
 An answer cites the record it read: by default the row's key, and where a table's rows are copies of
 records kept elsewhere, the columns a type declares as its `record` — joined with `/` when there are

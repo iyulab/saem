@@ -29,7 +29,7 @@ internal static class MaterializeRun
 
         var edges = new EdgeMaterializer(ontology, iris).MaterializeAsync(new PersonSessions(openers), cancellationToken);
         var write = await store.ReplaceAsync(edges, cancellationToken).ConfigureAwait(false);
-        await output.WriteLineAsync($"group {group}: {write.Written} edge(s) written, {write.Unchanged} unchanged, {write.Retired} retired.").ConfigureAwait(false);
+        await output.WriteLineAsync($"group {group}: {write.Written} edge(s) written, {write.Unchanged} unchanged, {write.Retired} retired; as of {write.ReadFrom:O}.").ConfigureAwait(false);
         return write;
     }
 }

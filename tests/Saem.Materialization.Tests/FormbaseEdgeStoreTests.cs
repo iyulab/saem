@@ -26,7 +26,7 @@ public sealed class FormbaseEdgeStoreTests
 
         var write = await new FormbaseEdgeStore(formbase.Client).ReplaceAsync(Of(Edge("WO-1", "I-1"), Edge("WO-2", "I-2")), TestContext.Current.CancellationToken);
 
-        Assert.Equal(new EdgeWrite(Written: 2, Unchanged: 0, Retired: 0), write);
+        Assert.Equal(new EdgeWrite(Written: 2, Unchanged: 0, Retired: 0), write with { ReadFrom = null });
         var declaration = Assert.IsType<JsonObject>(formbase.Declaration);
         Assert.Equal("saem_edges", (string?)declaration["tableName"]);
         Assert.Equal(
@@ -58,7 +58,7 @@ public sealed class FormbaseEdgeStoreTests
 
         var again = await store.ReplaceAsync(Of(Edge("WO-2", "I-2"), Edge("WO-1", "I-1")), TestContext.Current.CancellationToken);
 
-        Assert.Equal(new EdgeWrite(Written: 0, Unchanged: 2, Retired: 0), again);
+        Assert.Equal(new EdgeWrite(Written: 0, Unchanged: 2, Retired: 0), again with { ReadFrom = null });
         Assert.Equal(2, formbase.Stream.Count);
     }
 
@@ -71,7 +71,7 @@ public sealed class FormbaseEdgeStoreTests
 
         var next = await store.ReplaceAsync(Of(Edge("WO-1", "I-9")), TestContext.Current.CancellationToken);
 
-        Assert.Equal(new EdgeWrite(Written: 1, Unchanged: 0, Retired: 1), next);
+        Assert.Equal(new EdgeWrite(Written: 1, Unchanged: 0, Retired: 1), next with { ReadFrom = null });
         Assert.Equal([Edge("WO-1", "I-9")], await store.ReadAsync(TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken));
     }
 
@@ -131,5 +131,41 @@ public sealed class FormbaseEdgeStoreTests
             await Task.Yield();
             yield return edge;
         }
+    }
+
+    [Fact]
+    public async Task A_pass_files_when_it_began_reading_once_its_edges_are_in()
+    {
+        var formbase = new FakeFormbase();
+        var started = new DateTimeOffset(2026, 10, 25, 3, 0, 0, TimeSpan.Zero);
+        var store = new FormbaseEdgeStore(formbase.Client, time: new FixedClock(started));
+        Assert.Null(await store.AsOfAsync(TestContext.Current.CancellationToken));
+
+        var write = await store.ReplaceAsync(Of(Edge("WO-1", "I-1")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(started, write.ReadFrom);
+        Assert.Equal(started, await store.AsOfAsync(TestContext.Current.CancellationToken));
+        var pass = Assert.Single(formbase.Passes.Stream);
+        Assert.Equal("latest", pass.Key);
+        Assert.Equal(["read_from"], pass.Body!.Select(p => p.Key));
+        Assert.Equal("saem_edge_passes", (string?)formbase.Passes.Declaration!["tableName"]);
+    }
+
+    [Fact]
+    public async Task A_pass_that_fails_leaves_the_time_of_the_last_one_that_did_not()
+    {
+        var formbase = new FakeFormbase();
+        var first = new DateTimeOffset(2026, 10, 25, 3, 0, 0, TimeSpan.Zero);
+        await new FormbaseEdgeStore(formbase.Client, time: new FixedClock(first)).ReplaceAsync(Of(Edge("WO-1", "I-1")), TestContext.Current.CancellationToken);
+
+        var failing = new FormbaseEdgeStore(formbase.Client, time: new FixedClock(first.AddHours(1)));
+        await Assert.ThrowsAsync<EdgeStoreException>(() => failing.ReplaceAsync(Of(Edge("WO-1", "I-1"), Edge("WO-1", "I-2")), TestContext.Current.CancellationToken));
+
+        Assert.Equal(first, await failing.AsOfAsync(TestContext.Current.CancellationToken));
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 }

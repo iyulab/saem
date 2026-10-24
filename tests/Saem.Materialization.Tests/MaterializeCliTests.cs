@@ -88,8 +88,8 @@ public sealed class MaterializeCliTests
 
         var write = await MaterializeRun.RunAsync(Plant, openers, "g-plant", new EntityIris(new Uri("https://example.org/ontology/")), new FormbaseEdgeStore(formbase.Client), output, TestContext.Current.CancellationToken);
 
-        Assert.Equal(new EdgeWrite(1, 0, 0), write);
-        Assert.Equal("group g-plant: 1 edge(s) written, 0 unchanged, 0 retired.", output.ToString().Trim());
+        Assert.Equal(new EdgeWrite(1, 0, 0), write with { ReadFrom = null });
+        Assert.Equal($"group g-plant: 1 edge(s) written, 0 unchanged, 0 retired; as of {write.ReadFrom:O}.", output.ToString().Trim());
     }
 
     /// <summary>A system missing from the sources file is found before the pass, so the store is not left half replaced.</summary>

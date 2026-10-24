@@ -132,6 +132,10 @@ public sealed class LookupWalker
         var claims = new List<Claim>();
         foreach (var partition in relations.Partitions)
         {
+            // Asked once the partition leads to an entity the person may read: a partition with no answer here
+            // costs no second request.
+            DateTimeOffset? asOf = null;
+            var asked = false;
             await foreach (var key in relations.LeadingToAsync(partition, relation, to.Key, cancellationToken).ConfigureAwait(false))
             {
                 var row = await ReadAsync(open, sessions, from, key, [.. plan.Read, relation.Via], cancellationToken).ConfigureAwait(false);
@@ -140,7 +144,13 @@ public sealed class LookupWalker
                     continue;
                 }
 
-                var back = new Hop(relation.Inverse!, to, new EntityKey(from.Name, row.Key)) { Partition = partition };
+                if (!asked)
+                {
+                    asOf = await relations.AsOfAsync(partition, cancellationToken).ConfigureAwait(false);
+                    asked = true;
+                }
+
+                var back = new Hop(relation.Inverse!, to, new EntityKey(from.Name, row.Key)) { Partition = partition, PartitionAsOf = asOf };
                 claims.AddRange(Answer(from, row, time.GetUtcNow(), plan.Read, [.. hops, back]).Claims);
             }
         }

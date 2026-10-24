@@ -18,6 +18,13 @@ public interface IMaterializedRelations
     /// </summary>
     /// <exception cref="MaterializedRelationsException">The partition could not be read.</exception>
     IAsyncEnumerable<string> LeadingToAsync(string partition, RelationDeclaration relation, string toKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The time <paramref name="partition"/>'s edges are as of — when the pass that built them began reading
+    /// the sources — or null when the partition does not say.
+    /// </summary>
+    /// <exception cref="MaterializedRelationsException">The partition could not be read.</exception>
+    ValueTask<DateTimeOffset?> AsOfAsync(string partition, CancellationToken cancellationToken = default);
 }
 
 /// <summary>A lookup whose person reads no materialized partition.</summary>
@@ -36,6 +43,9 @@ public sealed class NoMaterializedRelations : IMaterializedRelations
     /// <inheritdoc />
     public IAsyncEnumerable<string> LeadingToAsync(string partition, RelationDeclaration relation, string toKey, CancellationToken cancellationToken = default) =>
         AsyncEnumerable.Empty<string>();
+
+    /// <inheritdoc />
+    public ValueTask<DateTimeOffset?> AsOfAsync(string partition, CancellationToken cancellationToken = default) => ValueTask.FromResult<DateTimeOffset?>(null);
 }
 
 /// <summary>

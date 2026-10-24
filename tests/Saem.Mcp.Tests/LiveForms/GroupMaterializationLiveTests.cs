@@ -50,8 +50,10 @@ public sealed class GroupMaterializationLiveTests : IAsyncLifetime
         var first = await plant.ReplaceAsync(Of(Edge(Canary, "I-100"), Edge("WO-2", "I-200")), ct);
         var again = await plant.ReplaceAsync(Of(Edge(Canary, "I-100"), Edge("WO-2", "I-200")), ct);
 
-        Assert.Equal(new EdgeWrite(Written: 2, Unchanged: 0, Retired: 0), first);
-        Assert.Equal(new EdgeWrite(Written: 0, Unchanged: 2, Retired: 0), again);
+        Assert.Equal(new EdgeWrite(Written: 2, Unchanged: 0, Retired: 0), first with { ReadFrom = null });
+        Assert.Equal(new EdgeWrite(Written: 0, Unchanged: 2, Retired: 0), again with { ReadFrom = null });
+        Assert.Equal(again.ReadFrom, await plant.AsOfAsync(ct));
+        Assert.Null(await new FormbaseEdgeStore(_office.Formbase).AsOfAsync(ct));
         Assert.Equal([Edge("WO-2", "I-200"), Edge(Canary, "I-100")], await plant.ReadAsync(ct).ToListAsync(ct));
         Assert.Empty(await new FormbaseEdgeStore(_office.Formbase).ReadAsync(ct).ToListAsync(ct));
 
@@ -103,8 +105,8 @@ public sealed class GroupMaterializationLiveTests : IAsyncLifetime
         var office = await new FormbaseEdgeStore(_office.Formbase).ReplaceAsync(
             materializer.MaterializeAsync(As(mes, "g_office_pw", "rig-office-local-only"), ct), ct);
 
-        Assert.Equal(new EdgeWrite(Written: 3, Unchanged: 0, Retired: 0), plant);
-        Assert.Equal(new EdgeWrite(Written: 2, Unchanged: 0, Retired: 0), office);
+        Assert.Equal(new EdgeWrite(Written: 3, Unchanged: 0, Retired: 0), plant with { ReadFrom = null });
+        Assert.Equal(new EdgeWrite(Written: 2, Unchanged: 0, Retired: 0), office with { ReadFrom = null });
         var plantEdges = await new FormbaseEdgeStore(_plant.Formbase).ReadAsync(ct).ToListAsync(ct);
         var officeEdges = await new FormbaseEdgeStore(_office.Formbase).ReadAsync(ct).ToListAsync(ct);
         Assert.Contains(Edge("WO-3", "I-100"), plantEdges);

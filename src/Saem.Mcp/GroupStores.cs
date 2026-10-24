@@ -115,4 +115,16 @@ internal sealed class GroupRelations(IReadOnlyList<GroupStore> stores, EntityIri
             }
         }
     }
+
+    public async ValueTask<DateTimeOffset?> AsOfAsync(string partition, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await stores.Single(s => s.Group == partition).Edges.AsOfAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is EdgeStoreException or HttpRequestException or TaskCanceledException { InnerException: TimeoutException })
+        {
+            throw MaterializedRelationsException.For(partition, e);
+        }
+    }
 }

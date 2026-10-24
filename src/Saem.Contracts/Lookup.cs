@@ -138,6 +138,15 @@ public sealed record Hop(string Relation, EntityKey From, EntityKey To)
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Partition { get; init; }
+
+    /// <summary>
+    /// When <see cref="Partition"/>'s edges were read from the sources — the start of the pass that built
+    /// them; null when the hop followed a field, or the partition does not say. The entity the hop led to was
+    /// read again as the person, so what is stated of it is current; what the time bounds is the walk: an
+    /// entity that came to lead here after it has no edge yet, and is not among the answers.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? PartitionAsOf { get; init; }
 }
 
 /// <summary>
