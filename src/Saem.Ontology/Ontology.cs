@@ -157,30 +157,22 @@ public sealed class Ontology
             problems.Add($"The start names '{start.Name}' by '{where.Field}', which is not a field of '{start.Name}'.");
         }
 
-        var steps = new List<RelationDeclaration>();
-        RelationDeclaration? inverse = null;
+        var steps = new List<LookupStep>();
         var at = start;
         for (var i = 0; i < call.Path.Count; i++)
         {
             var name = call.Path[i];
             if (_inverses.TryGetValue(name, out var walkedBack))
             {
-                if (i != call.Path.Count - 1)
-                {
-                    // Backwards, a relation leads to many entities; a walk goes on from one.
-                    problems.Add($"Path step {i + 1}: '{name}' walks '{walkedBack.Name}' backwards, which only the last step of a path may do.");
-                    break;
-                }
-
                 if (!string.Equals(walkedBack.To, at.Name, StringComparison.Ordinal))
                 {
                     problems.Add($"Path step {i + 1}: '{name}' leaves '{walkedBack.To}', but the walk is at '{at.Name}'.");
                     break;
                 }
 
-                inverse = walkedBack;
+                steps.Add(new LookupStep(walkedBack, Backwards: true));
                 at = _types[walkedBack.From];
-                break;
+                continue;
             }
 
             if (!_relations.TryGetValue(name, out var relation))
@@ -195,7 +187,7 @@ public sealed class Ontology
                 break;
             }
 
-            steps.Add(relation);
+            steps.Add(new LookupStep(relation, Backwards: false));
             at = _types[relation.To];
         }
 
@@ -216,7 +208,7 @@ public sealed class Ontology
             throw new UnknownTermException(problems);
         }
 
-        return new LookupPlan(start, steps, at, call.Read) { Inverse = inverse };
+        return new LookupPlan(start, steps, at, call.Read);
     }
 
     private static bool Blank(params string?[] values) => values.Any(string.IsNullOrWhiteSpace);
@@ -224,18 +216,29 @@ public sealed class Ontology
 
 /// <summary>A lookup read in the ontology's terms — what to query, in which system, in which order.</summary>
 /// <param name="Start">The type the walk starts at.</param>
-/// <param name="Steps">The relations followed, in order.</param>
+/// <param name="Steps">The relations followed, in order, each forwards or backwards.</param>
 /// <param name="End">The type the walk ends at — the start type when there are no steps.</param>
 /// <param name="Read">The fields read on the end type, each one of its declared fields.</param>
 public sealed record LookupPlan(
     EntityTypeDeclaration Start,
-    IReadOnlyList<RelationDeclaration> Steps,
+    IReadOnlyList<LookupStep> Steps,
     EntityTypeDeclaration End,
-    IReadOnlyList<string> Read)
+    IReadOnlyList<string> Read);
+
+/// <summary>
+/// One step of a walk: a relation followed forwards — from an entity, through its field, to the one entity
+/// the field names — or backwards, from an entity to every entity whose field names it.
+/// </summary>
+/// <param name="Relation">The relation, as declared.</param>
+/// <param name="Backwards">Whether the step walks it backwards (by its <see cref="RelationDeclaration.Inverse"/>).</param>
+public sealed record LookupStep(RelationDeclaration Relation, bool Backwards)
 {
-    /// <summary>
-    /// The relation the last step walks backwards — from the entity <see cref="Steps"/> reach to every
-    /// entity of <see cref="End"/> that leads to it — or null when every step walks forwards.
-    /// </summary>
-    public RelationDeclaration? Inverse { get; init; }
+    /// <summary>The name the path gives the step: the relation's, or its inverse's when walked backwards.</summary>
+    public string Name => Backwards ? Relation.Inverse! : Relation.Name;
+
+    /// <summary>The type the step leaves.</summary>
+    public string Leaves => Backwards ? Relation.To : Relation.From;
+
+    /// <summary>The type the step reaches.</summary>
+    public string Reaches => Backwards ? Relation.From : Relation.To;
 }

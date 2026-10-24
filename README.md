@@ -201,7 +201,7 @@ relation and the system.
 
 A relation may also declare an `inverse` — its name walked backwards, from an entity to every entity
 that leads to it (`owl:inverseOf`). No single read finds every row that names an entity, so a backward
-step, which may only be a path's last, asks the edges materialized for the person's groups (below) which
+step — anywhere in a path — asks the edges materialized for the person's groups (below) which
 entities lead there, then reads each of them as the person and keeps only the ones the source shows and
 still says lead there: the edges find candidates, the answer is still the person's own reads. Each
 group's partition is answered on its own and the hop names it. A person in no group the deployment keeps

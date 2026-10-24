@@ -88,6 +88,93 @@ public class LookupWalkerTests
         Assert.False(answer.Partitions![0].Blocked);
     }
 
+    // SD-06: suppliers walked back to the items they supply, and on to the work orders that order those items.
+    private static readonly Declaration[] BothWays =
+    [
+        .. Rig.Where(d => d is not RelationDeclaration { Name: "supplied_by" }),
+        new RelationDeclaration("supplied_by", "Item", "supplier", "Supplier", Inverse: "supplies"),
+    ];
+
+    private static readonly Partitions Plant2 = new()
+    {
+        ["g-plant"] = [("supplied_by", "S-1", "I-100"), ("orders_item", "I-100", "WO-1"), ("orders_item", "I-100", "WO-3")],
+    };
+
+    private static LookupWalker Walking(int max = LookupWalker.DefaultMaxCandidatesPerStep) =>
+        new(new FixedCatalog(Ontology.Ontology.Create(BothWays)), new FixedClock(ReadAt), maxCandidatesPerStep: max);
+
+    /// <summary>SD-06: two steps walked backwards — every intermediate entity is read again as the person, and each answer carries the whole way back.</summary>
+    [Fact]
+    public async Task Two_steps_walked_backwards_answer_each_entity_the_way_back_reaches()
+    {
+        var answer = await Back(new FakeSessions("alice"), Plant2, "Supplier", "S-1", ["supplies", "ordered_by"], ["quantity"], Walking());
+
+        var claims = Assert.IsType<Answered>(answer).Claims;
+        Assert.Equal([("WO-1", 50), ("WO-3", 10)], claims.Select(c => (c.Entity.Key, c.Value.GetInt32())));
+        Assert.Equal(["supplies", "ordered_by"], claims[0].Path.Select(h => h.Relation));
+        Assert.Equal(new EntityKey("Item", "I-100"), claims[0].Path[0].To);
+        Assert.All(claims[0].Path, h => Assert.Equal("g-plant", h.Partition));
+        Assert.Equal([new PartitionRead("g-plant", null, Blocked: false, Incomplete: false)], answer.Partitions);
+    }
+
+    /// <summary>The person's own reads still decide at every step: bob does not see WO-3, so the partition is blocked and WO-1 alone is answered.</summary>
+    [Fact]
+    public async Task Each_step_walked_backwards_keeps_only_what_the_person_reads()
+    {
+        var answer = await Back(new FakeSessions("bob"), Plant2, "Supplier", "S-1", ["supplies", "ordered_by"], ["quantity"], Walking());
+
+        Assert.Equal(["WO-1"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Entity.Key));
+        Assert.True(Assert.Single(answer.Partitions!).Blocked);
+    }
+
+    /// <summary>An intermediate entity the person cannot read ends that way back there — and only that one.</summary>
+    [Fact]
+    public async Task An_intermediate_entity_the_person_cannot_read_ends_its_way_back()
+    {
+        var edges = new Partitions { ["g-plant"] = [("supplied_by", "S-1", "I-999"), .. Plant2["g-plant"]] };
+
+        var answer = await Back(new FakeSessions("alice"), edges, "Supplier", "S-1", ["supplies", "ordered_by"], ["quantity"], Walking());
+
+        Assert.Equal(["WO-1", "WO-3"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Entity.Key));
+        Assert.True(Assert.Single(answer.Partitions!).Blocked);
+        Assert.DoesNotContain("I-999", string.Join(' ', answer.Partitions![0].Statements), StringComparison.Ordinal);
+    }
+
+    /// <summary>A step walked backwards, then forwards: the walk goes on from each entity the backward step reached.</summary>
+    [Fact]
+    public async Task A_forward_step_goes_on_from_each_entity_a_backward_step_reached()
+    {
+        var answer = await Back(new FakeSessions("alice"), Plant2, "Supplier", "S-1", ["supplies", "supplied_by"], ["name"], Walking());
+
+        var claim = Assert.Single(Assert.IsType<Answered>(answer).Claims);
+        Assert.Equal(new EntityKey("Supplier", "S-1"), claim.Entity);
+        Assert.Equal(["supplies", "supplied_by"], claim.Path.Select(h => h.Relation));
+    }
+
+    /// <summary>D-84 ①: the limit bounds a step across all its ways back — none of the step's candidates is read when they exceed it.</summary>
+    [Fact]
+    public async Task The_limit_bounds_a_step_across_every_way_back()
+    {
+        var sessions = new FakeSessions("alice");
+
+        var thrown = await Assert.ThrowsAsync<TooBroadException>(() => Back(sessions, Plant2, "Supplier", "S-1", ["supplies", "ordered_by"], ["quantity"], Walking(max: 1)));
+
+        Assert.Equal((2, "ordered_by"), (thrown.AtHop, thrown.Relation));
+        Assert.DoesNotContain(sessions.Reads, r => r.StartsWith("mes work_orders", StringComparison.Ordinal));
+    }
+
+    /// <summary>A way back that ends at a later step is refused at that step, naming it.</summary>
+    [Fact]
+    public async Task A_walk_whose_every_way_back_ends_is_refused_at_that_step()
+    {
+        var edges = new Partitions { ["g-plant"] = [("supplied_by", "S-1", "I-100")] };
+
+        var answer = await Back(new FakeSessions("alice"), edges, "Supplier", "S-1", ["supplies", "ordered_by"], ["quantity"], Walking());
+
+        Assert.Equal(new Refusal(RefusalReason.NoVisibleResult, 2, "ordered_by", "mes"), Assert.IsType<Refused>(answer).Refusal);
+        Assert.NotNull(answer.Partitions);
+    }
+
     /// <summary>SD-17 ①: a claim carries its field's declared kind — a free-text value is marked as such — and nothing where none is declared.</summary>
     [Fact]
     public async Task A_claim_carries_the_kind_its_field_declares()

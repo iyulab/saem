@@ -66,7 +66,7 @@ public class OntologyTests
         var plan = Rig().Plan(new LookupCall(new EntityKey("WorkOrder", "WO-1"), ["orders_item", "supplied_by"], ["name"]));
 
         Assert.Equal(WorkOrder, plan.Start);
-        Assert.Equal([OrdersItem, SuppliedBy], plan.Steps);
+        Assert.Equal([new LookupStep(OrdersItem, false), new LookupStep(SuppliedBy, false)], plan.Steps);
         Assert.Equal(Supplier, plan.End);
         Assert.Equal("mes", plan.Start.System);
         Assert.Equal("erp", plan.End.System);
@@ -123,21 +123,25 @@ public class OntologyTests
         var plan = ontology.Plan(new LookupCall(new EntityKey("Item", "I-100"), ["ordered_by"], ["quantity"]));
 
         Assert.Equal(Item, plan.Start);
-        Assert.Empty(plan.Steps);
-        Assert.Equal("orders_item", plan.Inverse!.Name);
+        var step = Assert.Single(plan.Steps);
+        Assert.True(step.Backwards);
+        Assert.Equal(("orders_item", "ordered_by", "Item", "WorkOrder"), (step.Relation.Name, step.Name, step.Leaves, step.Reaches));
         Assert.Equal(WorkOrder, plan.End);
         Assert.Equal("orders_item", ontology.Inverses["ordered_by"].Name);
     }
 
+    /// <summary>SD-06: a relation walked backwards may stand anywhere in a path, and the walk goes on from the type it reaches.</summary>
     [Fact]
-    public void A_relation_walked_backwards_is_the_last_step_and_leaves_the_type_it_led_to()
+    public void A_relation_walked_backwards_may_stand_mid_path_and_leaves_the_type_it_led_to()
     {
-        var ontology = Ontology.Create([WorkOrder, Item, Supplier, OrdersItem with { Inverse = "ordered_by" }, SuppliedBy]);
+        var ontology = Ontology.Create([WorkOrder, Item, Supplier, OrdersItem with { Inverse = "ordered_by" }, SuppliedBy with { Inverse = "supplies" }]);
 
-        var notLast = Assert.Throws<UnknownTermException>(() => ontology.Plan(new LookupCall(new EntityKey("Item", "I-100"), ["ordered_by", "orders_item"], ["name"])));
+        var plan = ontology.Plan(new LookupCall(new EntityKey("Supplier", "S-1"), ["supplies", "ordered_by"], ["quantity"]));
         var wrongType = Assert.Throws<UnknownTermException>(() => ontology.Plan(new LookupCall(new EntityKey("Supplier", "S-1"), ["ordered_by"], ["quantity"])));
 
-        Assert.Contains("only the last step", Assert.Single(notLast.Problems), StringComparison.Ordinal);
+        Assert.Equal(["supplies", "ordered_by"], plan.Steps.Select(s => s.Name));
+        Assert.All(plan.Steps, s => Assert.True(s.Backwards));
+        Assert.Equal(WorkOrder, plan.End);
         Assert.Contains("leaves 'Item', but the walk is at 'Supplier'", Assert.Single(wrongType.Problems), StringComparison.Ordinal);
     }
 

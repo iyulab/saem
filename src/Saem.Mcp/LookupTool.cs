@@ -225,8 +225,8 @@ internal sealed partial class LookupTool
 
         if (ontology.Inverses.Count > 0)
         {
-            text.Append("\n\nRelations walked backwards (last step of a path only; each leads to every entity that names the one reached, ")
-                .Append("found among the relations built ahead of time for the groups the person is in, then read as the person):");
+            text.Append("\n\nRelations walked backwards (each leads to every entity that names the one reached, ")
+                .Append("found among the relations built ahead of time for the groups the person is in, then read as the person; a step may lead to at most a bounded number of entities):");
             foreach (var (inverse, relation) in ontology.Inverses.OrderBy(i => i.Key, StringComparer.Ordinal))
             {
                 text.Append("\n- ").Append(inverse).Append(": ").Append(relation.To).Append(" -> ").Append(relation.From)
@@ -276,7 +276,7 @@ internal sealed partial class LookupTool
                 ["path"] = new JsonObject
                 {
                     ["type"] = "array",
-                    ["description"] = "The relations to follow, in order; empty to read the start entity itself. A relation walked backwards may only be the last.",
+                    ["description"] = "The relations to follow, in order; empty to read the start entity itself. A relation walked backwards leads to every entity that names the one reached, and the walk goes on from each.",
                     ["items"] = new JsonObject { ["type"] = "string", ["enum"] = Names(ontology.Relations.Keys.Concat(ontology.Inverses.Keys)) },
                 },
                 ["read"] = new JsonObject
