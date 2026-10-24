@@ -36,7 +36,7 @@ public sealed class AuthorCommandTests : IDisposable
         Assert.Equal(new Uri("http://forms.test/"), options.Formbase);
         Assert.Equal(new Uri("https://model.test/v1/"), options.ModelEndpoint);
         Assert.Equal(("m", 1, 20, TimeSpan.FromMinutes(10)), (options.Model, options.Retries, options.RecordsPerSubject, options.ModelTimeout));
-        Assert.Equal(("review.md", "draft.json"), (options.ReviewPath, options.DraftPath));
+        Assert.Equal(("review.md", "draft.json", "proposals.json"), (options.ReviewPath, options.DraftPath, options.ProposalsPath));
         Assert.False(options.Overwrite);
         Assert.False(options.ModelStream);
         Assert.Null(options.FormbaseNamespace);
@@ -115,6 +115,62 @@ public sealed class AuthorCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task A_run_keeps_its_proposals_and_settle_records_what_the_review_took()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var options = await PrepareAsync(catalog: null);
+        await AuthorRun.RunAsync(options, new Proposer(), new Sampler(), new NoStructures(), [], TextWriter.Null, ct);
+        var proposed = ProposedDeclarations.Parse(await File.ReadAllTextAsync(options.ProposalsPath, ct));
+        Assert.StartsWith("pass-", proposed.Pass, StringComparison.Ordinal);
+        Assert.Contains(proposed.Added, d => d.Name == "WorkOrder");
+
+        // The review: the draft becomes the catalog as it was proposed.
+        File.Copy(options.DraftPath, options.CatalogPath, overwrite: true);
+        var records = Path.Combine(_dir, "settled.jsonl");
+        var settle = new SettleOptions(options.ProposalsPath, options.CatalogPath, records, "r-1");
+        var log = new StringWriter();
+        await SettleRun.RunAsync(settle, DateTimeOffset.UnixEpoch.AddDays(1), log, ct);
+
+        var lines = await File.ReadAllLinesAsync(records, ct);
+        Assert.Equal(proposed.Added.Count, lines.Length);
+        Assert.All(lines, line => Assert.Contains("\"taken\":\"AcceptOther\"", line, StringComparison.Ordinal));
+        Assert.Contains($"{lines.Length} proposals of {proposed.Pass} settled ({lines.Length} taken)", log.ToString(), StringComparison.Ordinal);
+
+        // The same pass settled twice would count its review twice.
+        var again = await Assert.ThrowsAsync<AuthorRunException>(() => SettleRun.RunAsync(settle, DateTimeOffset.UnixEpoch.AddDays(2), TextWriter.Null, ct));
+        Assert.Contains("already recorded", again.Message, StringComparison.Ordinal);
+        Assert.Equal(lines.Length, (await File.ReadAllLinesAsync(records, ct)).Length);
+    }
+
+    [Theory]
+    [InlineData(new[] { "--proposals", "p.json", "--catalog", "c.json" }, "--records is required.")]
+    [InlineData(new[] { "--proposals", "p.json", "--catalog", "c.json", "--records", "r.jsonl", "--by", "x" }, "Unknown argument '--by'.")]
+    [InlineData(new[] { "--proposals", "--catalog", "c.json" }, "--proposals needs a value.")]
+    public void A_malformed_settle_command_line_is_refused(string[] args, string message) =>
+        Assert.Equal(message, Assert.Throws<AuthorUsageException>(() => SettleOptions.Parse(args)).Message);
+
+    [Fact]
+    public void A_settle_command_line_is_read()
+    {
+        var options = SettleOptions.Parse(["--proposals", "p.json", "--catalog", "c.json", "--records", "r.jsonl", "--settled-by", "r-1"]);
+
+        Assert.Equal(new SettleOptions("p.json", "c.json", "r.jsonl", "r-1"), options);
+    }
+
+    [Fact]
+    public async Task Settle_reads_the_catalog_the_review_left_and_refuses_a_missing_one()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proposals = Path.Combine(_dir, "proposals.json");
+        await File.WriteAllTextAsync(proposals, new ProposedDeclarations("pass-x", []).ToJson(), ct);
+
+        var refused = await Assert.ThrowsAsync<AuthorRunException>(() =>
+            SettleRun.RunAsync(new SettleOptions(proposals, Path.Combine(_dir, "none.json"), Path.Combine(_dir, "r.jsonl"), null), DateTimeOffset.UnixEpoch, TextWriter.Null, ct));
+
+        Assert.Contains("does not exist", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_missing_catalog_is_an_empty_ontology()
     {
         var options = await PrepareAsync(catalog: null);
@@ -187,6 +243,7 @@ public sealed class AuthorCommandTests : IDisposable
             CatalogPath = catalogPath,
             ReviewPath = Path.Combine(_dir, "review.md"),
             DraftPath = Path.Combine(_dir, "draft.json"),
+            ProposalsPath = Path.Combine(_dir, "proposals.json"),
         };
     }
 

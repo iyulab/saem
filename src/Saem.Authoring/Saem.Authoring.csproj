@@ -15,4 +15,8 @@
     <PackageReference Include="Eyu.Core" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Saem.Authoring.Tests" />
+  </ItemGroup>
+
 </Project>

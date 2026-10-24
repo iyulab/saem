@@ -6,6 +6,11 @@ using Saem.Authoring.Cli;
 using Saem.Connectors.Formbase;
 using Saem.Ontology;
 
+if (args is ["settle", .. var settleArgs])
+{
+    return await Settle(settleArgs);
+}
+
 if (args is [] or ["--help"] or ["-h"])
 {
     Console.WriteLine(AuthorOptions.Usage);
@@ -69,4 +74,30 @@ catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
 {
     Console.Error.WriteLine("Cancelled.");
     return 130;
+}
+
+static async Task<int> Settle(string[] args)
+{
+    if (args is [] or ["--help"] or ["-h"])
+    {
+        Console.WriteLine(SettleOptions.Usage);
+        return args is [] ? 2 : 0;
+    }
+
+    try
+    {
+        await SettleRun.RunAsync(SettleOptions.Parse(args), DateTimeOffset.UtcNow, Console.Out, CancellationToken.None);
+        return 0;
+    }
+    catch (AuthorUsageException e)
+    {
+        Console.Error.WriteLine(e.Message);
+        Console.Error.WriteLine("Run saem-author settle --help for the arguments.");
+        return 2;
+    }
+    catch (Exception e) when (e is AuthorRunException or OntologyDeclarationException)
+    {
+        Console.Error.WriteLine(e.Message);
+        return 1;
+    }
 }

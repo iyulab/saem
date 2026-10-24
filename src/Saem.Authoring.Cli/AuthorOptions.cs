@@ -22,6 +22,7 @@ internal sealed record AuthorOptions(
     int RecordsPerSubject,
     string ReviewPath,
     string DraftPath,
+    string ProposalsPath,
     bool Overwrite)
 {
     public const string FormbaseTokenVariable = "SAEM_FORMBASE_TOKEN";
@@ -51,14 +52,19 @@ internal sealed record AuthorOptions(
           --review <path>                Where the review document goes (default review.md).
           --draft <path>                 Where the draft catalog goes (default draft.json). Pass the catalog
                                          itself, with --overwrite, to review the draft as a diff of that file.
-          --overwrite                    Replace the review or the draft file if it exists.
+          --proposals <path>             Where the pass's proposals are kept until the review is settled
+                                         (default proposals.json) — read by saem-author settle.
+          --overwrite                    Replace an output file if it exists.
 
         Environment:
           SAEM_FORMBASE_TOKEN            A bearer token sent to Formbase, when something in front of it asks for one.
           SAEM_MODEL_API_KEY             A bearer token sent to the model endpoint.
 
-        Nothing is written but the two files: the catalog changes when a person accepts the draft as an edit
+        Nothing is written but the three files: the catalog changes when a person accepts the draft as an edit
         of it. The draft is not simulated or applied against the sources.
+
+        Once the review is in the catalog, record what was taken:
+          saem-author settle --proposals <file> --catalog <file> --records <file> [--settled-by <id>]
         """;
 
     /// <summary>Reads the command line, and the secrets from <paramref name="environment"/>.</summary>
@@ -78,7 +84,7 @@ internal sealed record AuthorOptions(
                 flags.Add(arg);
             }
             else if (arg is "--formbase" or "--formbase-namespace" or "--sources" or "--catalog" or "--model-endpoint" or "--model"
-                     or "--model-timeout-minutes" or "--retries" or "--records" or "--review" or "--draft")
+                     or "--model-timeout-minutes" or "--retries" or "--records" or "--review" or "--draft" or "--proposals")
             {
                 if (i + 1 >= args.Count || args[i + 1].StartsWith("--", StringComparison.Ordinal))
                 {
@@ -111,6 +117,7 @@ internal sealed record AuthorOptions(
             RecordsPerSubject: Count("--records", 20, minimum: 1),
             ReviewPath: values.GetValueOrDefault("--review", "review.md"),
             DraftPath: values.GetValueOrDefault("--draft", "draft.json"),
+            ProposalsPath: values.GetValueOrDefault("--proposals", "proposals.json"),
             Overwrite: flags.Contains("--overwrite"));
 
         string Required(string name) =>

@@ -9,7 +9,7 @@ namespace Saem.Authoring.Cli;
 
 /// <summary>
 /// One authoring pass from files to files: the sources and the declarations in force are read, the pass
-/// runs, and the review and the draft are written — nothing else. Both outputs are checked before anything
+/// runs, and the review, the draft and the pass's proposals are written — nothing else. Both outputs are checked before anything
 /// is read or any model is asked, so a run that would replace a file it was not told to replace costs nothing.
 /// </summary>
 internal static class AuthorRun
@@ -37,7 +37,7 @@ internal static class AuthorRun
         ArgumentNullException.ThrowIfNull(retries);
         ArgumentNullException.ThrowIfNull(log);
 
-        foreach (var output in new[] { options.ReviewPath, options.DraftPath })
+        foreach (var output in new[] { options.ReviewPath, options.DraftPath, options.ProposalsPath })
         {
             if (!options.Overwrite && File.Exists(output))
             {
@@ -45,19 +45,21 @@ internal static class AuthorRun
             }
         }
 
+        var pass = ReviewSettlement.PassId(DateTimeOffset.UtcNow);
         var sources = await ReadSourcesAsync(options.SourcesPath, cancellationToken).ConfigureAwait(false);
         var existing = await ReadCatalogAsync(options.CatalogPath, cancellationToken).ConfigureAwait(false);
         await log.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
             $"Sampling {sources.Count} subjects ({options.RecordsPerSubject} documents each) against {existing.Count} declarations in force; asking {options.Model}.")).ConfigureAwait(false);
 
-        var pass = await new DeclarationAuthoring(proposer, records, structures)
+        var drafted = await new DeclarationAuthoring(proposer, records, structures)
             .DraftAsync(sources, existing, options.RecordsPerSubject, cancellationToken).ConfigureAwait(false);
 
-        await File.WriteAllTextAsync(options.ReviewPath, pass.ToReview() + RetriesSection(retries), cancellationToken).ConfigureAwait(false);
-        await File.WriteAllTextAsync(options.DraftPath, pass.Draft.ToJson(), cancellationToken).ConfigureAwait(false);
+        await File.WriteAllTextAsync(options.ReviewPath, drafted.ToReview() + RetriesSection(retries), cancellationToken).ConfigureAwait(false);
+        await File.WriteAllTextAsync(options.DraftPath, drafted.Draft.ToJson(), cancellationToken).ConfigureAwait(false);
+        await File.WriteAllTextAsync(options.ProposalsPath, new ProposedDeclarations(pass, drafted.Draft.Added).ToJson(), cancellationToken).ConfigureAwait(false);
         await log.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-            $"{pass.Draft.Added.Count} declarations drafted, {pass.Draft.Notes.Count} not declared, {retries.Count} model calls retried. " +
-            $"Review: {options.ReviewPath} · draft: {options.DraftPath}")).ConfigureAwait(false);
+            $"{drafted.Draft.Added.Count} declarations drafted, {drafted.Draft.Notes.Count} not declared, {retries.Count} model calls retried. " +
+            $"Review: {options.ReviewPath} · draft: {options.DraftPath} · proposals: {options.ProposalsPath}")).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -115,7 +117,7 @@ internal static class AuthorRun
         return sources;
     }
 
-    private static async Task<IReadOnlyList<Declaration>> ReadCatalogAsync(string path, CancellationToken cancellationToken)
+    internal static async Task<IReadOnlyList<Declaration>> ReadCatalogAsync(string path, CancellationToken cancellationToken)
     {
         if (!File.Exists(path))
         {

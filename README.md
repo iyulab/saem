@@ -210,9 +210,9 @@ file that would replace the catalog.
 
 `saem-author` (`src/Saem.Authoring.Cli`) runs that pass from a terminal, for an administrator: the
 documents are read from a Formbase instance, the declarations in force from the catalog file, and
-the subjects from a sources file that says where each one's rows stand for a lookup. Out come two
-files, a review and a draft catalog; nothing else is written, and an existing file is replaced only
-with `--overwrite`.
+the subjects from a sources file that says where each one's rows stand for a lookup. Out come three
+files, a review, a draft catalog and the pass's proposals; nothing else is written, and an existing file
+is replaced only with `--overwrite`.
 
 ```sh
 # sources.json: { "items": { "system": "forms", "table": "items", "keyField": "item_code", "record": ["fb_doc_id"] } }
@@ -220,6 +220,16 @@ SAEM_MODEL_API_KEY=… saem-author --formbase http://localhost:8080 --sources so
   --catalog ontology.json --model-endpoint https://models.example/v1 --model <name> --model-stream \
   --draft ontology.json --overwrite        # the review is then `git diff ontology.json` + review.md
 ```
+
+The pass also keeps what it proposed (`--proposals`, default `proposals.json`), since the review edits the
+draft. Once the review is in the catalog, `saem-author settle --proposals proposals.json --catalog
+ontology.json --records settled.jsonl` adds one line per proposal to a file of settled records in the
+form [Gil](https://github.com/iyulab/gil/blob/main/docs/settled-records.md) reads: whether the
+declaration was taken, and as proposed or changed (`AcceptOther` · `CorrectOther` — the suggestion came
+from the pass, not from Gil), with the pass as its batch. The records are kept before anything reads them:
+how often proposals of each kind are taken as they were is what a calibrated promise about them would be
+chosen from. A pass is recorded once; `--settled-by` keeps an opaque reviewer id, never a name. The lines
+carry what was suggested, which Gil reads from its 0.27.0 (Rust `iyulab-gil` 0.9.0) on.
 
 A model call that fails transiently — a dropped stream, a 5xx — is tried again (`--retries`, default
 one), and the review lists every retried attempt. Secrets come from the environment
