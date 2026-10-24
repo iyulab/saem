@@ -43,6 +43,8 @@ public static class SaemMcpServer
             .ValidateOnStart();
         services.Configure<SourceOptions>(saem.GetSection("Sources"));
         services.Configure<MaterializationOptions>(saem.GetSection("Materialization"));
+        services.Configure<AuditOptions>(saem.GetSection("Audit"));
+        services.TryAddSingleton<InteractionLog>();
 
         var ontologyPath = saem["Ontology"];
         services.TryAddSingleton<IOntologyCatalog>(_ => new FileOntologyCatalog(

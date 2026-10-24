@@ -25,10 +25,12 @@ internal sealed partial class LookupTool
     private readonly LookupWalker _walker;
     private readonly ISourceLogins _logins;
     private readonly IGroupStores _groups;
+    private readonly InteractionLog _interactions;
     private readonly ILogger<LookupTool> _logger;
 
-    public LookupTool(IOntologyCatalog catalog, ISourceLogins logins, IGroupStores groups, ILogger<LookupTool> logger)
+    public LookupTool(IOntologyCatalog catalog, ISourceLogins logins, IGroupStores groups, InteractionLog interactions, ILogger<LookupTool> logger)
     {
+        _interactions = interactions;
         _catalog = catalog;
         _walker = new LookupWalker(catalog);
         _logins = logins;
@@ -89,10 +91,25 @@ internal sealed partial class LookupTool
             return Error("A lookup names 'start' (type and key), 'path' (relations, possibly none) and 'read' (fields).");
         }
 
-        // The request's trace id when there is one (W3C trace context), so this log line, the source's log
-        // and any tracing backend all name the lookup the same way.
+        // The call's span, under the request's trace when there is one (W3C trace context): its trace id names
+        // the lookup, so the interaction log, the source's log and any tracing backend all name it the same way.
+        using var span = InteractionLog.Source.StartActivity("execute_tool " + Name);
+        span?.SetTag("gen_ai.operation.name", "execute_tool");
+        span?.SetTag("gen_ai.tool.name", Name);
         var lookupId = Activity.Current?.TraceId.ToHexString() ?? Guid.NewGuid().ToString("N");
-        LogLookup(lookupId, person.Subject, person.Actor ?? "-", call.Start.Type, call.Path.Count, call.Read.Count);
+        var started = Stopwatch.GetTimestamp();
+        var at = DateTimeOffset.UtcNow;
+        var ontology = await _catalog.GetAsync(cancellationToken).ConfigureAwait(false);
+        string SystemOf(string type) => ontology.EntityTypes.TryGetValue(type, out var declared) ? declared.System : "-";
+
+        void Record(string outcome, IReadOnlyList<AccessedRecord> accessed, InteractionRefusal? refusal = null, string? errorType = null) =>
+            _interactions.Write(new Interaction(
+                lookupId, at, Stopwatch.GetElapsedTime(started).TotalMilliseconds, person.Subject, person.Actor,
+                call.Start.Type, call.Path, call.Read, outcome, accessed, refusal, errorType, _interactions.KeyId), span);
+
+        AccessedRecord Start(string status) =>
+            new(SystemOf(call.Start.Type), call.Start.Type, _interactions.Name(SystemOf(call.Start.Type), call.Start.Type, call.Start.Key), status);
+
         LookupAnswer answer;
         try
         {
@@ -102,23 +119,37 @@ internal sealed partial class LookupTool
         catch (UnknownTermException e)
         {
             // The question is malformed, which is not a refusal: a refusal is an answer about the sources.
+            Record("invalid", [], errorType: "unknown_term");
             return Error(e.Message);
         }
         catch (NoSourceLoginException e)
         {
+            Record("invalid", [], errorType: "no_source_login");
             return Error(e.Message);
         }
         catch (MaterializedRelationsException e)
         {
             // The group's store failed, not a source: said as such, with its detail kept in the log.
             LogLookupFailed(e, lookupId, person.Subject);
+            Record("failed", [], errorType: "materialized_relations");
             return Error($"The materialized relations of the group '{e.Partition}' could not be read, so the lookup was not answered. This is a failure, not a refusal: nothing is known about what they hold.");
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
             // A source that fails is a fault, not a refusal. Its detail (hosts, server messages) stays in the log.
             LogLookupFailed(e, lookupId, person.Subject);
+            Record("failed", [], errorType: "source");
             return Error("A source failed while the lookup ran, so it was not answered. This is a failure, not a refusal: nothing is known about what the source holds.");
+        }
+
+        if (answer is Refused { Refusal: var refusal })
+        {
+            Record("refused", [Start(refusal.AtHop == 0 ? "notVisible" : "read")],
+                new InteractionRefusal(JsonNamingPolicy.CamelCase.ConvertName(refusal.Reason.ToString()), refusal.AtHop, refusal.Relation, refusal.System));
+        }
+        else
+        {
+            Record("answered", _interactions.Reached(answer, SystemOf));
         }
 
         // The answer is this person's view: said in it, so it is not taken for anyone else's once passed on.
@@ -217,8 +248,6 @@ internal sealed partial class LookupTool
     [LoggerMessage(Level = LogLevel.Error, Message = "lookup {LookupId} for {Person} failed at a source")]
     private partial void LogLookupFailed(Exception exception, string lookupId, string person);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "lookup {LookupId} for {Person} by {Actor}: start {StartType}, {Hops} hop(s), {Fields} field(s)")]
-    private partial void LogLookup(string lookupId, string person, string actor, string startType, int hops, int fields);
 }
 
 [System.Text.Json.Serialization.JsonSerializable(typeof(JsonObject))]

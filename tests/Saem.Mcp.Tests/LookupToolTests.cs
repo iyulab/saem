@@ -110,6 +110,46 @@ public sealed class LookupToolTests : IAsyncLifetime
         Assert.Equal("producedBy", refusal.GetProperty("relation").GetString());
     }
 
+    /// <summary>
+    /// D-83: every call leaves one interaction in the log — who, for whom, the shape of the question and how it
+    /// ended — and names the records it reached only by keyed digest. Neither a value the source returned nor
+    /// a record key reaches the log, so an operator reading it cannot see around the sources' rules.
+    /// </summary>
+    [Fact]
+    public async Task Each_call_logs_one_interaction_with_no_value_and_no_record_key()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var server = await TestServer.StartAsync(OntologyJson, new FakeLogins(new()
+        {
+            ["alice"] = new()
+            {
+                ["work_orders"] = [FakeLogins.Row("WO-3", ("note", Canary), ("item_code", "I-200"))],
+                ["items"] = [FakeLogins.Row("I-200", ("name", "Bracket"))],
+            },
+            ["bob"] = new(),
+        }), new Dictionary<string, string?> { ["Saem:Audit:HmacKey"] = "a-deployment-secret-for-naming-records" });
+
+        await using var alice = await server.ClientAsync(TestServer.Token("alice", actor: "agent-7"), ct);
+        await alice.CallToolAsync("lookup", Call("WorkOrder", "WO-3", ["producesItem"], ["name"]), cancellationToken: ct);
+        await using var bob = await server.ClientAsync(TestServer.Token("bob"), ct);
+        await bob.CallToolAsync("lookup", Call("WorkOrder", "WO-3", [], ["note"]), cancellationToken: ct);
+
+        var interactions = server.Logs.Lines.Where(l => l.StartsWith("interaction ", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, interactions.Count);
+        Assert.Contains(interactions, l => l.Contains(" answered ", StringComparison.Ordinal) && l.Contains("\"actor\":\"agent-7\"", StringComparison.Ordinal)
+            && l.Contains("\"path\":[\"producesItem\"]", StringComparison.Ordinal));
+        Assert.Contains(interactions, l => l.Contains(" refused ", StringComparison.Ordinal) && l.Contains("\"reason\":\"noVisibleResult\"", StringComparison.Ordinal)
+            && l.Contains("\"status\":\"notVisible\"", StringComparison.Ordinal));
+        foreach (var line in interactions)
+        {
+            Assert.DoesNotContain(Canary, line, StringComparison.Ordinal);
+            Assert.DoesNotContain("Bracket", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("WO-3", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("I-200", line, StringComparison.Ordinal);
+            Assert.Matches("\"key\":\"[0-9a-f]{64}\"", line);
+        }
+    }
+
     [Fact]
     public async Task The_same_call_answers_as_the_person_the_token_names()
     {
