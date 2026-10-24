@@ -364,6 +364,14 @@ the base IRI. Each account's secret comes from the environment (`SAEM_SOURCE_SEC
 holds one group's secrets only. A system the relations need but the sources file does not name is refused
 before the store is touched; the run reports how many edges it wrote, left unchanged and retired.
 
+`saem-materialize check` checks the declarations against the sources as the account the sources file
+names — a builder's own — and writes nothing. It reads every declared table whole and reports what only
+the sources can say: a table or column that is not there, rows that share a key or have none, a number
+key that spells no integer, an empty record column, and how many of each relation's values name an
+entity of the type it leads to. Findings hold for the rows that account may read, cite up to five
+records by key (keep the report as you keep the server's logs), and the exit status is 1 when a
+declaration does not hold.
+
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its
 own interface: the session logs in with the person's credential (`PostgresSource.As(user, secret)`,

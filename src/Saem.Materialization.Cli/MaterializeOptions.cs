@@ -46,6 +46,8 @@ internal sealed record MaterializeOptions(
         Only the relations' leaving types are read, and only their relation fields and record columns. The store
         is made to hold exactly this pass's edges: unchanged ones are not sent, changed ones are corrected, and
         ones no longer found are retired.
+
+        To check the declarations against the sources first, as one account: saem-materialize check --help.
         """;
 
     /// <summary>The variable holding the secret of <paramref name="system"/>.</summary>
