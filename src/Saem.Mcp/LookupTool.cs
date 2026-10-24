@@ -102,10 +102,10 @@ internal sealed partial class LookupTool
         var ontology = await _catalog.GetAsync(cancellationToken).ConfigureAwait(false);
         string SystemOf(string type) => ontology.EntityTypes.TryGetValue(type, out var declared) ? declared.System : "-";
 
-        void Record(string outcome, IReadOnlyList<AccessedRecord> accessed, InteractionRefusal? refusal = null, string? errorType = null) =>
+        void Record(string outcome, IReadOnlyList<AccessedRecord> accessed, InteractionRefusal? refusal = null, string? errorType = null, int suspect = 0) =>
             _interactions.Write(new Interaction(
                 lookupId, at, Stopwatch.GetElapsedTime(started).TotalMilliseconds, person.Subject, person.Actor,
-                call.Start.Type, call.Path, call.Read, outcome, accessed, refusal, errorType, _interactions.KeyId), span);
+                call.Start.Type, call.Path, call.Read, outcome, accessed, refusal, errorType, _interactions.KeyId, suspect), span);
 
         AccessedRecord Start(string status) =>
             new(SystemOf(call.Start.Type), call.Start.Type, _interactions.Name(SystemOf(call.Start.Type), call.Start.Type, call.Start.Key), status);
@@ -142,6 +142,8 @@ internal sealed partial class LookupTool
             return Error("A source failed while the lookup ran, so it was not answered. This is a failure, not a refusal: nothing is known about what the source holds.");
         }
 
+        // Values that read as instructions to a model are marked, not changed: the value is the source's fact.
+        var suspect = InjectionSignals.For(answer);
         if (answer is Refused { Refusal: var refusal })
         {
             Record("refused", [Start(refusal.AtHop == 0 ? "notVisible" : "read")],
@@ -149,7 +151,7 @@ internal sealed partial class LookupTool
         }
         else
         {
-            Record("answered", _interactions.Reached(answer, SystemOf));
+            Record("answered", _interactions.Reached(answer, SystemOf), suspect: suspect?.Count ?? 0);
         }
 
         // The answer is this person's view: said in it, so it is not taken for anyone else's once passed on.
@@ -159,6 +161,7 @@ internal sealed partial class LookupTool
         {
             StructuredContent = json,
             Content = [new TextContentBlock { Text = json.GetRawText() }],
+            Meta = suspect is null ? null : new JsonObject { [InjectionSignals.MetaKey] = suspect },
         };
     }
 

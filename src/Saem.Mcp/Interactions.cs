@@ -43,7 +43,8 @@ internal sealed record Interaction(
     IReadOnlyList<AccessedRecord> Accessed,
     InteractionRefusal? Refusal,
     string? ErrorType,
-    string? KeyId);
+    string? KeyId,
+    int SuspectClaims = 0);
 
 /// <summary>A record the call reached: its system and type, its key as a keyed digest, and what came of it.</summary>
 /// <param name="Status"><c>read</c> — returned to the person; <c>notVisible</c> — the source returned nothing to them.</param>
@@ -152,6 +153,10 @@ internal sealed partial class InteractionLog
         span.SetTag("saem.start_type", interaction.StartType);
         span.SetTag("saem.hops", interaction.Path.Count);
         span.SetTag("saem.accessed", interaction.Accessed.Count);
+        if (interaction.SuspectClaims > 0)
+        {
+            span.SetTag("saem.injection_suspect_claims", interaction.SuspectClaims);
+        }
         if (interaction.Refusal is { } refusal)
         {
             span.SetTag("saem.refusal.reason", refusal.Reason);
