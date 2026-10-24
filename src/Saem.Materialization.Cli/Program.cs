@@ -52,6 +52,40 @@ if (args is ["check", .. var checkArgs])
     }
 }
 
+if (args is ["judge", .. var judgeArgs])
+{
+    if (judgeArgs is [] or ["--help"] or ["-h"])
+    {
+        Console.WriteLine(JudgeRun.Usage);
+        return judgeArgs is [] ? 2 : 0;
+    }
+
+    try
+    {
+        var judge = JudgeRun.Parse(judgeArgs, Environment.GetEnvironmentVariable);
+        var declared = await new FileOntologyCatalog(judge.CatalogPath).GetAsync(cancellation.Token);
+        using var judgeStore = new HttpClient { BaseAddress = judge.Store };
+        if (judge.StoreToken is { } judgeToken)
+        {
+            judgeStore.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", judgeToken);
+        }
+
+        await JudgeRun.RunAsync(declared, judge, new FormbaseIdentityStore(judgeStore, judge.StoreNamespace), DateTimeOffset.UtcNow, Console.Out, cancellation.Token);
+        return 0;
+    }
+    catch (MaterializeUsageException e)
+    {
+        Console.Error.WriteLine(e.Message);
+        Console.Error.WriteLine("Run saem-materialize judge --help for the arguments.");
+        return 2;
+    }
+    catch (Exception e) when (e is IdentityStoreException or OntologyDeclarationException or HttpRequestException or IOException)
+    {
+        Console.Error.WriteLine(e.Message);
+        return 1;
+    }
+}
+
 try
 {
     // verify takes the pass's own arguments, and compares instead of writing.

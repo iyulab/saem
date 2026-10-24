@@ -120,6 +120,39 @@ public sealed class MaterializeCliTests
             Assert.Single(await new FormbaseIdentityStore(formbase.Client).ReadAsync(TestContext.Current.CancellationToken)).Members);
     }
 
+    [Fact]
+    public async Task A_judgment_from_the_command_line_is_filed_as_the_persons_ground()
+    {
+        var formbase = new FakeFormbase();
+        var options = JudgeRun.Parse(
+            ["--catalog", "c.json", "--store", "http://store.test", "--identity", "same_order", "--first", "wo/2", "--second", "wo/1", "--different", "--by", "p-3"],
+            name => name == "SAEM_STORE_TOKEN" ? "k" : null);
+        var duplicates = Ontology.Ontology.Create(
+        [
+            .. Plant.EntityTypes.Values,
+            new IdentityDeclaration("same_order", "WorkOrder", "WorkOrder", IdentityDecision.Automatic) { Match = [new FieldPair("item", "item")] },
+        ]);
+        var output = new StringWriter();
+
+        await JudgeRun.RunAsync(duplicates, options, new FormbaseIdentityStore(formbase.Client), DateTimeOffset.UnixEpoch, output, TestContext.Current.CancellationToken);
+
+        Assert.Equal((new Uri("http://store.test/"), "k", false), (options.Store, options.StoreToken, options.Same));
+        var ground = Assert.Single(formbase.Type("identity_grounds").Rows);
+        Assert.Equal("same_order wo/1 wo/2 person", ground.Key);
+        Assert.Equal(("0", "p-3"), ((string?)ground.Body!["score"], (string?)ground.Body["judged_by"]));
+        Assert.Equal("same_order: wo/2 and wo/1 judged two things by p-3; the next pass takes it in.", output.ToString().Trim());
+    }
+
+    [Theory]
+    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--identity", "i", "--first", "a", "--second", "b", "--by", "p" }, "--same or --different is required.")]
+    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--identity", "i", "--first", "a", "--second", "b", "--same", "--different", "--by", "p" }, "--same and --different are given more than once together.")]
+    [InlineData(new[] { "--catalog", "c", "--store", "ftp://s", "--identity", "i", "--first", "a", "--second", "b", "--same", "--by", "p" }, "--store takes an http(s) address, not 'ftp://s'.")]
+    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--identity", "i", "--first", "a", "--second", "b", "--same" }, "--by is required.")]
+    public void A_judge_command_line_that_is_incomplete_is_refused(string[] args, string message)
+    {
+        Assert.Equal(message, Assert.Throws<MaterializeUsageException>(() => JudgeRun.Parse(args, _ => null)).Message);
+    }
+
     /// <summary>A system missing from the sources file is found before the pass, so the store is not left half replaced.</summary>
     [Fact]
     public async Task A_relation_leaving_a_system_the_sources_do_not_name_is_refused_before_the_store_is_touched()

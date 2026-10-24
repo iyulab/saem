@@ -212,9 +212,13 @@ identity declaring a `match` says is one thing — the entities whose matched fi
 read as the group — and files it in the group's store beside the edges: a canonical id per thing, issued
 once and carried from pass to pass (a merge keeps the older id, the part split off gets a new one), a
 cross-reference per member, and the grounds each pair was judged on (the rule, its score, the two entity
-IRIs, who judged, the pass) — no value of any record. An identity a person settles files its pairs as
-grounds only, and issues no id until someone has confirmed them. Identities by a linkage rule, a
-person's settling, and the groups a lookup can start from are not built yet.
+IRIs, who judged, the pass) — no value of any record. A person's judgment of a pair wins over the rule run
+again: `saem-materialize judge --identity <name> --first <iri> --second <iri> --same|--different --by
+<id>` files it in the group's store as a ground of its own (an opaque person id, never a name), and the
+next pass takes it — a pair judged the same is one thing whatever the rule says, a pair judged different
+leaves the rule's thing, both of them. An identity a person settles (`confirmed`) has the rule's pairs as
+candidates only: a thing is issued an id once a person has judged a pair the same. Identities by a
+linkage rule and the groups a lookup can start from are not built yet.
 
 A relation may also declare an `inverse` — its name walked backwards, from an entity to every entity
 that leads to it (`owl:inverseOf`). No single read finds every row that names an entity, so a backward

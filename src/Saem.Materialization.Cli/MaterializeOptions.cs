@@ -55,6 +55,7 @@ internal sealed record MaterializeOptions(
         arguments> — exit status 1 when it disagrees (edges or identified things missing, different or no longer
         given, or documents a projection skipped); the pass rebuilds it.
         To check the declarations against the sources first, as one account: saem-materialize check --help.
+        To file a person's judgment of a pair an identity is about: saem-materialize judge --help.
         """;
 
     /// <summary>The variable holding the secret of <paramref name="system"/>.</summary>

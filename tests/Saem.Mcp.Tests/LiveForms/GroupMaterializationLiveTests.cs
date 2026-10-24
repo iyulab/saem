@@ -152,6 +152,13 @@ public sealed class GroupMaterializationLiveTests : IAsyncLifetime
         Assert.Equal(new RecordWrite(0, 1, 0), again.Canonical);
         Assert.Equal(thing.Id, Assert.Single(await new FormbaseIdentityStore(_plant.Formbase).ReadAsync(ct)).Id);
         Assert.True((await new FormbaseIdentityStore(_plant.Formbase).CompareAsync(ontology, matcher.MatchAsync(As(mes, "g_plant_pw", "rig-plant-local-only"), ct), ct)).Agrees);
+
+        // A person parts the pair: the next pass, the rule unchanged, takes the thing apart and retires its id.
+        await new FormbaseIdentityStore(_plant.Formbase).JudgeAsync(
+            ontology, new PersonJudgment("same_item_order", Iris.For("WorkOrder", "WO-3"), Iris.For("WorkOrder", "WO-1"), Same: false, "rig-reviewer", DateTimeOffset.UtcNow), ct);
+        var parted = await new FormbaseIdentityStore(_plant.Formbase).ReplaceAsync(ontology, matcher.MatchAsync(As(mes, "g_plant_pw", "rig-plant-local-only"), ct), ct);
+        Assert.Equal(new RecordWrite(0, 0, 1), parted.Canonical);
+        Assert.Empty(await new FormbaseIdentityStore(_plant.Formbase).ReadAsync(ct));
     }
 
     private static PersonSessions As(PostgresSource mes, string account, string password) =>

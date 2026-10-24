@@ -166,4 +166,47 @@ public sealed class IdentityTests
         Assert.Throws<ArgumentException>(() => Succeed([], Cluster("a", "b"), Cluster("b", "c")));
         Assert.Throws<ArgumentException>(() => Succeed([], Cluster("a", "b"), new IdentityCluster("other", ["c", "d"])));
     }
+
+    private static PersonJudgment Judged(string a, string b, bool same, int day = 1) =>
+        new("same_item", a, b, same, "p-1", Then.AddDays(day));
+
+    private static IReadOnlyList<IdentityCluster> Apply(IdentityDecision decision, IdentityCluster[] clusters, params PersonJudgment[] judgments) =>
+        IdentityJudgments.Apply(SameItem with { Decision = decision }, clusters, judgments);
+
+    [Fact]
+    public void A_pair_a_person_parted_leaves_the_rules_cluster_and_the_rest_stands()
+    {
+        Assert.Equal(
+            [Cluster("c", "d")],
+            Apply(IdentityDecision.Automatic, [Cluster("a", "b", "c", "d")], Judged("b", "a", same: false)));
+    }
+
+    [Fact]
+    public void A_pair_a_person_joined_is_one_thing_and_joins_the_things_either_is_in()
+    {
+        Assert.Equal(
+            [Cluster("a", "b", "c", "d"), Cluster("x", "y")],
+            Apply(IdentityDecision.Automatic, [Cluster("a", "b"), Cluster("c", "d")], Judged("d", "a", same: true), Judged("y", "x", same: true)));
+
+        // A person may also put back one of a parted pair.
+        Assert.Equal(
+            [Cluster("a", "c", "d")],
+            Apply(IdentityDecision.Automatic, [Cluster("a", "b", "c", "d")], Judged("a", "b", same: false), Judged("a", "c", same: true)));
+    }
+
+    [Fact]
+    public void For_a_person_settled_identity_only_what_people_joined_is_one_thing()
+    {
+        Assert.Empty(Apply(IdentityDecision.Confirmed, [Cluster("a", "b")]));
+        Assert.Equal([Cluster("a", "b")], Apply(IdentityDecision.Confirmed, [Cluster("a", "b", "c")], Judged("a", "b", same: true)));
+    }
+
+    [Fact]
+    public void A_pairs_latest_judgment_is_the_one_that_counts()
+    {
+        Assert.Equal(
+            [Cluster("a", "b")],
+            Apply(IdentityDecision.Confirmed, [], Judged("a", "b", same: false, day: 1), Judged("b", "a", same: true, day: 2)));
+        Assert.Empty(Apply(IdentityDecision.Confirmed, [], Judged("a", "b", same: true, day: 2), Judged("a", "b", same: false, day: 3)));
+    }
 }

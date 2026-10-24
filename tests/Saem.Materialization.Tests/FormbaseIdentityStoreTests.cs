@@ -110,6 +110,45 @@ public sealed class FormbaseIdentityStoreTests
     }
 
     [Fact]
+    public async Task A_persons_judgment_is_kept_by_every_pass_and_wins_over_the_rule()
+    {
+        var formbase = new FakeFormbase();
+        var confirmed = Plant(IdentityDecision.Confirmed);
+        await Store(formbase, First).ReplaceAsync(confirmed, Of(Cluster("i/1", "m/1"), Cluster("i/2", "m/2")), TestContext.Current.CancellationToken);
+
+        await Store(formbase, First).JudgeAsync(confirmed, new PersonJudgment("same_item", "m/1", "i/1", Same: true, "p-7", First.AddHours(1)), TestContext.Current.CancellationToken);
+        var write = await Store(formbase, Second).ReplaceAsync(confirmed, Of(Cluster("i/1", "m/1"), Cluster("i/2", "m/2")), TestContext.Current.CancellationToken);
+
+        // Only the pair a person confirmed is one thing; the other stays a candidate.
+        Assert.Equal(1, write.Issued);
+        Assert.Equal([new CanonicalIdentity("same_item", "id-1025-1", Second, ["i/1", "m/1"])], await Store(formbase, Second).ReadAsync(TestContext.Current.CancellationToken));
+        Assert.Contains(
+            formbase.Type("identity_grounds").Rows,
+            r => (string?)r.Body!["rule"] == "person" && (string?)r.Body["judged_by"] == "p-7" && (string?)r.Body["first_iri"] == "i/1");
+        Assert.True((await Store(formbase, Second).CompareAsync(confirmed, Of(Cluster("i/1", "m/1"), Cluster("i/2", "m/2")), TestContext.Current.CancellationToken)).Agrees);
+
+        // A person parts a pair the rule joins in an identity the rule settles: the next pass takes the thing apart.
+        var automatic = Plant();
+        await Store(formbase, Second).ReplaceAsync(automatic, Of(Cluster("i/2", "m/2")), TestContext.Current.CancellationToken);
+        await Store(formbase, Second).JudgeAsync(automatic, new PersonJudgment("same_item", "i/2", "m/2", Same: false, "p-7", Second.AddHours(1)), TestContext.Current.CancellationToken);
+        await Store(formbase, Second.AddDays(1)).ReplaceAsync(automatic, Of(Cluster("i/2", "m/2")), TestContext.Current.CancellationToken);
+        Assert.Equal([["i/1", "m/1"]], (await Store(formbase, Second).ReadAsync(TestContext.Current.CancellationToken)).Select(t => t.Members));
+    }
+
+    [Theory]
+    [InlineData("other", "a", "b", "p-1")]
+    [InlineData("same_item", "a", "a", "p-1")]
+    [InlineData("same_item", "a", "b", " ")]
+    public async Task A_judgment_of_an_undeclared_identity_one_entity_or_no_one_is_refused(string identity, string first, string second, string by)
+    {
+        var formbase = new FakeFormbase();
+
+        await Assert.ThrowsAsync<IdentityStoreException>(() =>
+            Store(formbase, First).JudgeAsync(Plant(), new PersonJudgment(identity, first, second, Same: true, by, First), TestContext.Current.CancellationToken));
+        Assert.Empty(formbase.Type("identity_grounds").Stream);
+    }
+
+    [Fact]
     public async Task An_identity_no_longer_declared_leaves_nothing_behind()
     {
         var formbase = new FakeFormbase();

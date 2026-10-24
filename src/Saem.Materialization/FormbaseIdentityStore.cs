@@ -14,8 +14,13 @@ namespace Saem.Materialization;
 /// <para>
 /// A pass carries the canonical ids on (<see cref="IdentitySuccession"/>), then makes each form type hold exactly what
 /// it gives, as the edge store does: a record held unchanged is not sent again, a changed one is sent as a correction,
-/// one no longer given is retired. An identity whose pairs a person settles (<c>confirmed</c>) files grounds only — its
-/// pairs are candidates, and no canonical id is issued for them until a person has said they are one.
+/// one no longer given is retired.
+/// </para>
+/// <para>
+/// A person's judgment of a pair (<see cref="JudgeAsync"/>) is a ground of its own, judged by that person, and wins over
+/// the rule run again (<see cref="IdentityJudgments"/>): a pass keeps it, and makes things of the rule's clusters and
+/// people's judgments together. An identity whose pairs a person settles (<c>confirmed</c>) has the rule's pairs as
+/// candidates only — its grounds are filed, and a canonical id is issued once a person has said a pair is one.
 /// </para>
 /// </summary>
 /// <param name="http">A client whose <see cref="HttpClient.BaseAddress"/> is the group's Formbase. The caller owns its lifetime.</param>
@@ -38,6 +43,9 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
 
     /// <summary>Who judged a ground when no person did.</summary>
     public const string RuleJudge = "rule";
+
+    /// <summary>The rule a person's judgment is filed under: scored 1 when the person said the pair is one thing, 0 when two.</summary>
+    public const string PersonRule = "person";
 
     private static readonly string[] CanonicalFields = ["identity", "canonical_id", "issued"];
 
@@ -89,10 +97,16 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
         var canonical = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var members = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var grounds = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        var judgments = Judgments(ontology, heldGrounds);
         int issued = 0, merged = 0;
         foreach (var identity in ontology.Identities.Values.OrderBy(i => i.Name, StringComparer.Ordinal))
         {
             var given = found.GetValueOrDefault(identity.Name) ?? [];
+            foreach (var (key, ground) in heldGrounds.Where(g => g.Value[0] == identity.Name && g.Value[3] == PersonRule))
+            {
+                grounds[key] = ground;
+            }
+
             foreach (var cluster in given)
             {
                 // A ground per member after the first, each pairing it with the first: the cluster is one by equal values,
@@ -107,13 +121,9 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
                 }
             }
 
-            if (identity.Decision == Ontology.IdentityDecision.Confirmed)
-            {
-                continue;
-            }
-
             var held = HeldOf(identity.Name, heldCanonical, heldMembers);
-            var succession = IdentitySuccession.Succeed(held, given, now, _issue);
+            var things = IdentityJudgments.Apply(identity, given, judgments);
+            var succession = IdentitySuccession.Succeed(held, things, now, _issue);
             var heldIds = held.ToDictionary(h => h.Id, StringComparer.Ordinal);
             var standingMembers = succession.Standing.SelectMany(t => t.Members).ToHashSet(StringComparer.Ordinal);
             issued += succession.Standing.Count(t => !heldIds.ContainsKey(t.Id));
@@ -161,32 +171,82 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
             found.Add(cluster);
         }
 
-        // Things by "identity member member …", the members in order; a held thing of an identity no longer declared, or
-        // now settled by a person, is held and not given.
+        // Things by "identity member member …", the members in order, as a pass would make them of the rule's clusters and
+        // people's judgments; a held thing of an identity no longer declared is held and not given.
         static string Thing(string identity, IEnumerable<string> members) => identity + " " + string.Join(' ', members);
-        var givenThings = found.Where(c => ontology.Identities.TryGetValue(c.Identity, out var i) && i.Decision == Ontology.IdentityDecision.Automatic)
-            .Select(c => Thing(c.Identity, c.Members)).ToHashSet(StringComparer.Ordinal);
+        var judgments = Judgments(ontology, heldGrounds);
+        var things = ontology.Identities.Values
+            .SelectMany(i => IdentityJudgments.Apply(i, [.. found.Where(c => c.Identity == i.Name)], judgments))
+            .ToList();
+        var givenThings = things.Select(c => Thing(c.Identity, c.Members)).ToHashSet(StringComparer.Ordinal);
         var heldThings = heldCanonical.Values.Select(c => c[0]).Distinct(StringComparer.Ordinal)
             .SelectMany(identity => HeldOf(identity, heldCanonical, heldMembers))
             .Select(h => (Key: Thing(h.Identity, h.Members), h.Identity, h.Members))
             .ToList();
         var heldKeys = heldThings.Select(h => h.Key).ToHashSet(StringComparer.Ordinal);
         var heldMember = heldThings.SelectMany(h => h.Members.Select(m => h.Identity + " " + m)).ToHashSet(StringComparer.Ordinal);
-        var givenMember = found.SelectMany(c => c.Members.Select(m => c.Identity + " " + m)).ToHashSet(StringComparer.Ordinal);
+        var givenMember = things.SelectMany(c => c.Members.Select(m => c.Identity + " " + m)).ToHashSet(StringComparer.Ordinal);
 
         var matching = givenThings.Count(heldKeys.Contains);
-        var unmatched = found.Where(c => givenThings.Contains(Thing(c.Identity, c.Members)) && !heldKeys.Contains(Thing(c.Identity, c.Members))).ToList();
+        var unmatched = things.Where(c => !heldKeys.Contains(Thing(c.Identity, c.Members))).ToList();
         var differing = unmatched.Count(c => c.Members.Any(m => heldMember.Contains(c.Identity + " " + m)));
         var extra = heldThings.Count(h => !givenThings.Contains(h.Key) && !h.Members.Any(m => givenMember.Contains(h.Identity + " " + m)));
 
         var givenGrounds = found.Where(c => ontology.Identities.ContainsKey(c.Identity))
             .SelectMany(c => c.Members.Skip(1).Select(other => $"{c.Identity} {c.Members[0]} {other}"))
+            .Concat(heldGrounds.Where(g => g.Value[3] == PersonRule && ontology.Identities.ContainsKey(g.Value[0])).Select(g => g.Key))
             .ToHashSet(StringComparer.Ordinal);
         var groundsMissing = givenGrounds.Count(k => !heldGrounds.ContainsKey(k));
         var groundsExtra = heldGrounds.Keys.Count(k => !givenGrounds.Contains(k));
 
         return new IdentityComparison(matching, unmatched.Count - differing, differing, extra, groundsMissing, groundsExtra, skipped);
     }
+
+    /// <summary>
+    /// Files a person's judgment of a pair: a ground of its own, under <see cref="PersonRule"/> and the person's opaque id,
+    /// that a pass keeps and takes over the rule's. A later judgment of the same pair corrects it. The things the store
+    /// holds change on the next pass.
+    /// </summary>
+    /// <exception cref="IdentityStoreException">The identity is not declared, the pair is one entity, or the person is not named.</exception>
+    public async Task JudgeAsync(Ontology.Ontology ontology, PersonJudgment judgment, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ontology);
+        ArgumentNullException.ThrowIfNull(judgment);
+        if (!ontology.Identities.ContainsKey(judgment.Identity))
+        {
+            throw new IdentityStoreException($"'{judgment.Identity}' is not a declared identity.");
+        }
+
+        if (string.IsNullOrWhiteSpace(judgment.First) || string.IsNullOrWhiteSpace(judgment.Second) || judgment.First == judgment.Second)
+        {
+            throw new IdentityStoreException("A judgment is of two entities, each named by its IRI.");
+        }
+
+        if (string.IsNullOrWhiteSpace(judgment.JudgedBy))
+        {
+            throw new IdentityStoreException("A judgment names who judged it, by an opaque id.");
+        }
+
+        var (first, second) = IdentityJudgments.Pair(judgment.First, judgment.Second);
+        await _forms.DeclareAsync(GroundFormType, "saem_identity_grounds", GroundFields, cancellationToken).ConfigureAwait(false);
+        await _forms.FileAsync(
+            GroundFormType,
+            $"{judgment.Identity} {first} {second} {PersonRule}",
+            GroundFields,
+            [judgment.Identity, first, second, PersonRule, judgment.Same ? "1" : "0", judgment.JudgedBy, judgment.At.ToString("O", CultureInfo.InvariantCulture)],
+            "Filing a judgment",
+            cancellationToken).ConfigureAwait(false);
+        await _forms.ProjectAsync(GroundFormType, "Projecting the grounds", cancellationToken).ConfigureAwait(false);
+    }
+
+    private static List<PersonJudgment> Judgments(Ontology.Ontology ontology, Dictionary<string, string[]> grounds) =>
+        [.. grounds.Values
+            .Where(g => g[3] == PersonRule && ontology.Identities.ContainsKey(g[0]))
+            .Select(g => new PersonJudgment(
+                g[0], g[1], g[2], g[4] == "1", g[5],
+                DateTimeOffset.TryParseExact(g[6], "O", CultureInfo.InvariantCulture, DateTimeStyles.None, out var at)
+                    ? at
+                    : throw new IdentityStoreException($"A judgment of '{g[0]}' names its time as '{g[6]}', which is not a round-trip time.")))];
 
     /// <summary>The things each identity holds now, by canonical id, each with its members — every one of them, or a failure when a projection skipped documents.</summary>
     public async Task<IReadOnlyList<CanonicalIdentity>> ReadAsync(CancellationToken cancellationToken = default)
