@@ -165,7 +165,11 @@ caller composes it in the ontology's terms; no model sits inside saem's path. Th
 facts, each with the source records it was read from and the relations that reached it, or a
 refusal that says where the walk stopped. A fact without a source cannot be built. A refusal never
 says "does not exist": a source that enforces its own permissions returns no rows both for what is
-absent and for what this person may not see, and saem cannot tell the two apart.
+absent and for what this person may not see, and saem cannot tell the two apart. An answer is not a
+snapshot: each source record says when it was read (`readAt`), and a walk that crosses systems reads
+them one after another. Every answer names the version of the ontology it was walked in
+(`catalogVersion`), and `ContractSchema` gives the same shape as a JSON Schema — it holds the rules
+the constructors hold, so a consumer validating against it refuses what the contract cannot build.
 
 **The ontology a lookup walks** (`Saem.Ontology`) is a set of declarations: each entity type
 stands on one table of one source system, with its key column, its fields and — where a row is
@@ -187,6 +191,16 @@ entities lead there, then reads each of them as the person and keeps only the on
 still says lead there: the edges find candidates, the answer is still the person's own reads. Each
 group's partition is answered on its own and the hop names it. A person in no group the deployment keeps
 edges for is refused for that reason (`noMaterializedPartition`), and no source is read.
+
+Each partition such a step read is reported on the answer (`partitions`), with what it says beyond the
+facts. `blocked`: the partition led to entities the person's own reads did not show — they changed since
+the edges were built, or the person may not see them; saem cannot tell which, and says nothing of what or
+how many. A refusal can carry it too, and then both hold: no row was visible, and the group knew of
+something. `incomplete`: the partition was built without some of its source documents, so entities may be
+missing — it is read over the edges that stand, since an edge only finds a candidate and a missing one can
+leave an answer out but never put a wrong one in. A step is bounded: when a partition leads to more
+candidates than one step may read (`Saem:Lookup:MaxCandidatesPerStep`, 50 by default), none is read and
+the lookup is a tool error asking for a narrower one — a limit of saem's, not an answer about the sources.
 
 **Ontology authoring** combines standard domain packs, entity/relation proposals from
 [Eyu](https://github.com/iyulab/Eyu) (the LLM-assisted extraction and mapping engine, consumed —
@@ -373,9 +387,13 @@ var sessions = new PersonSessions(new Dictionary<string, SourceOpener> { ["forms
 
 `Saem.Mcp` serves one tool, `lookup`, over MCP's Streamable HTTP transport. Its input is a lookup in
 the ontology's terms — `start` (type and key), `path` (relations), `read` (fields) — and its result is
-the answer contract above, as structured content and as the same JSON in text. The tool's description
-and input schema are built from the ontology when tools are listed, so the vocabulary a caller sees is
-the one its call is checked against. A call outside that vocabulary is a tool error, not a refusal.
+the answer contract above, as structured content and as the same JSON in text, declared as the tool's
+output schema. The tool's description and input schema are built from the ontology when tools are
+listed, so the vocabulary a caller sees is the one its call is checked against, and the listing names
+the ontology's version in its `_meta` (`saem/catalogVersion`) — the version every answer carries. A call
+outside that vocabulary is a tool error, not a refusal. A lookup still running at its deadline
+(`Saem:Lookup:Deadline`, 10 seconds by default) is stopped and reported as not answered — a failure,
+like a source that fails, never a refusal.
 
 Who a lookup runs as is never an argument. Every request carries a bearer token from an issuer the
 deployment trusts; the server validates it (signature, lifetime, audience) and runs the lookup as the

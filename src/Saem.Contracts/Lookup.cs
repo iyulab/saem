@@ -23,7 +23,12 @@ public sealed record LookupCall(EntityKey Start, IReadOnlyList<string> Path, IRe
 /// <summary>
 /// What a lookup answers: facts, each with where it came from — or a refusal saying where the walk
 /// found nothing. Never both, never neither. On the wire the case is named in <c>kind</c>
-/// (<see cref="ContractJson"/>).
+/// (<see cref="ContractJson"/>); <see cref="ContractSchema"/> is the same shape as a JSON Schema.
+/// <para>
+/// An answer is not a snapshot. Each source record says when it was read (<see cref="SourceRecord.ReadAt"/>),
+/// and a walk that crosses systems reads them one after another, so two facts of one answer can be of
+/// different moments.
+/// </para>
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(Answered), "answered")]
@@ -41,6 +46,50 @@ public abstract record LookupAnswer
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Viewer? AnsweredFor { get; init; }
+
+    /// <summary>
+    /// The version of the ontology the lookup was planned against — the same value the tool listing carries,
+    /// so a caller can tell the vocabulary it composed the call from is the one it was answered in. Null
+    /// where the walk did not say.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CatalogVersion { get; init; }
+
+    /// <summary>
+    /// The group partitions a relation walked backwards was read from, each with what it says about the
+    /// answer's completeness; null when no relation was walked backwards.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<PartitionRead>? Partitions { get; init; }
+}
+
+/// <summary>
+/// One group partition a relation walked backwards was read from, and what it says beyond the facts. Its
+/// edges only find candidates — every entity stated was read again as the person — so a partition can know
+/// of more than the answer states, and it says so here without saying what or how many.
+/// </summary>
+/// <param name="Name">The group.</param>
+/// <param name="AsOf">When the partition's edges were read from the sources; null when it does not say.</param>
+/// <param name="Blocked">
+/// The partition led to entities the person's own reads did not show, or no longer show leading here:
+/// they changed after <paramref name="AsOf"/>, or are not visible to this person — saem cannot tell which.
+/// </param>
+/// <param name="Incomplete">The partition was built without some of its source documents, so entities may be missing from it.</param>
+public sealed record PartitionRead(string Name, DateTimeOffset? AsOf, bool Blocked, bool Incomplete)
+{
+    /// <summary>
+    /// What <see cref="Blocked"/> and <see cref="Incomplete"/> mean, in words a consumer can render as they
+    /// are; empty when the partition says nothing beyond the facts.
+    /// </summary>
+    public IReadOnlyList<string> Statements =>
+    [
+        .. Blocked
+            ? ["Among what this group's relations led to when they were built, something is not visible to this person now: it changed since, or it is outside what this person may see. saem cannot tell which, and says nothing of what or how many."]
+            : Array.Empty<string>(),
+        .. Incomplete
+            ? ["This group's relations were built without some of their source documents, so entities that lead here may be missing from the answer."]
+            : Array.Empty<string>(),
+    ];
 }
 
 /// <summary>The person a lookup was run as, and who asked on their behalf.</summary>

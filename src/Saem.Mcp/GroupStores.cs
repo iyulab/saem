@@ -1,7 +1,5 @@
 using System.Net.Http.Headers;
-using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Saem.Materialization;
 using Saem.Ontology;
@@ -59,11 +57,11 @@ public sealed class GroupStoreOptions
 }
 
 /// <summary>The stores the configuration names, each reached over its own client.</summary>
-internal sealed partial class ConfiguredGroupStores : IGroupStores
+internal sealed class ConfiguredGroupStores : IGroupStores
 {
     private readonly Dictionary<string, GroupStore> _stores = new(StringComparer.Ordinal);
 
-    public ConfiguredGroupStores(IOptions<MaterializationOptions> options, IHttpClientFactory httpClients, ILogger<ConfiguredGroupStores>? logger = null)
+    public ConfiguredGroupStores(IOptions<MaterializationOptions> options, IHttpClientFactory httpClients)
     {
         var materialization = options.Value;
         if (materialization.Groups.Count > 0 && !Uri.TryCreate(materialization.BaseIri, UriKind.Absolute, out _))
@@ -86,18 +84,11 @@ internal sealed partial class ConfiguredGroupStores : IGroupStores
                 http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", store.AccessKey);
             }
 
-            // A partition whose projection skipped a document is read over the edges that stand — a lookup can then
-            // miss an answer, never state a wrong one — and the skip is logged for whoever runs the store.
-            var partition = group;
-            _stores.Add(group, new GroupStore(group, new FormbaseEdgeStore(http, store.Namespace,
-                onSkipped: (formType, count) => LogSkipped((ILogger?)logger ?? NullLogger.Instance, partition, formType, count))));
+            _stores.Add(group, new GroupStore(group, new FormbaseEdgeStore(http, store.Namespace)));
         }
     }
 
     public EntityIris? Iris { get; }
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "The materialized relations of the group '{Group}' are read in part: the projection of '{FormType}' skipped {Count} document(s), so a lookup walking them back may miss an answer. Rerun the group's materialization.")]
-    private static partial void LogSkipped(ILogger logger, string group, string formType, int count);
 
     public IReadOnlyList<GroupStore> StoresOf(Person person) =>
         [.. person.Groups.Where(_stores.ContainsKey).Select(g => _stores[g])];
@@ -105,38 +96,43 @@ internal sealed partial class ConfiguredGroupStores : IGroupStores
 
 /// <summary>
 /// The materialized relations one person reads: the edge stores of their groups, each asked by the IRI of
-/// the entity walked back from — the same IRI the materializing pass named it by.
+/// the entity walked back from — the same IRI the materializing pass named it by. A partition whose projection
+/// skipped a document is read over the edges that stand — a lookup can then miss an answer, never state a wrong
+/// one — and says so: the answer reports it incomplete, and the skip is logged for whoever runs the store.
 /// </summary>
-internal sealed class GroupRelations(IReadOnlyList<GroupStore> stores, EntityIris? iris) : IMaterializedRelations
+internal sealed partial class GroupRelations(IReadOnlyList<GroupStore> stores, EntityIris? iris, ILogger logger) : IMaterializedRelations
 {
     public IReadOnlyList<string> Partitions { get; } = iris is null ? [] : [.. stores.Select(s => s.Group)];
 
-    public async IAsyncEnumerable<string> LeadingToAsync(
+    public async ValueTask<PartitionEdges> LeadingToAsync(
         string partition,
         RelationDeclaration relation,
         string toKey,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        int limit,
+        CancellationToken cancellationToken = default)
     {
         var store = stores.Single(s => s.Group == partition).Edges;
-        List<MaterializedEdge> edges;
+        EdgesLeadingTo read;
         try
         {
-            edges = await store.LeadingToAsync(relation.Name, iris!.For(relation.To, toKey), cancellationToken).ToListAsync(cancellationToken).ConfigureAwait(false);
+            read = await store.LeadingToAsync(relation.Name, iris!.For(relation.To, toKey), limit, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception e) when (e is EdgeStoreException or HttpRequestException or TaskCanceledException { InnerException: TimeoutException })
         {
             throw MaterializedRelationsException.For(partition, e);
         }
 
-        foreach (var edge in edges)
+        if (read.Incomplete)
         {
-            // An edge naming its entity under another base or type was not built by this deployment's pass.
-            if (iris.KeyOf(relation.From, edge.From) is { } key)
-            {
-                yield return key;
-            }
+            LogSkipped(logger, partition, read.SkippedDocuments);
         }
+
+        // An edge naming its entity under another base or type was not built by this deployment's pass.
+        return new PartitionEdges([.. read.Edges.Select(e => iris.KeyOf(relation.From, e.From)).OfType<string>()], read.Incomplete);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The materialized relations of the group '{Group}' are read in part: their projection skipped {Count} document(s), so a lookup walking them back may miss an answer. Rerun the group's materialization.")]
+    private static partial void LogSkipped(ILogger logger, string group, int count);
 
     public async ValueTask<DateTimeOffset?> AsOfAsync(string partition, CancellationToken cancellationToken = default)
     {

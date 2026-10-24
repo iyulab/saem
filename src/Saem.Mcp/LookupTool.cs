@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Saem.Contracts;
@@ -14,25 +15,32 @@ namespace Saem.Mcp;
 /// <summary>
 /// The one tool: a lookup in the ontology's terms, run as the person the request's token
 /// names. Its description and input schema are built from the ontology on every listing, so the
-/// vocabulary a caller sees is the vocabulary a call is checked against. The answer travels in the
-/// contract's own JSON (<see cref="ContractJson"/>), as structured content and as text.
+/// vocabulary a caller sees is the vocabulary a call is checked against — and the listing names the
+/// ontology's version in its <c>_meta</c>, which every answer carries too. The answer travels in the
+/// contract's own JSON (<see cref="ContractJson"/>), as structured content and as text, and its shape is
+/// declared as the tool's output schema (<see cref="ContractSchema"/>).
 /// </summary>
 internal sealed partial class LookupTool
 {
     internal const string Name = "lookup";
 
+    /// <summary>The <c>_meta</c> key the listing names the ontology's version under.</summary>
+    internal const string CatalogVersionMetaKey = "saem/catalogVersion";
+
     private readonly IOntologyCatalog _catalog;
     private readonly LookupWalker _walker;
+    private readonly TimeSpan _deadline;
     private readonly ISourceLogins _logins;
     private readonly IGroupStores _groups;
     private readonly InteractionLog _interactions;
     private readonly ILogger<LookupTool> _logger;
 
-    public LookupTool(IOntologyCatalog catalog, ISourceLogins logins, IGroupStores groups, InteractionLog interactions, ILogger<LookupTool> logger)
+    public LookupTool(IOntologyCatalog catalog, ISourceLogins logins, IGroupStores groups, InteractionLog interactions, IOptions<LookupOptions> options, ILogger<LookupTool> logger)
     {
         _interactions = interactions;
         _catalog = catalog;
-        _walker = new LookupWalker(catalog);
+        _walker = new LookupWalker(catalog, maxCandidatesPerStep: options.Value.MaxCandidatesPerStep);
+        _deadline = options.Value.Deadline;
         _logins = logins;
         _groups = groups;
         _logger = logger;
@@ -51,7 +59,9 @@ internal sealed partial class LookupTool
                     Title = "Look up facts as the person this request acts for",
                     Description = Describe(ontology),
                     InputSchema = InputSchema(ontology),
+                    OutputSchema = ContractSchema.Answer,
                     Annotations = new ToolAnnotations { ReadOnlyHint = true, IdempotentHint = true, OpenWorldHint = false },
+                    Meta = new JsonObject { [CatalogVersionMetaKey] = ontology.Version },
                 },
             ],
         };
@@ -111,10 +121,25 @@ internal sealed partial class LookupTool
             new(SystemOf(call.Start.Type), call.Start.Type, _interactions.Name(SystemOf(call.Start.Type), call.Start.Type, call.Start.Key), status);
 
         LookupAnswer answer;
+        // The deadline bounds the whole lookup — token exchanges, source reads, partition reads (saem D-84).
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(_deadline);
         try
         {
-            var relations = new GroupRelations(_groups.StoresOf(person), _groups.Iris);
-            answer = await _walker.RunAsync(call, _logins.SessionsFor(person, token, lookupId), relations, cancellationToken).ConfigureAwait(false);
+            var relations = new GroupRelations(_groups.StoresOf(person), _groups.Iris, _logger);
+            answer = await _walker.RunAsync(call, _logins.SessionsFor(person, token, lookupId), relations, deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // Not a refusal and not a source's fault: saem stopped waiting, so nothing is said.
+            Record("failed", [], errorType: "deadline");
+            return Error($"The lookup was not answered within {_deadline.TotalSeconds:0.#} seconds, so it was stopped. This is a failure, not a refusal: nothing is known about what the sources hold.");
+        }
+        catch (TooBroadException e)
+        {
+            // saem's own limit, not an answer about the sources: no count, and the caller can narrow the lookup.
+            Record("invalid", [], errorType: "too_broad");
+            return Error(e.Message);
         }
         catch (UnknownTermException e)
         {

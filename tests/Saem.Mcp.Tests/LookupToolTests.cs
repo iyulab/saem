@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
@@ -236,6 +237,54 @@ public sealed class LookupToolTests : IAsyncLifetime
         Assert.Equal("refused", forBob.GetProperty("kind").GetString());
         Assert.Equal("bob", forBob.GetProperty("answeredFor").GetProperty("subject").GetString());
         Assert.Equal("agent-7", forBob.GetProperty("answeredFor").GetProperty("actedBy").GetString());
+    }
+
+    /// <summary>
+    /// D-80 ⑤ ⑥: the listing declares the answer's shape as the contract's schema and names the ontology's
+    /// version, and every answer — a refusal too — names the same version.
+    /// </summary>
+    [Fact]
+    public async Task The_listing_declares_the_answer_schema_and_the_version_every_answer_names()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var alice = await _server.ClientAsync(TestServer.Token("alice"), ct);
+
+        var tool = Assert.Single(await alice.ListToolsAsync(cancellationToken: ct)).ProtocolTool;
+        var answered = (await alice.CallToolAsync("lookup", Call("WorkOrder", "WO-3", [], ["note"]), cancellationToken: ct)).StructuredContent!.Value;
+        var refused = (await alice.CallToolAsync("lookup", Call("WorkOrder", "WO-9", [], ["note"]), cancellationToken: ct)).StructuredContent!.Value;
+
+        Assert.True(JsonElement.DeepEquals(Saem.Contracts.ContractSchema.Answer, tool.OutputSchema!.Value), "the output schema is the contract's");
+        var version = tool.Meta!["saem/catalogVersion"]!.GetValue<string>();
+        Assert.Equal(16, version.Length);
+        Assert.Equal(version, answered.GetProperty("catalogVersion").GetString());
+        Assert.Equal(version, refused.GetProperty("catalogVersion").GetString());
+    }
+
+    /// <summary>
+    /// D-84 ②: a lookup still waiting at the deadline is stopped and reported as not answered — a failure, not a
+    /// refusal — and logged as such. The store here accepts the connection and never answers.
+    /// </summary>
+    [Fact]
+    public async Task A_lookup_past_its_deadline_is_stopped_and_says_it_was_not_answered()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var silent = new TcpListener(IPAddress.Loopback, 0);
+        silent.Start();
+        await using var server = await TestServer.StartAsync(OntologyJson, new FakeLogins(new() { ["alice"] = new() }), new Dictionary<string, string?>
+        {
+            ["Saem:Lookup:Deadline"] = "00:00:00.300",
+            ["Saem:Materialization:BaseIri"] = "https://example.org/ontology/",
+            ["Saem:Materialization:Groups:g-plant:Url"] = $"http://127.0.0.1:{((IPEndPoint)silent.LocalEndpoint).Port}/",
+        });
+        await using var alice = await server.ClientAsync(TestServer.Token("alice", groups: ["g-plant"]), ct);
+
+        var result = await alice.CallToolAsync("lookup", Call("Item", "I-200", ["producedBy"], ["note"]), cancellationToken: ct);
+
+        Assert.True(result.IsError);
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
+        Assert.Contains("not answered within 0.3 seconds", text, StringComparison.Ordinal);
+        Assert.Contains("not a refusal", text, StringComparison.Ordinal);
+        Assert.Contains(server.Logs.Lines, l => l.Contains("\"errorType\":\"deadline\"", StringComparison.Ordinal));
     }
 
     [Fact]

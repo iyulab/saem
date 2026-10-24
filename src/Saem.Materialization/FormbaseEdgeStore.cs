@@ -30,14 +30,7 @@ namespace Saem.Materialization;
 /// <param name="http">A client whose <see cref="HttpClient.BaseAddress"/> is the group's Formbase. The caller owns its lifetime.</param>
 /// <param name="formbaseNamespace">The Formbase namespace to address, sent as <c>Formbase-Namespace</c>; omitted, the instance's own.</param>
 /// <param name="time">The clock a pass's start is taken from; omitted, the system's.</param>
-/// <param name="onSkipped">
-/// Told the form type and how many documents its projection skipped, when a read for a lookup meets such a
-/// projection — and the read goes on over the rows that stand. An edge is only a candidate a lookup reads again
-/// as the person, so an edge missing from a skipped document can only leave an answer out, as a pass that has
-/// not run yet does; it cannot put a wrong one in. Omitted, such a read fails instead. A pass never reads on:
-/// what it does not see it cannot retire.
-/// </param>
-public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace = null, TimeProvider? time = null, Action<string, int>? onSkipped = null)
+public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace = null, TimeProvider? time = null)
 {
     /// <summary>The form type the edges are filed under.</summary>
     public const string FormType = "edges";
@@ -70,7 +63,7 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
         ArgumentNullException.ThrowIfNull(edges);
 
         await DeclareAsync(FormType, TableName, Fields, cancellationToken).ConfigureAwait(false);
-        var held = await HeldAsync(FormType, "", Fields, cancellationToken, strict: true).ConfigureAwait(false);
+        var held = await HeldAsync(FormType, "", Fields, cancellationToken).ConfigureAwait(false);
 
         // The edges are read from the sources as they are enumerated, from here on.
         var readFrom = _time.GetUtcNow();
@@ -133,7 +126,8 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     /// </summary>
     public async Task<DateTimeOffset?> AsOfAsync(CancellationToken cancellationToken = default)
     {
-        var held = await HeldAsync(PassFormType, "", PassFields, cancellationToken).ConfigureAwait(false);
+        // Read for a lookup, so a skipped pass record reads as no time rather than failing the lookup.
+        var held = await HeldAsync(PassFormType, "", PassFields, cancellationToken, readOn: _ => { }).ConfigureAwait(false);
         if (!held.TryGetValue(LatestPass, out var fields))
         {
             return null;
@@ -144,29 +138,46 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
             : throw new EdgeStoreException($"The latest pass names its start as '{fields[0]}', which is not a round-trip time.");
     }
 
-    /// <summary>The edges the store holds now, in key order.</summary>
-    public IAsyncEnumerable<MaterializedEdge> ReadAsync(CancellationToken cancellationToken = default) =>
-        EdgesAsync("", cancellationToken);
+    /// <summary>The edges the store holds now, in key order — all of them, or a failure when the projection skipped documents.</summary>
+    public async IAsyncEnumerable<MaterializedEdge> ReadAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        foreach (var edge in Edges(await HeldAsync(FormType, "", Fields, cancellationToken).ConfigureAwait(false)))
+        {
+            yield return edge;
+        }
+    }
 
     /// <summary>
     /// The held edges of <paramref name="relation"/> that lead to the entity named <paramref name="to"/> —
-    /// the relation walked backwards — in the order of the entities they leave. Asked of the store, so only
-    /// the matching edges are read.
+    /// the relation walked backwards — in the order of the entities they leave, at most
+    /// <paramref name="limit"/> and one more: one more says there are more than the limit, without reading them all.
+    /// Asked of the store, so only the matching edges are read.
+    /// <para>
+    /// A projection that skipped documents is read over the rows that stand, and the read says so
+    /// (<see cref="EdgesLeadingTo.Incomplete"/>). An edge is only a candidate a lookup reads again as the person,
+    /// so an edge missing from a skipped document can only leave an answer out, as a pass that has not run yet
+    /// does; it cannot put a wrong one in. A pass never reads on: what it does not see it cannot retire.
+    /// </para>
     /// </summary>
-    public IAsyncEnumerable<MaterializedEdge> LeadingToAsync(string relation, string to, CancellationToken cancellationToken = default)
+    public async Task<EdgesLeadingTo> LeadingToAsync(string relation, string to, int limit, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(relation);
         ArgumentException.ThrowIfNullOrEmpty(to);
-        return EdgesAsync($"&filter={Uri.EscapeDataString("relation:" + relation)}&filter={Uri.EscapeDataString("to_iri:" + to)}", cancellationToken);
+        ArgumentOutOfRangeException.ThrowIfNegative(limit);
+        var skipped = 0;
+        var held = await HeldAsync(
+            FormType,
+            $"&filter={Uri.EscapeDataString("relation:" + relation)}&filter={Uri.EscapeDataString("to_iri:" + to)}",
+            Fields,
+            cancellationToken,
+            readOn: count => skipped = count,
+            atMost: limit + 1).ConfigureAwait(false);
+        return new EdgesLeadingTo([.. Edges(held)], skipped);
     }
 
-    private async IAsyncEnumerable<MaterializedEdge> EdgesAsync(string filter, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        foreach (var (_, fields) in (await HeldAsync(FormType, filter, Fields, cancellationToken).ConfigureAwait(false)).OrderBy(p => p.Key, StringComparer.Ordinal))
-        {
-            yield return new MaterializedEdge(fields[0], fields[1], fields[2], new SourceRecord(fields[3], fields[4], fields[5]));
-        }
-    }
+    private static IEnumerable<MaterializedEdge> Edges(Dictionary<string, string[]> held) =>
+        held.OrderBy(p => p.Key, StringComparer.Ordinal)
+            .Select(p => new MaterializedEdge(p.Value[0], p.Value[1], p.Value[2], new SourceRecord(p.Value[3], p.Value[4], p.Value[5])));
 
     /// <summary>
     /// Puts the declaration of <paramref name="formType"/> in force when it has none. One already in force must
@@ -211,14 +222,18 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     /// <summary>
     /// The projected records of <paramref name="formType"/> that <paramref name="filter"/> admits (query
     /// parameters, each led by <c>&amp;</c>), by record key, each as its <paramref name="fields"/>; none before
-    /// the first pass declared and projected them.
+    /// the first pass declared and projected them. A projection that skipped documents fails the read, unless
+    /// <paramref name="readOn"/> is given: then it is told how many, and the read goes on over the rows that stand.
+    /// <paramref name="atMost"/> stops the read once that many records are in.
     /// </summary>
-    private async Task<Dictionary<string, string[]>> HeldAsync(string formType, string filter, string[] fields, CancellationToken cancellationToken, bool strict = false)
+    private async Task<Dictionary<string, string[]>> HeldAsync(
+        string formType, string filter, string[] fields, CancellationToken cancellationToken, Action<int>? readOn = null, int atMost = int.MaxValue)
     {
         var held = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        for (var offset = 0; ; offset += PageSize)
+        var pageSize = Math.Min(PageSize, atMost);
+        for (var offset = 0; ; offset += pageSize)
         {
-            using var request = Request(HttpMethod.Get, $"formtypes/{formType}/records?limit={PageSize}&offset={offset}{filter}");
+            using var request = Request(HttpMethod.Get, $"formtypes/{formType}/records?limit={pageSize}&offset={offset}{filter}");
             using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound
                 && await ProblemAsync(response, cancellationToken).ConfigureAwait(false) is "/problems/not-projected" or "/problems/no-declaration")
@@ -235,14 +250,14 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
             // A Formbase before 0.35 does not report skips; one that does and reports some cannot be read in full.
             if (page.TryGetProperty("skippedDocuments", out var skipped) && skipped.GetInt32() > 0)
             {
-                if (strict || onSkipped is null)
+                if (readOn is null)
                 {
                     throw new EdgeStoreException($"The projection of '{formType}' skipped documents, so what the store holds cannot be read in full.");
                 }
 
                 if (offset == 0)
                 {
-                    onSkipped(formType, skipped.GetInt32());
+                    readOn(skipped.GetInt32());
                 }
             }
 
@@ -255,7 +270,7 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
                 held[key] = [.. fields.Select(f => values.GetProperty(f).GetString() ?? "")];
             }
 
-            if (rows.GetArrayLength() < PageSize)
+            if (rows.GetArrayLength() < pageSize || held.Count >= atMost)
             {
                 return held;
             }
@@ -315,6 +330,15 @@ public sealed record EdgeWrite(int Written, int Unchanged, int Retired)
 {
     /// <summary>When the pass began reading the sources — what the edges are as of.</summary>
     public DateTimeOffset? ReadFrom { get; init; }
+}
+
+/// <summary>The edges a read for a lookup found leading to an entity, and whether the store holds them all.</summary>
+/// <param name="Edges">The edges, in the order of the entities they leave.</param>
+/// <param name="SkippedDocuments">How many documents the projection skipped; 0 when it holds every edge it was given.</param>
+public sealed record EdgesLeadingTo(IReadOnlyList<MaterializedEdge> Edges, int SkippedDocuments)
+{
+    /// <summary>The projection skipped documents, so edges may be missing.</summary>
+    public bool Incomplete => SkippedDocuments > 0;
 }
 
 /// <summary>The group's edge store refused a pass, or holds what saem did not write.</summary>

@@ -83,16 +83,30 @@ public sealed class FormbaseEdgeStoreTests
         var store = new FormbaseEdgeStore(formbase.Client);
         await store.ReplaceAsync(Of(Edge("WO-1", "I-1"), Edge("WO-2", "I-2"), Edge("WO-3", "I-1"), Edge("WO-4", "I-1", relation: "replaces")), TestContext.Current.CancellationToken);
 
-        var leading = await store.LeadingToAsync("orders_item", "https://example.org/Item/I-1", TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        var leading = await store.LeadingToAsync("orders_item", "https://example.org/Item/I-1", 50, TestContext.Current.CancellationToken);
 
-        Assert.Equal([Edge("WO-1", "I-1"), Edge("WO-3", "I-1")], leading);
-        Assert.Empty(await new FormbaseEdgeStore(new FakeFormbase().Client).LeadingToAsync("orders_item", "https://example.org/Item/I-1", TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Equal([Edge("WO-1", "I-1"), Edge("WO-3", "I-1")], leading.Edges);
+        Assert.False(leading.Incomplete);
+        Assert.Empty((await new FormbaseEdgeStore(new FakeFormbase().Client).LeadingToAsync("orders_item", "https://example.org/Item/I-1", 50, TestContext.Current.CancellationToken)).Edges);
+    }
+
+    /// <summary>A limit stops the read at one past it: enough to know there are more, without reading them all.</summary>
+    [Fact]
+    public async Task The_edges_leading_to_an_entity_are_read_to_one_past_the_limit()
+    {
+        var formbase = new FakeFormbase();
+        var store = new FormbaseEdgeStore(formbase.Client);
+        await store.ReplaceAsync(Of(Edge("WO-1", "I-1"), Edge("WO-2", "I-1"), Edge("WO-3", "I-1"), Edge("WO-4", "I-1")), TestContext.Current.CancellationToken);
+
+        var leading = await store.LeadingToAsync("orders_item", "https://example.org/Item/I-1", 1, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, leading.Edges.Count);
     }
 
     /// <summary>
-    /// A projection that skipped a document is read over the rows that stand for a lookup, and the skip is told
-    /// to whoever asked to hear it: an edge is a candidate read again as the person, so a missing one can only
-    /// leave an answer out. A pass never reads on — what it cannot see it cannot retire.
+    /// A projection that skipped a document is read over the rows that stand for a lookup, and the read says it is
+    /// incomplete: an edge is a candidate read again as the person, so a missing one can only leave an answer out.
+    /// A pass never reads on — what it cannot see it cannot retire — nor does a read of the whole store.
     /// </summary>
     [Fact]
     public async Task A_lookup_reads_a_partly_skipped_projection_over_what_stands_and_a_pass_does_not()
@@ -101,16 +115,15 @@ public sealed class FormbaseEdgeStoreTests
         var formbase = new FakeFormbase();
         await new FormbaseEdgeStore(formbase.Client).ReplaceAsync(Of(Edge("WO-1", "I-1")), ct);
         formbase.Edges.Skipped = 1;
-        var told = new List<(string, int)>();
-        var store = new FormbaseEdgeStore(formbase.Client, onSkipped: (type, count) => told.Add((type, count)));
+        var store = new FormbaseEdgeStore(formbase.Client);
 
-        var leading = await store.LeadingToAsync("orders_item", "https://example.org/Item/I-1", ct).ToListAsync(ct);
+        var leading = await store.LeadingToAsync("orders_item", "https://example.org/Item/I-1", 50, ct);
 
-        Assert.Equal([Edge("WO-1", "I-1")], leading);
-        Assert.Equal([("edges", 1)], told);
+        Assert.Equal([Edge("WO-1", "I-1")], leading.Edges);
+        Assert.True(leading.Incomplete);
+        Assert.Equal(1, leading.SkippedDocuments);
         await Assert.ThrowsAsync<EdgeStoreException>(() => store.ReplaceAsync(Of(Edge("WO-1", "I-1")), ct));
-        await Assert.ThrowsAsync<EdgeStoreException>(async () =>
-            await new FormbaseEdgeStore(formbase.Client).LeadingToAsync("orders_item", "https://example.org/Item/I-1", ct).ToListAsync(ct));
+        await Assert.ThrowsAsync<EdgeStoreException>(async () => await store.ReadAsync(ct).ToListAsync(ct));
     }
 
     [Fact]

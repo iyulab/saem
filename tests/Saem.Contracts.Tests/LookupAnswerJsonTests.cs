@@ -93,6 +93,49 @@ public class LookupAnswerJsonTests
         Assert.Contains("in none that has them", refusal.GetProperty("statement").GetString(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// D-80 ① ⑤: a partition's report travels with its statements, and the catalog version with the answer; both
+    /// are left out where there is nothing to say, and a refusal carries a blocked partition as an answer does.
+    /// </summary>
+    [Fact]
+    public void Partition_reports_and_the_catalog_version_read_back_and_are_left_out_when_absent()
+    {
+        var asOf = new DateTimeOffset(2026, 10, 25, 1, 0, 0, TimeSpan.Zero);
+        var refused = new Refused(new Refusal(RefusalReason.NoVisibleResult, 1, "supplies", "mes"))
+        {
+            CatalogVersion = "0123456789abcdef",
+            Partitions = [new PartitionRead("g-plant", asOf, Blocked: true, Incomplete: true)],
+        };
+
+        var json = Write(refused);
+        var read = Assert.IsType<Refused>(Read(json));
+
+        Assert.Equal("0123456789abcdef", read.CatalogVersion);
+        Assert.Equal(refused.Partitions, read.Partitions);
+        using var document = JsonDocument.Parse(json);
+        var statements = document.RootElement.GetProperty("partitions")[0].GetProperty("statements");
+        Assert.Equal(2, statements.GetArrayLength());
+        Assert.Contains("cannot tell which", statements[0].GetString(), StringComparison.Ordinal);
+        var bare = Write(new Refused(refused.Refusal));
+        Assert.DoesNotContain("partitions", bare, StringComparison.Ordinal);
+        Assert.DoesNotContain("catalogVersion", bare, StringComparison.Ordinal);
+    }
+
+    /// <summary>D-80 ⑥: the schema names both cases and holds the same rules as the constructors.</summary>
+    [Fact]
+    public void The_schema_holds_the_cases_and_the_rules_the_constructors_hold()
+    {
+        var schema = ContractSchema.Answer;
+        var defs = schema.GetProperty("$defs");
+
+        Assert.Equal(["answered", "refused"], schema.GetProperty("oneOf").EnumerateArray().Select(c => c.GetProperty("properties").GetProperty("kind").GetProperty("const").GetString()));
+        Assert.Equal(1, schema.GetProperty("oneOf")[0].GetProperty("properties").GetProperty("claims").GetProperty("minItems").GetInt32());
+        Assert.Equal(1, defs.GetProperty("claim").GetProperty("properties").GetProperty("sources").GetProperty("minItems").GetInt32());
+        Assert.Equal(
+            Enum.GetValues<RefusalReason>().Select(r => JsonSerializer.Serialize(r, ContractJson.Default.RefusalReason).Trim('"')),
+            defs.GetProperty("refusal").GetProperty("properties").GetProperty("reason").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
+    }
+
     [Fact]
     public void An_empty_field_travels_as_null_and_stays_a_claim()
     {

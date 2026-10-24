@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text.Json;
 using Saem.Contracts;
 
 namespace Saem.Ontology;
@@ -19,7 +21,14 @@ public sealed class Ontology
         _types = types;
         _relations = relations;
         _inverses = relations.Values.Where(r => r.Inverse is not null).ToDictionary(r => r.Inverse!, StringComparer.Ordinal);
+        Version = VersionOf([.. types.Values.OrderBy(t => t.Name, StringComparer.Ordinal), .. relations.Values.OrderBy(r => r.Name, StringComparer.Ordinal)]);
     }
+
+    /// <summary>
+    /// Which declarations these are: a hash of their content, the same for the same declarations in any order
+    /// and different the moment one changes. An answer carries it, so it says which vocabulary it was walked in.
+    /// </summary>
+    public string Version { get; }
 
     /// <summary>The declared entity types, by name.</summary>
     public IReadOnlyDictionary<string, EntityTypeDeclaration> EntityTypes => _types;
@@ -117,6 +126,9 @@ public sealed class Ontology
 
         return new Ontology(types, relations);
     }
+
+    private static string VersionOf(IReadOnlyList<Declaration> declarations) =>
+        Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(declarations, OntologyJson.Default.IReadOnlyListDeclaration)))[..16];
 
     /// <summary>
     /// Reads a lookup in the ontology's terms: the type it starts at, the relations it follows — each

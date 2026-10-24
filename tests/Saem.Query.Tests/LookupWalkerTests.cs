@@ -146,8 +146,8 @@ public class LookupWalkerTests
         Assert.Empty(sessions.Opened);
     }
 
-    private static Task<LookupAnswer> Back(FakeSessions sessions, IMaterializedRelations relations, string start, string key, string[] path, string[] read) =>
-        Walker.RunAsync(new LookupCall(new EntityKey(start, key), path, read), sessions, relations, TestContext.Current.CancellationToken);
+    private static Task<LookupAnswer> Back(FakeSessions sessions, IMaterializedRelations relations, string start, string key, string[] path, string[] read, LookupWalker? walker = null) =>
+        (walker ?? Walker).RunAsync(new LookupCall(new EntityKey(start, key), path, read), sessions, relations, TestContext.Current.CancellationToken);
 
     // g-plant's edges: the work orders that make I-100, as its pass found them.
     private static readonly Partitions Plant = new() { ["g-plant"] = [("orders_item", "I-100", "WO-1"), ("orders_item", "I-100", "WO-3")] };
@@ -198,6 +198,92 @@ public class LookupWalkerTests
         var answer = await Back(new FakeSessions("alice"), stale, "Item", "I-100", ["ordered_by"], ["quantity"]);
 
         Assert.Equal(["WO-1"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Entity.Key));
+    }
+
+    /// <summary>
+    /// D-46 · D-80 ①: an edge whose entity the person's read does not show — out of their sight, or changed since —
+    /// marks the partition blocked. One bit: no key, no count, and the facts stay only what the person read.
+    /// </summary>
+    [Fact]
+    public async Task A_partition_that_led_to_an_entity_the_person_does_not_see_is_reported_blocked_and_no_more()
+    {
+        var answer = await Back(new FakeSessions("bob"), Plant, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        Assert.Equal(["WO-1"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Entity.Key));
+        Assert.Equal([new PartitionRead("g-plant", null, Blocked: true, Incomplete: false)], answer.Partitions);
+        Assert.DoesNotContain("WO-3", string.Join(' ', answer.Partitions![0].Statements), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_partition_every_edge_of_which_the_person_reads_is_not_blocked()
+    {
+        var answer = await Back(new FakeSessions("alice"), Plant, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        Assert.Equal([new PartitionRead("g-plant", null, Blocked: false, Incomplete: false)], answer.Partitions);
+        Assert.Empty(answer.Partitions![0].Statements);
+    }
+
+    /// <summary>Nothing visible and the group knew of something: refused — the source shows no row — and blocked, both true at once.</summary>
+    [Fact]
+    public async Task A_refusal_carries_the_blocked_partition_whose_edges_the_person_could_not_read()
+    {
+        var hidden = new Partitions { ["g-plant"] = [("orders_item", "I-100", "WO-3")] };
+
+        var answer = await Back(new FakeSessions("bob"), hidden, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        Assert.Equal(RefusalReason.NoVisibleResult, Assert.IsType<Refused>(answer).Refusal.Reason);
+        Assert.Equal([new PartitionRead("g-plant", null, Blocked: true, Incomplete: false)], answer.Partitions);
+    }
+
+    /// <summary>A partition built without some documents is read over what stands and says it is incomplete — a state, not a failure.</summary>
+    [Fact]
+    public async Task An_incomplete_partition_is_read_over_what_stands_and_says_so()
+    {
+        var partial = new Partitions { ["g-office"] = [], ["g-plant"] = Plant["g-plant"] };
+        partial.Incomplete.Add("g-office");
+
+        var answer = await Back(new FakeSessions("alice"), partial, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        Assert.Equal(["WO-1", "WO-3"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Entity.Key));
+        Assert.Equal(
+            [new PartitionRead("g-office", null, Blocked: false, Incomplete: true), new PartitionRead("g-plant", null, Blocked: false, Incomplete: false)],
+            answer.Partitions);
+    }
+
+    /// <summary>A partition that leads nowhere and holds all it was given says nothing, and is not listed.</summary>
+    [Fact]
+    public async Task A_partition_with_nothing_to_say_is_not_listed()
+    {
+        var answer = await Back(new FakeSessions("alice"), new Partitions { ["g-office"] = [], ["g-plant"] = Plant["g-plant"] }, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        Assert.Equal(["g-plant"], answer.Partitions!.Select(p => p.Name));
+    }
+
+    /// <summary>D-84 ①: a step with more candidates than the limit is not read at all — not one source read, and no count said.</summary>
+    [Fact]
+    public async Task A_step_with_more_candidates_than_the_limit_is_too_broad_and_reads_nothing()
+    {
+        var sessions = new FakeSessions("alice");
+        var narrow = new LookupWalker(new FixedCatalog(Ontology.Ontology.Create(Rig)), new FixedClock(ReadAt), maxCandidatesPerStep: 1);
+
+        var thrown = await Assert.ThrowsAsync<TooBroadException>(() => Back(sessions, Plant, "Item", "I-100", ["ordered_by"], ["quantity"], narrow));
+
+        Assert.Equal((1, "ordered_by"), (thrown.AtHop, thrown.Relation));
+        Assert.DoesNotContain("2", thrown.Message, StringComparison.Ordinal);
+        Assert.Empty(sessions.Reads);
+        Assert.Equal(["WO-1", "WO-3"], Assert.IsType<Answered>(await Back(new FakeSessions("alice"), Plant, "Item", "I-100", ["ordered_by"], ["quantity"],
+            new LookupWalker(new FixedCatalog(Ontology.Ontology.Create(Rig)), new FixedClock(ReadAt), maxCandidatesPerStep: 2))).Claims.Select(c => c.Entity.Key));
+    }
+
+    /// <summary>D-80 ⑤: every answer names the version of the ontology it was walked in.</summary>
+    [Fact]
+    public async Task Every_answer_names_the_ontology_version_it_was_walked_in()
+    {
+        var version = Ontology.Ontology.Create(Rig).Version;
+
+        Assert.Equal(version, (await Back(new FakeSessions("alice"), Plant, "Item", "I-100", ["ordered_by"], ["quantity"])).CatalogVersion);
+        Assert.Equal(version, (await Back(new FakeSessions("alice"), Plant, "Item", "I-200", ["ordered_by"], ["quantity"])).CatalogVersion);
+        Assert.Equal(version, (await Back(new FakeSessions("alice"), NoMaterializedRelations.Instance, "Item", "I-100", ["ordered_by"], ["quantity"])).CatalogVersion);
     }
 
     [Fact]
@@ -251,8 +337,12 @@ public class LookupWalkerTests
 
         public List<string> AsOfAsked { get; } = [];
 
-        public IAsyncEnumerable<string> LeadingToAsync(string partition, RelationDeclaration relation, string toKey, CancellationToken cancellationToken = default) =>
-            this[partition].Where(e => e.Relation == relation.Name && e.To == toKey).Select(e => e.From).ToAsyncEnumerable();
+        public HashSet<string> Incomplete { get; } = [];
+
+        public ValueTask<PartitionEdges> LeadingToAsync(string partition, RelationDeclaration relation, string toKey, int limit, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new PartitionEdges(
+                [.. this[partition].Where(e => e.Relation == relation.Name && e.To == toKey).Select(e => e.From).Take(limit + 1)],
+                Incomplete.Contains(partition)));
 
         public ValueTask<DateTimeOffset?> AsOfAsync(string partition, CancellationToken cancellationToken = default)
         {

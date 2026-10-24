@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.AspNetCore.Authentication;
 using Saem.Ontology;
+using Saem.Query;
 
 namespace Saem.Mcp;
 
@@ -23,11 +24,22 @@ public sealed class IdentityOptions
     public bool RequireHttpsMetadata { get; set; } = true;
 }
 
+/// <summary>The lookup's budget (saem D-84): how far one step may spread, and how long a lookup may take.</summary>
+public sealed class LookupOptions
+{
+    /// <summary>The most candidates one step may read; a step with more is refused as too broad, none of them read.</summary>
+    public int MaxCandidatesPerStep { get; set; } = LookupWalker.DefaultMaxCandidatesPerStep;
+
+    /// <summary>How long a whole lookup may take before it is stopped and reported as not answered.</summary>
+    public TimeSpan Deadline { get; set; } = TimeSpan.FromSeconds(10);
+}
+
 /// <summary>
 /// Wires the MCP server: bearer-token authentication against the configured issuer, the one
 /// lookup tool, and Streamable HTTP. Configuration lives under <c>Saem</c>: <c>Ontology</c> (the
 /// declarations file), <c>Identity</c> (<see cref="IdentityOptions"/>), <c>Sources</c>
-/// (<see cref="SourceOptions"/>) and <c>Materialization</c> (<see cref="MaterializationOptions"/>).
+/// (<see cref="SourceOptions"/>), <c>Materialization</c> (<see cref="MaterializationOptions"/>), <c>Lookup</c>
+/// (<see cref="LookupOptions"/>) and <c>Audit</c> (<see cref="AuditOptions"/>).
 /// </summary>
 public static class SaemMcpServer
 {
@@ -44,6 +56,10 @@ public static class SaemMcpServer
         services.Configure<SourceOptions>(saem.GetSection("Sources"));
         services.Configure<MaterializationOptions>(saem.GetSection("Materialization"));
         services.Configure<AuditOptions>(saem.GetSection("Audit"));
+        services.AddOptions<LookupOptions>()
+            .Bind(saem.GetSection("Lookup"))
+            .Validate(l => l.MaxCandidatesPerStep >= 1 && l.Deadline > TimeSpan.Zero, "Saem:Lookup allows at least one candidate per step and a positive deadline.")
+            .ValidateOnStart();
         services.TryAddSingleton<InteractionLog>();
 
         var ontologyPath = saem["Ontology"];
