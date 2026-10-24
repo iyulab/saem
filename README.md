@@ -237,6 +237,10 @@ one), and the review lists every retried attempt. Secrets come from the environm
 never from the command line. This is direct authoring: the draft is a reviewed edit of the catalog
 file, not a changeset — nothing is simulated or applied against the sources.
 
+Each source an answer cites says when saem read it (`readAt`): every source is read at the moment the
+lookup is asked, as the person, so that is the time the value is as of — an agent holding the answer
+knows how old the fact is.
+
 An answer cites the record it read: by default the row's key, and where a table's rows are copies of
 records kept elsewhere, the columns a type declares as its `record` — joined with `/` when there are
 several. A form's projected rows are keyed by the record's own key, so relations follow it, and cited

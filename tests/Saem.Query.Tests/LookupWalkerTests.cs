@@ -27,7 +27,9 @@ public class LookupWalkerTests
         new RelationDeclaration("supplied_by", "Item", "supplier", "Supplier"),
     ];
 
-    private static readonly LookupWalker Walker = new(new FixedCatalog(Ontology.Ontology.Create(Rig)));
+    private static readonly DateTimeOffset ReadAt = new(2026, 10, 25, 2, 0, 0, TimeSpan.Zero);
+
+    private static readonly LookupWalker Walker = new(new FixedCatalog(Ontology.Ontology.Create(Rig)), new FixedClock(ReadAt));
 
     // Every row of the sources, and who may see it.
     private static readonly (string System, string Table, string Key, Dictionary<string, object?> Values, string[] SeenBy)[] Rows =
@@ -56,7 +58,7 @@ public class LookupWalkerTests
         Assert.Equal(new EntityKey("Supplier", "S-2"), claim.Entity);
         Assert.Equal("name", claim.Field);
         Assert.Equal(Canary, claim.Value.GetString());
-        Assert.Equal([new SourceRecord("erp", "visible_suppliers", "S-2")], claim.Sources);
+        Assert.Equal([new SourceRecord("erp", "visible_suppliers", "S-2") { ReadAt = ReadAt }], claim.Sources);
         Assert.Equal(
             [
                 new Hop("orders_item", new EntityKey("WorkOrder", "WO-2"), new EntityKey("Item", "I-200")),
@@ -127,8 +129,8 @@ public class LookupWalkerTests
         var defect = Assert.Single(Assert.IsType<Answered>(await Run(sessions, "Defect", "D-1", [], ["part"])).Claims);
 
         Assert.Equal(new EntityKey("Inspection", "IN-7"), inspection.Entity);
-        Assert.Equal([new SourceRecord("forms", "inspections", "0f8e2c4a-1b2d-4c6e-9a0b-7d5e3f1a2b4c")], inspection.Sources);
-        Assert.Equal([new SourceRecord("forms", "inspection_defects", "0f8e2c4a-1b2d-4c6e-9a0b-7d5e3f1a2b4c/1")], defect.Sources);
+        Assert.Equal([new SourceRecord("forms", "inspections", "0f8e2c4a-1b2d-4c6e-9a0b-7d5e3f1a2b4c") { ReadAt = ReadAt }], inspection.Sources);
+        Assert.Equal([new SourceRecord("forms", "inspection_defects", "0f8e2c4a-1b2d-4c6e-9a0b-7d5e3f1a2b4c/1") { ReadAt = ReadAt }], defect.Sources);
         Assert.Equal(
             ["forms inspections inspection_no=IN-7 [finding,fb_doc_id]", "forms inspection_defects defect_no=D-1 [part,fb_doc_id,fb_row]"],
             sessions.Reads);
@@ -161,7 +163,7 @@ public class LookupWalkerTests
 
         var claims = Assert.IsType<Answered>(answer).Claims;
         Assert.Equal([("WO-1", 50), ("WO-3", 10)], claims.Select(c => (c.Entity.Key, c.Value.GetInt32())));
-        Assert.Equal([new SourceRecord("mes", "work_orders", "WO-1")], claims[0].Sources);
+        Assert.Equal([new SourceRecord("mes", "work_orders", "WO-1") { ReadAt = ReadAt }], claims[0].Sources);
         Assert.Equal([Backwards("I-100", "WO-1", "g-plant")], claims[0].Path);
     }
 
@@ -280,5 +282,23 @@ public class LookupWalkerTests
         }
 
         private string Person => person;
+    }
+
+    [Fact]
+    public async Task A_source_says_when_it_was_read_and_says_so_on_the_wire()
+    {
+        var answer = Assert.IsType<Answered>(await Run(new FakeSessions("alice"), "WorkOrder", "WO-1", [], ["quantity"]));
+
+        var source = Assert.Single(Assert.Single(answer.Claims).Sources);
+        Assert.Equal(ReadAt, source.ReadAt);
+        var wire = System.Text.Json.JsonSerializer.SerializeToElement<LookupAnswer>(answer, ContractJson.Default.LookupAnswer);
+        Assert.Equal("2026-10-25T02:00:00+00:00", wire.GetProperty("claims")[0].GetProperty("sources")[0].GetProperty("readAt").GetString());
+        var named = System.Text.Json.JsonSerializer.SerializeToElement(new SourceRecord("mes", "work_orders", "WO-1"), ContractJson.Default.SourceRecord);
+        Assert.False(named.TryGetProperty("readAt", out _), "a record named without being read has no read time");
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 }

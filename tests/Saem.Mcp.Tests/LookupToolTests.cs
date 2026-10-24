@@ -149,7 +149,7 @@ public sealed class LookupToolTests : IAsyncLifetime
         Assert.Equal("producesItem", hop.GetProperty("relation").GetString());
         // The text content carries the same contract JSON, for clients that do not read structured content.
         var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
-        Assert.Equal(result.StructuredContent!.Value.GetRawText(), JsonDocument.Parse(text).RootElement.GetRawText());
+        Assert.True(JsonElement.DeepEquals(result.StructuredContent!.Value, JsonDocument.Parse(text).RootElement), "the text carries the same JSON, escaped as its writer chose");
     }
 
     [Fact]

@@ -112,7 +112,17 @@ public sealed record Claim
 /// The record read, as the ontology names it: the columns the entity's type declares as its record,
 /// joined with <c>/</c> — or, where it declares none, the row's key.
 /// </param>
-public sealed record SourceRecord(string System, string Table, string Record);
+public sealed record SourceRecord(string System, string Table, string Record)
+{
+    /// <summary>
+    /// When saem read the record from its source to state the value — the moment the value is as of. Every
+    /// source of an answer is read at the moment the lookup is asked, as the person, so this is the age of
+    /// what the answer says; null where the record is named without having been read (an edge built ahead
+    /// of time names the record it was built from).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? ReadAt { get; init; }
+}
 
 /// <summary>One relation followed: from one entity to the next.</summary>
 /// <param name="Relation">The relation, as the ontology declares it — or its inverse's name, when it was walked backwards.</param>
