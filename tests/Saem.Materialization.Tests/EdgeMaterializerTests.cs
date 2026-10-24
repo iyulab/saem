@@ -100,11 +100,11 @@ public sealed class EdgeMaterializerTests
         Assert.Null(Iris.KeyOf("WorkOrder", Iris.For("WorkOrder", "")));
     }
 
-    private static SourceRow Row(string key, params (string Column, object? Value)[] values) =>
+    internal static SourceRow Row(string key, params (string Column, object? Value)[] values) =>
         new(key, values.ToDictionary(v => v.Column, v => JsonSerializer.SerializeToElement(v.Value)));
 
     /// <summary>Sessions over fixed tables, keyed by <c>system/table</c>, recording what each scan asked for.</summary>
-    private sealed class Sessions(Dictionary<string, List<SourceRow>> tables) : ISourceSessions
+    internal sealed class Sessions(Dictionary<string, List<SourceRow>> tables) : ISourceSessions
     {
         public List<string> Scans { get; } = [];
 
