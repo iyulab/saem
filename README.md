@@ -474,6 +474,15 @@ for that id, which login it authorised — PostgreSQL's connection log, or on My
 keeps connection attributes (the rig turns on Percona's `audit_log_filter` for this): the record that a
 lookup ran as the person comes from the source, not only from saem.
 
+The server also logs one interaction per call: who asked for whom, the start type, relation and field
+names, how it ended, where a refusal stopped, and the records reached — each named by an HMAC of its
+system, type and key under `Saem:Audit:HmacKey` (with `Saem:Audit:HmacKeyId`), never by the key; without
+a key, records are not named. No value, key or label is logged. With `Saem:Audit:Ocsf` set, each
+interaction is also written as an OCSF 1.9.0 API Activity event (class 6003, activity Read), one JSON
+object per line under the log category `Saem.Mcp.OcsfEvents`, for a SIEM: the person is
+`actor.user.uid`, the agent acting for them `ai_agent.uid` (`ai_operation` profile), the records reached
+`resources` by the same digests, and what OCSF has no attribute for under `unmapped`.
+
 ```json
 {
   "Saem": {

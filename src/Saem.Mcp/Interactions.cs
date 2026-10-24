@@ -21,6 +21,12 @@ public sealed class AuditOptions
 
     /// <summary>Which key <see cref="HmacKey"/> is, logged beside each name so a rotated key's names stay readable.</summary>
     public string HmacKeyId { get; set; } = "k1";
+
+    /// <summary>
+    /// Whether each interaction is also written as an OCSF 1.9.0 API Activity event, one JSON object per line under the
+    /// log category <c>Saem.Mcp.OcsfEvents</c>, for a SIEM to read (<see cref="OcsfEvents"/>). Off by default.
+    /// </summary>
+    public bool Ocsf { get; set; }
 }
 
 /// <summary>
@@ -67,12 +73,14 @@ internal sealed partial class InteractionLog
     private readonly byte[]? _key;
     private readonly string _keyId;
     private readonly ILogger<InteractionLog> _logger;
+    private readonly ILogger? _ocsf;
 
-    public InteractionLog(IOptions<AuditOptions> options, ILogger<InteractionLog> logger)
+    public InteractionLog(IOptions<AuditOptions> options, ILogger<InteractionLog> logger, ILoggerFactory? loggers = null)
     {
         _key = string.IsNullOrEmpty(options.Value.HmacKey) ? null : Encoding.UTF8.GetBytes(options.Value.HmacKey);
         _keyId = options.Value.HmacKeyId;
         _logger = logger;
+        _ocsf = options.Value.Ocsf ? (loggers ?? throw new ArgumentNullException(nameof(loggers), "OCSF events are written through a logger factory.")).CreateLogger("Saem.Mcp.OcsfEvents") : null;
     }
 
     /// <summary>
@@ -145,8 +153,15 @@ internal sealed partial class InteractionLog
         if (_logger.IsEnabled(LogLevel.Information))
         {
             var serialized = JsonSerializer.Serialize(interaction, Json);
-            LogInteraction(interaction.Id, interaction.Outcome, serialized);
+            LogInteraction(_logger, interaction.Id, interaction.Outcome, serialized);
         }
+
+        if (_ocsf is not null && _ocsf.IsEnabled(LogLevel.Information))
+        {
+            var ocsfEvent = OcsfEvents.ApiActivityOf(interaction).ToJsonString();
+            LogOcsfEvent(_ocsf, ocsfEvent);
+        }
+
         if (span is null)
         {
             return;
@@ -177,5 +192,8 @@ internal sealed partial class InteractionLog
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "interaction {InteractionId} {Outcome} {Interaction}")]
-    private partial void LogInteraction(string interactionId, string outcome, string interaction);
+    private static partial void LogInteraction(ILogger logger, string interactionId, string outcome, string interaction);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{OcsfEvent}")]
+    private static partial void LogOcsfEvent(ILogger logger, string ocsfEvent);
 }
