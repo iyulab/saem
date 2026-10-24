@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -59,5 +60,43 @@ public class GroupStoresTests
             o.BaseIri = "";
             o.Groups["g-plant"] = new GroupStoreOptions { Url = "http://plant.test" };
         }));
+    }
+
+    private sealed class Recording : HttpMessageHandler
+    {
+        public List<string?> Authorizations { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Authorizations.Add(request.Headers.Authorization?.ToString());
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        }
+    }
+
+    private sealed class Through(HttpMessageHandler handler) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    }
+
+    /// <summary>
+    /// A store with access keys answers only a caller presenting one, so each group's client carries its own
+    /// store's key — and a group whose store asks for none sends none.
+    /// </summary>
+    [Fact]
+    public async Task Each_store_is_asked_with_its_own_access_key_and_none_where_none_is_configured()
+    {
+        using var handler = new Recording();
+        var options = new MaterializationOptions { BaseIri = "https://example.org/ontology/" };
+        options.Groups["g-plant"] = new GroupStoreOptions { Url = "http://plant.test", AccessKey = "plant-key-0123456789abcdef0123456789" };
+        options.Groups["g-office"] = new GroupStoreOptions { Url = "http://office.test" };
+        var stores = new ConfiguredGroupStores(Options.Create(options), new Through(handler));
+
+        foreach (var group in new[] { "g-plant", "g-office" })
+        {
+            var store = stores.StoresOf(new Person("carol", null) { Groups = [group] }).Single();
+            await Assert.ThrowsAnyAsync<Exception>(() => store.Edges.AsOfAsync(TestContext.Current.CancellationToken));
+        }
+
+        Assert.Equal(["Bearer plant-key-0123456789abcdef0123456789", null], handler.Authorizations);
     }
 }

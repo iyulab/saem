@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Options;
 using Saem.Materialization;
@@ -46,6 +47,13 @@ public sealed class GroupStoreOptions
 
     /// <summary>The Formbase namespace, when the instance serves several; omitted, the instance's own.</summary>
     public string? Namespace { get; set; }
+
+    /// <summary>
+    /// One of the group Formbase's access keys (its <c>Formbase:Access:Keys</c>), sent as a bearer token —
+    /// omitted when the store asks for none. A store without keys is held apart only by the network it is on,
+    /// so a deployment configures one; supply it from a secret store, not a checked-in file.
+    /// </summary>
+    public string? AccessKey { get; set; }
 }
 
 /// <summary>The stores the configuration names, each reached over its own client.</summary>
@@ -71,6 +79,11 @@ internal sealed class ConfiguredGroupStores : IGroupStores
 
             var http = httpClients.CreateClient("Materialization:" + group);
             http.BaseAddress = url.AbsoluteUri.EndsWith('/') ? url : new Uri(url.AbsoluteUri + "/");
+            if (!string.IsNullOrEmpty(store.AccessKey))
+            {
+                http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", store.AccessKey);
+            }
+
             _stores.Add(group, new GroupStore(group, new FormbaseEdgeStore(http, store.Namespace)));
         }
     }

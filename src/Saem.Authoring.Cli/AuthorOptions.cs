@@ -57,7 +57,7 @@ internal sealed record AuthorOptions(
           --overwrite                    Replace an output file if it exists.
 
         Environment:
-          SAEM_FORMBASE_TOKEN            A bearer token sent to Formbase, when something in front of it asks for one.
+          SAEM_FORMBASE_TOKEN            One of Formbase's access keys (Formbase:Access:Keys), sent as a bearer token.
           SAEM_MODEL_API_KEY             A bearer token sent to the model endpoint.
 
         Nothing is written but the three files: the catalog changes when a person accepts the draft as an edit

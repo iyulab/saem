@@ -41,7 +41,7 @@ internal sealed record MaterializeOptions(
         Environment:
           SAEM_SOURCE_SECRET_<SYSTEM>    The group account's password (postgres, mysql) or bearer secret (morphdb) for
                                          each system in the sources file — e.g. SAEM_SOURCE_SECRET_MES for "mes".
-          SAEM_STORE_TOKEN               A bearer token sent to the store, when something in front of it asks for one.
+          SAEM_STORE_TOKEN               One of the store Formbase's access keys (Formbase:Access:Keys), sent as a bearer token.
 
         Only the relations' leaving types are read, and only their relation fields and record columns. The store
         is made to hold exactly this pass's edges: unchanged ones are not sent, changed ones are corrected, and
