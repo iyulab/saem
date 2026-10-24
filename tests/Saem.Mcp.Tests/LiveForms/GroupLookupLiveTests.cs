@@ -13,7 +13,8 @@ namespace Saem.Mcp.Tests.LiveForms;
 /// shows that group's account (g_plant every line, g_office line 1) into the group's own store; the server
 /// reads a person's groups from the issuer's token. pat is in g-plant and reads mes as alice does; quinn is in
 /// g-plant too but reads mes as bob does; olive is in g-office and reads it as bob does; nobody is in no group.
-/// The line-2 work order is the canary.
+/// The line-2 work order is the canary. An identity holds work orders of one item to be one thing (a mechanism
+/// check, by a field the rig has): g_plant sees WO-1 and WO-3 make I-100, g_office sees one order of each item.
 /// </summary>
 public sealed class GroupLookupLiveTests : IAsyncLifetime
 {
@@ -24,7 +25,9 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
           { "kind": "entityType", "name": "WorkOrder", "system": "mes", "table": "work_orders", "key": "wo_no",
             "fields": { "item": "item_code", "quantity": "qty", "note": "note" } },
           { "kind": "entityType", "name": "Item", "system": "erp", "table": "items", "key": "item_code", "fields": { } },
-          { "kind": "relation", "name": "orders_item", "from": "WorkOrder", "via": "item", "to": "Item", "inverse": "ordered_by" }
+          { "kind": "relation", "name": "orders_item", "from": "WorkOrder", "via": "item", "to": "Item", "inverse": "ordered_by" },
+          { "kind": "identity", "name": "same_item_order", "first": "WorkOrder", "second": "WorkOrder", "decision": "automatic",
+            "match": [ { "first": "item", "second": "item" } ] }
         ]
         """;
 
@@ -32,6 +35,8 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
         ?? throw new InvalidOperationException("SAEM_RIG_MES is set by the rig's password-login profile (tests/rig/compose.password-login.yaml).");
 
     private static readonly string[] Quantity = ["quantity"];
+
+    private static readonly string[] SameItemOrder = ["same_item_order"];
 
     private static readonly Dictionary<string, object?> WhoMakesI100 = new()
     {
@@ -66,6 +71,9 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
         var mes = new PostgresSource(Mes);
         await new FormbaseEdgeStore(_plant.Formbase).ReplaceAsync(materializer.MaterializeAsync(As(mes, "g_plant_pw", "rig-plant-local-only"), ct), ct);
         await new FormbaseEdgeStore(_office.Formbase).ReplaceAsync(materializer.MaterializeAsync(As(mes, "g_office_pw", "rig-office-local-only"), ct), ct);
+        var matcher = new IdentityMatcher(ontology, new EntityIris(new Uri(BaseIri)));
+        await new FormbaseIdentityStore(_plant.Formbase).ReplaceAsync(ontology, matcher.MatchAsync(As(mes, "g_plant_pw", "rig-plant-local-only"), ct), ct);
+        await new FormbaseIdentityStore(_office.Formbase).ReplaceAsync(ontology, matcher.MatchAsync(As(mes, "g_office_pw", "rig-office-local-only"), ct), ct);
 
         var issuer = Environment.GetEnvironmentVariable("SAEM_RIG_ISSUER")!;
         _server = await TestServer.StartAsync(OntologyJson, new Dictionary<string, string?>
@@ -204,5 +212,45 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
         Assert.Equal("refused", backwards.GetProperty("kind").GetString());
         Assert.Equal("noMaterializedPartition", backwards.GetProperty("refusal").GetProperty("reason").GetString());
         Assert.Equal("answered", forwards.StructuredContent!.Value.GetProperty("kind").GetString());
+    }
+
+    private async Task<JsonElement> SameAsWorkOrder1Async(string person, CancellationToken ct)
+    {
+        await using var client = await _server.ClientAsync(await FormsRig.TokenAsync(person, ct), ct);
+        var result = await client.CallToolAsync("lookup", new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = "WorkOrder", ["key"] = "WO-1" },
+            ["path"] = SameItemOrder,
+            ["read"] = Quantity,
+        }, cancellationToken: ct);
+        Assert.NotEqual(true, result.IsError);
+        return result.StructuredContent!.Value;
+    }
+
+    /// <summary>
+    /// D-86 on the rig: crossing an identity answers the entities the person's group holds the same thing, read as the
+    /// person, the hop naming the identity and who settled it. quinn's group holds the canary as one with WO-1, but
+    /// quinn's own read does not show it — refused, the partition blocked; olive's group holds no such thing.
+    /// </summary>
+    [Fact]
+    public async Task Crossing_an_identity_answers_what_the_persons_group_holds_the_same_and_the_source_shows_them()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var forPat = await SameAsWorkOrder1Async("pat", ct);
+        var forQuinn = await SameAsWorkOrder1Async("quinn", ct);
+        var forOlive = await SameAsWorkOrder1Async("olive", ct);
+
+        var claim = Assert.Single(forPat.GetProperty("claims").EnumerateArray());
+        Assert.Equal(("WO-3", 10), (claim.GetProperty("entity").GetProperty("key").GetString(), claim.GetProperty("value").GetInt32()));
+        var hop = Assert.Single(claim.GetProperty("path").EnumerateArray());
+        Assert.Equal(("same_item_order", "g-plant", "automatic"), (hop.GetProperty("relation").GetString(), hop.GetProperty("partition").GetString(), hop.GetProperty("identity").GetString()));
+        Assert.False(hop.TryGetProperty("grounds", out _));
+
+        Assert.Equal(("refused", "noVisibleResult"), (forQuinn.GetProperty("kind").GetString(), forQuinn.GetProperty("refusal").GetProperty("reason").GetString()));
+        Assert.True(Assert.Single(forQuinn.GetProperty("partitions").EnumerateArray()).GetProperty("blocked").GetBoolean());
+        Assert.DoesNotContain("WO-3", forQuinn.GetRawText(), StringComparison.Ordinal);
+        Assert.Equal("refused", forOlive.GetProperty("kind").GetString());
+        Assert.False(forOlive.TryGetProperty("partitions", out _));
     }
 }
