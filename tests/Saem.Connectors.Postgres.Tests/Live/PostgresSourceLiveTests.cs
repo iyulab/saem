@@ -122,6 +122,21 @@ public class PostgresSourceLiveTests
         Assert.DoesNotContain(Canary, System.Text.Json.JsonSerializer.Serialize(forBob), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("bypass", false, true)]
+    [InlineData("super", true, false)]
+    public async Task A_login_row_level_security_does_not_apply_to_is_refused(string login, bool superuser, bool bypassesRls)
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // bypass_pw is a member of bob's role: with BYPASSRLS it would read the canary bob may not see.
+        var refused = await Assert.ThrowsAsync<InsecureSourceRoleException>(async () => await (await As(login)(ct)).DisposeAsync());
+
+        Assert.Equal($"{login}_pw", refused.RoleName);
+        Assert.Equal(superuser, refused.IsSuperuser);
+        Assert.Equal(bypassesRls, refused.BypassesRowLevelSecurity);
+    }
+
     private sealed class Fixed(Ontology.Ontology ontology) : IOntologyCatalog
     {
         public ValueTask<Ontology.Ontology> GetAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(ontology);

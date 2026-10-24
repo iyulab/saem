@@ -34,12 +34,29 @@ internal sealed class PostgresSourceSession : ISourceSession
                 await readOnly.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            await RefuseUnrestrictedRoleAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
             return new PostgresSourceSession(dataSource, connection, transaction);
         }
         catch
         {
             await connection.DisposeAsync().ConfigureAwait(false);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Refuses a login the source's row-level security does not apply to — a superuser, or a role with
+    /// <c>BYPASSRLS</c>: through it the source would hand over every row, not the ones it lets the person
+    /// read. Checked on every session, since a role's attributes can change between two of them.
+    /// </summary>
+    private static async Task RefuseUnrestrictedRoleAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            "SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user", connection, transaction);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && (reader.GetBoolean(1) || reader.GetBoolean(2)))
+        {
+            throw new InsecureSourceRoleException(reader.GetString(0), reader.GetBoolean(1), reader.GetBoolean(2));
         }
     }
 

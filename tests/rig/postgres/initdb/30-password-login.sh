@@ -28,6 +28,10 @@ CREATE ROLE g_plant_pw LOGIN PASSWORD 'rig-plant-local-only' IN ROLE g_plant, ri
 CREATE ROLE g_office_pw LOGIN PASSWORD 'rig-office-local-only' IN ROLE g_office, rig_password_login;
 ALTER ROLE g_plant_pw SET default_transaction_read_only = on;
 ALTER ROLE g_office_pw SET default_transaction_read_only = on;
+-- Two logins a source must never hand saem: row-level security does not apply to either, so the
+-- adapter refuses a session opened as them (InsecureSourceRoleException).
+CREATE ROLE bypass_pw LOGIN BYPASSRLS PASSWORD 'rig-bypass-local-only' IN ROLE bob, rig_password_login;
+CREATE ROLE super_pw LOGIN SUPERUSER PASSWORD 'rig-super-local-only' IN ROLE rig_password_login;
 DO $$
 BEGIN
     FOR i IN 1..50 LOOP

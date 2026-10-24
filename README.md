@@ -318,7 +318,9 @@ the system's interface, reading it over its own protocol, as the person, *is* ta
 own interface: the session logs in with the person's credential (`PostgresSource.As(user, secret)`,
 `MySqlSource.As(user, secret)` — the secret asked for when the session opens and not kept), runs in a
 read-only transaction rolled back when the session ends, and pools nothing between lookups. A
-connection string that names a login is refused. One lookup can cross both: a work order in a
+connection string that names a login is refused, and so is a PostgreSQL session that logged in as a
+superuser or a role with `BYPASSRLS` (`InsecureSourceRoleException`): row-level security does not apply
+to such a role, so the source would hand over every row instead of deciding what the person reads. One lookup can cross both: a work order in a
 PostgreSQL MES names an item in a MySQL ERP, which names its supplier — and each person's answer, or
 the hop at which it is refused, follows from what each source lets that person see.
 

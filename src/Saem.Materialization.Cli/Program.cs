@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using Saem.Connectors.MorphDb;
+using Saem.Connectors.Postgres;
 using Saem.Materialization;
 using Saem.Materialization.Cli;
 using Saem.Ontology;
@@ -38,7 +39,7 @@ catch (MaterializeUsageException e)
     Console.Error.WriteLine("Run saem-materialize --help for the arguments.");
     return 2;
 }
-catch (Exception e) when (e is EdgeStoreException or OntologyDeclarationException or NoSourceLoginException or MorphDbSourceException
+catch (Exception e) when (e is EdgeStoreException or OntologyDeclarationException or NoSourceLoginException or MorphDbSourceException or InsecureSourceRoleException
                           or System.Data.Common.DbException or HttpRequestException or IOException or InvalidOperationException)
 {
     Console.Error.WriteLine(e.Message);
