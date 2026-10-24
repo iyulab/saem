@@ -121,6 +121,39 @@ public sealed class GroupMaterializationLiveTests : IAsyncLifetime
         }
     }
 
+    /// <summary>
+    /// saem D-81 on the rig: an identity is matched as each group's account, and what it finds lands in that group's store
+    /// only — the plant group sees two orders of one item and keeps them as one thing (a mechanism check, by a field the
+    /// rig has); the office group, which sees one order of each item, finds nothing. A pass made again keeps the id.
+    /// </summary>
+    [Fact]
+    public async Task What_an_identity_finds_as_each_groups_account_lands_in_that_groups_store_and_keeps_its_id()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var mes = new PostgresSource(Environment.GetEnvironmentVariable("SAEM_RIG_MES")
+            ?? throw new InvalidOperationException("SAEM_RIG_MES is set by the rig's password-login profile (tests/rig/compose.password-login.yaml)."));
+        var ontology = Ontology.Ontology.Create(
+        [
+            new EntityTypeDeclaration("WorkOrder", "mes", "work_orders", "wo_no", new Dictionary<string, string> { ["item"] = "item_code" }),
+            new IdentityDeclaration("same_item_order", "WorkOrder", "WorkOrder", IdentityDecision.Automatic) { Match = [new FieldPair("item", "item")] },
+        ]);
+        var matcher = new IdentityMatcher(ontology, Iris);
+
+        var plant = await new FormbaseIdentityStore(_plant.Formbase).ReplaceAsync(ontology, matcher.MatchAsync(As(mes, "g_plant_pw", "rig-plant-local-only"), ct), ct);
+        var office = await new FormbaseIdentityStore(_office.Formbase).ReplaceAsync(ontology, matcher.MatchAsync(As(mes, "g_office_pw", "rig-office-local-only"), ct), ct);
+
+        Assert.Equal(1, plant.Issued);
+        Assert.Equal(0, office.Issued);
+        var thing = Assert.Single(await new FormbaseIdentityStore(_plant.Formbase).ReadAsync(ct));
+        Assert.Equal([Iris.For("WorkOrder", "WO-1"), Iris.For("WorkOrder", "WO-3")], thing.Members);
+        Assert.Empty(await new FormbaseIdentityStore(_office.Formbase).ReadAsync(ct));
+
+        var again = await new FormbaseIdentityStore(_plant.Formbase).ReplaceAsync(ontology, matcher.MatchAsync(As(mes, "g_plant_pw", "rig-plant-local-only"), ct), ct);
+        Assert.Equal(new RecordWrite(0, 1, 0), again.Canonical);
+        Assert.Equal(thing.Id, Assert.Single(await new FormbaseIdentityStore(_plant.Formbase).ReadAsync(ct)).Id);
+        Assert.True((await new FormbaseIdentityStore(_plant.Formbase).CompareAsync(ontology, matcher.MatchAsync(As(mes, "g_plant_pw", "rig-plant-local-only"), ct), ct)).Agrees);
+    }
+
     private static PersonSessions As(PostgresSource mes, string account, string password) =>
         new(new Dictionary<string, SourceOpener> { ["mes"] = mes.As(account, _ => ValueTask.FromResult(password)) });
 

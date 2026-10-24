@@ -66,13 +66,13 @@ try
     }
 
     var edgeStore = new FormbaseEdgeStore(store, options.StoreNamespace);
+    var identityStore = new FormbaseIdentityStore(store, options.StoreNamespace);
     if (verify)
     {
-        var comparison = await MaterializeRun.VerifyAsync(ontology, sources.Openers, options.Group, new EntityIris(options.BaseIri), edgeStore, Console.Out, cancellation.Token);
-        return comparison.Agrees ? 0 : 1;
+        var agrees = await MaterializeRun.VerifyAsync(ontology, sources.Openers, options.Group, new EntityIris(options.BaseIri), edgeStore, identityStore, Console.Out, cancellation.Token);
+        return agrees ? 0 : 1;
     }
 
-    var identityStore = new FormbaseIdentityStore(store, options.StoreNamespace);
     await MaterializeRun.RunAsync(ontology, sources.Openers, options.Group, new EntityIris(options.BaseIri), edgeStore, identityStore, Console.Out, cancellation.Token);
     return 0;
 }

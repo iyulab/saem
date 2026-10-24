@@ -52,8 +52,8 @@ internal sealed record MaterializeOptions(
         identity a person settles (decision "confirmed") files its pairs as grounds only.
 
         To compare the store with what a pass would give now, writing nothing: saem-materialize verify <the same
-        arguments> — exit status 1 when it disagrees (edges missing, different or no longer given, or documents its
-        projection skipped); the pass rebuilds it.
+        arguments> — exit status 1 when it disagrees (edges or identified things missing, different or no longer
+        given, or documents a projection skipped); the pass rebuilds it.
         To check the declarations against the sources first, as one account: saem-materialize check --help.
         """;
 

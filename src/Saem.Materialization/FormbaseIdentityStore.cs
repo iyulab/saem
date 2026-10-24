@@ -138,6 +138,56 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
         };
     }
 
+    /// <summary>
+    /// Compares what the store holds with <paramref name="clusters"/> — what a pass would find now — and writes nothing
+    /// (saem D-81 ⑤). Canonical ids are issued, not derived, so a thing is compared by its members: held as found, found
+    /// and not held, held with other members, or held and no longer found; grounds by the pair and how it was judged.
+    /// Counts only — no entity is named.
+    /// </summary>
+    public async Task<IdentityComparison> CompareAsync(
+        Ontology.Ontology ontology, IAsyncEnumerable<IdentityCluster> clusters, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ontology);
+        ArgumentNullException.ThrowIfNull(clusters);
+
+        var skipped = 0;
+        var heldCanonical = await _forms.HeldAsync(CanonicalFormType, "", CanonicalFields, cancellationToken, readOn: n => skipped += n).ConfigureAwait(false);
+        var heldMembers = await _forms.HeldAsync(MemberFormType, "", MemberFields, cancellationToken, readOn: n => skipped += n).ConfigureAwait(false);
+        var heldGrounds = await _forms.HeldAsync(GroundFormType, "", GroundFields, cancellationToken, readOn: n => skipped += n).ConfigureAwait(false);
+
+        var found = new List<IdentityCluster>();
+        await foreach (var cluster in clusters.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            found.Add(cluster);
+        }
+
+        // Things by "identity member member …", the members in order; a held thing of an identity no longer declared, or
+        // now settled by a person, is held and not given.
+        static string Thing(string identity, IEnumerable<string> members) => identity + " " + string.Join(' ', members);
+        var givenThings = found.Where(c => ontology.Identities.TryGetValue(c.Identity, out var i) && i.Decision == Ontology.IdentityDecision.Automatic)
+            .Select(c => Thing(c.Identity, c.Members)).ToHashSet(StringComparer.Ordinal);
+        var heldThings = heldCanonical.Values.Select(c => c[0]).Distinct(StringComparer.Ordinal)
+            .SelectMany(identity => HeldOf(identity, heldCanonical, heldMembers))
+            .Select(h => (Key: Thing(h.Identity, h.Members), h.Identity, h.Members))
+            .ToList();
+        var heldKeys = heldThings.Select(h => h.Key).ToHashSet(StringComparer.Ordinal);
+        var heldMember = heldThings.SelectMany(h => h.Members.Select(m => h.Identity + " " + m)).ToHashSet(StringComparer.Ordinal);
+        var givenMember = found.SelectMany(c => c.Members.Select(m => c.Identity + " " + m)).ToHashSet(StringComparer.Ordinal);
+
+        var matching = givenThings.Count(heldKeys.Contains);
+        var unmatched = found.Where(c => givenThings.Contains(Thing(c.Identity, c.Members)) && !heldKeys.Contains(Thing(c.Identity, c.Members))).ToList();
+        var differing = unmatched.Count(c => c.Members.Any(m => heldMember.Contains(c.Identity + " " + m)));
+        var extra = heldThings.Count(h => !givenThings.Contains(h.Key) && !h.Members.Any(m => givenMember.Contains(h.Identity + " " + m)));
+
+        var givenGrounds = found.Where(c => ontology.Identities.ContainsKey(c.Identity))
+            .SelectMany(c => c.Members.Skip(1).Select(other => $"{c.Identity} {c.Members[0]} {other}"))
+            .ToHashSet(StringComparer.Ordinal);
+        var groundsMissing = givenGrounds.Count(k => !heldGrounds.ContainsKey(k));
+        var groundsExtra = heldGrounds.Keys.Count(k => !givenGrounds.Contains(k));
+
+        return new IdentityComparison(matching, unmatched.Count - differing, differing, extra, groundsMissing, groundsExtra, skipped);
+    }
+
     /// <summary>The things each identity holds now, by canonical id, each with its members — every one of them, or a failure when a projection skipped documents.</summary>
     public async Task<IReadOnlyList<CanonicalIdentity>> ReadAsync(CancellationToken cancellationToken = default)
     {
@@ -204,6 +254,20 @@ public sealed record IdentityWrite(RecordWrite Canonical, RecordWrite Members, R
 
     /// <summary>Canonical ids retired because their thing merged into an older one.</summary>
     public int Merged { get; init; }
+}
+
+/// <summary>How the identity store compares with what a pass would find now.</summary>
+/// <param name="Matching">Things held with exactly the members found.</param>
+/// <param name="Missing">Things found that share no member with any held one.</param>
+/// <param name="Differing">Things found that the store holds with other members — merged, split, or grown since.</param>
+/// <param name="Extra">Things held that share no member with anything found.</param>
+/// <param name="GroundsMissing">Pairs found that the store holds no ground for.</param>
+/// <param name="GroundsExtra">Grounds held for pairs no longer found.</param>
+/// <param name="SkippedDocuments">Documents the store's projections skipped.</param>
+public sealed record IdentityComparison(int Matching, int Missing, int Differing, int Extra, int GroundsMissing, int GroundsExtra, int SkippedDocuments)
+{
+    /// <summary>The store holds what a pass would make it hold, up to the canonical ids, which a pass carries on.</summary>
+    public bool Agrees => Missing == 0 && Differing == 0 && Extra == 0 && GroundsMissing == 0 && GroundsExtra == 0 && SkippedDocuments == 0;
 }
 
 /// <summary>The group's identity store refused a pass, or holds what saem did not write.</summary>

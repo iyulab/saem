@@ -134,6 +134,38 @@ public sealed class FormbaseIdentityStoreTests
         Assert.Empty(taken.Type("identities").Stream);
     }
 
+    [Fact]
+    public async Task A_store_compared_with_what_a_pass_would_find_counts_things_by_their_members_and_writes_nothing()
+    {
+        var formbase = new FakeFormbase();
+        await Store(formbase, First).ReplaceAsync(Plant(), Of(Cluster("i/1", "m/1"), Cluster("i/2", "m/2"), Cluster("i/3", "m/3")), TestContext.Current.CancellationToken);
+        var sent = formbase.Type("identity_members").Stream.Count;
+
+        var same = await Store(formbase, Second).CompareAsync(Plant(), Of(Cluster("i/1", "m/1"), Cluster("i/2", "m/2"), Cluster("i/3", "m/3")), TestContext.Current.CancellationToken);
+        Assert.Equal(new IdentityComparison(3, 0, 0, 0, 0, 0, 0), same);
+        Assert.True(same.Agrees);
+
+        // i/1's thing grew, i/2's is gone, a new one appeared; i/3's is as held.
+        var moved = await Store(formbase, Second).CompareAsync(
+            Plant(), Of(Cluster("i/1", "m/1", "m/9"), Cluster("i/3", "m/3"), Cluster("i/4", "m/4")), TestContext.Current.CancellationToken);
+        Assert.Equal(new IdentityComparison(Matching: 1, Missing: 1, Differing: 1, Extra: 1, GroundsMissing: 2, GroundsExtra: 1, SkippedDocuments: 0), moved);
+        Assert.False(moved.Agrees);
+        Assert.Equal(sent, formbase.Type("identity_members").Stream.Count);
+    }
+
+    [Fact]
+    public async Task A_store_whose_projection_skipped_documents_does_not_agree()
+    {
+        var formbase = new FakeFormbase();
+        await Store(formbase, First).ReplaceAsync(Plant(), Of(Cluster("i/1", "m/1")), TestContext.Current.CancellationToken);
+        formbase.Type("identity_members").Skipped = 1;
+
+        var comparison = await Store(formbase, Second).CompareAsync(Plant(), Of(Cluster("i/1", "m/1")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, comparison.SkippedDocuments);
+        Assert.False(comparison.Agrees);
+    }
+
     private static (string?, string) Shape(JsonObject declaration) =>
         ((string?)declaration["tableName"], string.Join(',', declaration["fields"]!.AsArray().Select(f => (string?)f!["name"])));
 
