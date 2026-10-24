@@ -60,6 +60,22 @@ public class MySqlSourceLiveTests
         Assert.Equal("Hanbit Parts", Assert.Single(await bob.ReadAsync("visible_suppliers", "supplier_id", "S-1", ["supplier_name"], ct)).Values["supplier_name"].GetString());
     }
 
+    /// <summary>A find by a field reads the rows that hold the value under the person's own rules.</summary>
+    [Fact]
+    public async Task A_find_by_a_field_reads_only_the_rows_the_person_may_see()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await using (var alice = await Erp.As("alice_pw", _ => ValueTask.FromResult(Secret("alice")))(ct))
+        {
+            Assert.Equal(["S-2"], (await alice.FindAsync("visible_suppliers", "supplier_id", "supplier_name", Canary, ["supplier_name"], 10, ct)).Select(r => r.Key));
+        }
+
+        await using var bob = await Erp.As("bob_pw", _ => ValueTask.FromResult(Secret("bob")))(ct);
+        Assert.Empty(await bob.FindAsync("visible_suppliers", "supplier_id", "supplier_name", Canary, ["supplier_name"], 10, ct));
+        Assert.Equal(["S-1"], (await bob.FindAsync("visible_suppliers", "supplier_id", "supplier_name", "Hanbit Parts", [], 10, ct)).Select(r => r.Key));
+    }
+
     [Fact]
     public async Task A_scan_reads_every_row_the_person_may_see_in_key_order()
     {

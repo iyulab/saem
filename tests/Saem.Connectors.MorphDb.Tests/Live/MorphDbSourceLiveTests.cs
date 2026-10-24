@@ -103,6 +103,22 @@ public sealed class MorphDbSourceLiveTests : IAsyncLifetime
         return await session.ReadAsync(_table, "fb_doc_id", doc, ["result"], ct);
     }
 
+    /// <summary>A find by a field is filtered by the same row-level security as a read by key.</summary>
+    [Fact]
+    public async Task A_find_by_a_field_answers_only_the_rows_the_person_may_see()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        async Task<IReadOnlyList<SourceRow>> FindAsAsync(string person, string result)
+        {
+            await using var session = await new MorphDbSource(_http, _project).As(c => TokenForMorphDbAsync(person, c))(ct);
+            return await session.FindAsync(_table, "fb_doc_id", "result", result, ["inspector"], 10, ct);
+        }
+
+        Assert.Equal(["doc-1"], (await FindAsAsync("alice", "pass")).Select(r => r.Key));
+        Assert.Empty(await FindAsAsync("bob", "pass"));
+        Assert.Equal(["doc-2"], (await FindAsAsync("bob", "fail")).Select(r => r.Key));
+    }
+
     [Fact]
     public async Task The_same_read_answers_the_person_the_row_belongs_to_and_no_one_else()
     {

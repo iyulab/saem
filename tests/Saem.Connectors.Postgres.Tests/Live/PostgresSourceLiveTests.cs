@@ -45,6 +45,22 @@ public class PostgresSourceLiveTests
         Assert.Equal(System.Text.Json.JsonValueKind.Null, own.Values["note"].ValueKind);
     }
 
+    /// <summary>A find by a field reads the rows that hold the value under the person's own rules, in key order, up to the limit.</summary>
+    [Fact]
+    public async Task A_find_by_a_field_reads_only_the_rows_the_person_may_see()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await using (var alice = await As("alice")(ct))
+        {
+            Assert.Equal(["WO-1", "WO-3"], (await alice.FindAsync("work_orders", "wo_no", "item_code", "I-100", ["qty"], 10, ct)).Select(r => r.Key));
+            Assert.Equal(["WO-1"], (await alice.FindAsync("work_orders", "wo_no", "item_code", "I-100", [], 1, ct)).Select(r => r.Key));
+        }
+
+        await using var bob = await As("bob")(ct);
+        Assert.Equal(["WO-1"], (await bob.FindAsync("work_orders", "wo_no", "item_code", "I-100", ["qty"], 10, ct)).Select(r => r.Key));
+    }
+
     [Fact]
     public async Task A_scan_reads_every_row_the_person_may_see_in_key_order()
     {

@@ -31,6 +31,8 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
     private static readonly string Mes = Environment.GetEnvironmentVariable("SAEM_RIG_MES")
         ?? throw new InvalidOperationException("SAEM_RIG_MES is set by the rig's password-login profile (tests/rig/compose.password-login.yaml).");
 
+    private static readonly string[] Quantity = ["quantity"];
+
     private static readonly Dictionary<string, object?> WhoMakesI100 = new()
     {
         ["start"] = new Dictionary<string, object?> { ["type"] = "Item", ["key"] = "I-100" },
@@ -144,6 +146,49 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
 
         Assert.Equal([("WO-1", 50, "g-plant")], Claims(forQuinn));
         Assert.DoesNotContain("WO-3", forQuinn.GetRawText(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// D-46 · D-80 ①: quinn's group led to the canary's row, which quinn's own read does not show — the partition
+    /// is reported blocked, one bit with no key or count; pat reads every row it led to, so pat's is not.
+    /// </summary>
+    [Fact]
+    public async Task A_partition_that_led_to_a_row_the_person_cannot_see_is_reported_blocked_and_says_no_more()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var forQuinn = await AskAsync("quinn", ct);
+        var forPat = await AskAsync("pat", ct);
+
+        var quinns = Assert.Single(forQuinn.GetProperty("partitions").EnumerateArray());
+        Assert.Equal(("g-plant", true, false), (quinns.GetProperty("name").GetString(), quinns.GetProperty("blocked").GetBoolean(), quinns.GetProperty("incomplete").GetBoolean()));
+        Assert.True(quinns.TryGetProperty("asOf", out var asOf) && asOf.ValueKind == JsonValueKind.String);
+        Assert.DoesNotContain("WO-3", quinns.GetRawText(), StringComparison.Ordinal);
+        Assert.False(Assert.Single(forPat.GetProperty("partitions").EnumerateArray()).GetProperty("blocked").GetBoolean());
+        Assert.Equal(forPat.GetProperty("catalogVersion").GetString(), forQuinn.GetProperty("catalogVersion").GetString());
+    }
+
+    /// <summary>D-80 ④ on the rig: work orders named by the item they make — pat sees two and is offered both; quinn sees one and is walked from it.</summary>
+    [Fact]
+    public async Task A_start_by_a_value_offers_the_rows_the_person_sees_or_walks_from_the_one()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var byItem = new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = "WorkOrder", ["where"] = new Dictionary<string, object?> { ["field"] = "item", ["value"] = "I-100" } },
+            ["path"] = Array.Empty<string>(),
+            ["read"] = Quantity,
+        };
+
+        await using var pat = await _server.ClientAsync(await FormsRig.TokenAsync("pat", ct), ct);
+        await using var quinn = await _server.ClientAsync(await FormsRig.TokenAsync("quinn", ct), ct);
+        var forPat = (await pat.CallToolAsync("lookup", byItem, cancellationToken: ct)).StructuredContent!.Value;
+        var forQuinn = (await quinn.CallToolAsync("lookup", byItem, cancellationToken: ct)).StructuredContent!.Value;
+
+        Assert.Equal("candidates", forPat.GetProperty("kind").GetString());
+        Assert.Equal(["WO-1", "WO-3"], forPat.GetProperty("entities").EnumerateArray().Select(e => e.GetProperty("entity").GetProperty("key").GetString()));
+        Assert.Equal("answered", forQuinn.GetProperty("kind").GetString());
+        Assert.Equal("WO-1", forQuinn.GetProperty("claims")[0].GetProperty("entity").GetProperty("key").GetString());
     }
 
     /// <summary>T-41: someone in no group the server keeps edges for sees nothing materialized — refused for that reason.</summary>

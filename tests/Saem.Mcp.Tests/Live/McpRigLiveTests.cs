@@ -121,7 +121,7 @@ public sealed class McpRigLiveTests : IAsyncLifetime
         Assert.DoesNotContain(_server.Logs.Lines, l => l.Contains(SupplierCanary, StringComparison.Ordinal));
 
         // erp's own audit log records alice's login with the session named after her lookup.
-        var lookupId = Assert.Single(_server.Logs.Lines, l => l.Contains(" for alice by ", StringComparison.Ordinal)).Split(' ')[1];
+        var lookupId = InteractionId("alice", "WorkOrder");
         var audit = await ContainerTextAsync(Environment.GetEnvironmentVariable("SAEM_RIG_ERP_CONTAINER") ?? "saem-rig-erp-1", ["cat", "/var/lib/mysql/audit_filter.log"], ct);
         var record = Assert.Single(audit.Split("<AUDIT_RECORD>"), r => r.Contains($"<VALUE>saem/{lookupId}</VALUE>", StringComparison.Ordinal) && r.Contains("<NAME>Connect</NAME>", StringComparison.Ordinal));
         Assert.Contains("<USER>alice_pw</USER>", record, StringComparison.Ordinal);
@@ -148,8 +148,7 @@ public sealed class McpRigLiveTests : IAsyncLifetime
         foreach (var person in new[] { "alice", "bob" })
         {
             // saem's side: the lookup, its id, and whom it ran for.
-            var line = Assert.Single(_server.Logs.Lines, l => l.Contains($" for {person} by ", StringComparison.Ordinal) && l.Contains("WorkOrder", StringComparison.Ordinal));
-            var lookupId = line.Split(' ')[1];
+            var lookupId = InteractionId(person, "WorkOrder");
 
             // The source's side: the login it authorised for a session named after that lookup is the person's own.
             var logins = sourceLog.Where(l => l.Contains("connection authorized:", StringComparison.Ordinal) && l.Contains($" application_name=saem/{lookupId} ", StringComparison.Ordinal)).ToList();
@@ -157,6 +156,12 @@ public sealed class McpRigLiveTests : IAsyncLifetime
             Assert.Contains($"connection authorized: user={person}_pw ", login, StringComparison.Ordinal);
         }
     }
+
+    // saem's side of a lookup: its interaction record (`interaction <id> <outcome> <json>`), whose id names the lookup.
+    private string InteractionId(string person, string startType) =>
+        Assert.Single(_server.Logs.Lines, l => l.StartsWith("interaction ", StringComparison.Ordinal)
+            && l.Contains($"\"subject\":\"{person}\"", StringComparison.Ordinal)
+            && l.Contains($"\"startType\":\"{startType}\"", StringComparison.Ordinal)).Split(' ')[1];
 
     // The rig's mes container log, where PostgreSQL writes its connection log.
     private static async Task<string[]> MesLogAsync(CancellationToken ct) =>
