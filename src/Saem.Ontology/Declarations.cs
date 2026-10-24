@@ -6,20 +6,22 @@ using Saem.Contracts;
 namespace Saem.Ontology;
 
 /// <summary>
-/// One declaration of the ontology: an entity type or a relation. Each is a document of its own, so
+/// One declaration of the ontology: an entity type, a relation, an identity or a grouping. Each is a document of its own, so
 /// that the same declarations can later be held one document apiece wherever the ontology is kept —
 /// the shape does not change with the place. On the wire the kind travels in <c>kind</c>.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(EntityTypeDeclaration), "entityType")]
 [JsonDerivedType(typeof(RelationDeclaration), "relation")]
+[JsonDerivedType(typeof(IdentityDeclaration), "identity")]
+[JsonDerivedType(typeof(GroupingDeclaration), "grouping")]
 public abstract record Declaration
 {
     private protected Declaration()
     {
     }
 
-    /// <summary>The declared name — an entity type's or a relation's, unique among its kind.</summary>
+    /// <summary>The declared name, unique among its kind — and a grouping's also among the entity types.</summary>
     public abstract string Name { get; }
 }
 
@@ -119,3 +121,73 @@ public sealed record RelationDeclaration(string Name, string From, string Via, s
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Inverse { get; init; } = Inverse;
 }
+
+/// <summary>
+/// An identity: the statement that an entity of one type and an entity of another can be one and the same thing
+/// — a customer in the ERP and the same customer in the CRM — and how to tell when they are. Each pair it finds
+/// is kept as a canonical id with cross-references and the grounds it was judged on, never as an
+/// <c>owl:sameAs</c> chain, whose closure joins things no one judged the same. Both types may be one type, which
+/// declares how duplicates inside one table are found.
+/// </summary>
+/// <param name="Name">The identity's name, unique among identities.</param>
+/// <param name="First">One of the two entity types.</param>
+/// <param name="Second">The other — or the same type again, for duplicates within one.</param>
+/// <param name="Decision">Who settles a pair the identity finds: the rule alone, or a person.</param>
+public sealed record IdentityDeclaration(string Name, string First, string Second, IdentityDecision Decision) : Declaration
+{
+    /// <inheritdoc />
+    [JsonPropertyOrder(-1)]
+    public override string Name { get; } = Name;
+
+    /// <summary>
+    /// The fields whose values must all be equal for two entities to be one — a deterministic match. Declared
+    /// instead of <see cref="Linkage"/>, never with it.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<FieldPair>? Match { get; init; }
+
+    /// <summary>
+    /// The name of the linkage rule that scores two entities as one — a probabilistic match, for records no
+    /// shared key joins. Declared instead of <see cref="Match"/>, never with it.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Linkage { get; init; }
+}
+
+/// <summary>A field of an identity's first type and the field of its second type that must hold the same value.</summary>
+/// <param name="First">The field of <see cref="IdentityDeclaration.First"/>.</param>
+/// <param name="Second">The field of <see cref="IdentityDeclaration.Second"/>.</param>
+public sealed record FieldPair(string First, string Second);
+
+/// <summary>Who settles a pair an identity finds. On the wire each travels by its camelCase name.</summary>
+public enum IdentityDecision
+{
+    /// <summary>The rule settles it: a pair it finds is one entity until a person says otherwise.</summary>
+    [JsonStringEnumMemberName("automatic")]
+    Automatic,
+
+    /// <summary>A person settles it: a pair the rule finds is a candidate until someone confirms it.</summary>
+    [JsonStringEnumMemberName("confirmed")]
+    Confirmed,
+}
+
+/// <summary>
+/// A grouping: a line, a fleet, a team — a thing that is nothing but its members. A group is the set of members
+/// whose field holds the same value, and that value is the group's key; the members are entities the sources
+/// hold, the group is computed from them. A grouping has no fields of its own and the shape leaves no place for
+/// one: a fact about a group is a fact some source must hold, or saem would be authoring an entity of its own.
+/// </summary>
+/// <param name="Name">The grouping's name, unique among groupings and entity types alike.</param>
+/// <param name="Members">The entity types whose entities are its members, each with the field naming its group.</param>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record GroupingDeclaration(string Name, IReadOnlyList<GroupMembership> Members) : Declaration
+{
+    /// <inheritdoc />
+    [JsonPropertyOrder(-1)]
+    public override string Name { get; } = Name;
+}
+
+/// <summary>One member type of a grouping: an entity belongs to the group its field <paramref name="By"/> names.</summary>
+/// <param name="Type">The member entity type.</param>
+/// <param name="By">The field of <paramref name="Type"/> whose value is the key of the member's group.</param>
+public sealed record GroupMembership(string Type, string By);

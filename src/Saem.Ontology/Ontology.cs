@@ -6,7 +6,8 @@ namespace Saem.Ontology;
 
 /// <summary>
 /// A consistent set of declarations: every name unique among its kind, every relation starting and
-/// ending at a declared type and leaving through a declared field. Built only through
+/// ending at a declared type and leaving through a declared field, every identity and grouping standing on
+/// declared types and fields. Built only through
 /// <see cref="Create"/>, which reports every inconsistency at once — a catalog with one mistake is
 /// refused whole, so a walk never runs on half an ontology.
 /// </summary>
@@ -15,13 +16,26 @@ public sealed class Ontology
     private readonly Dictionary<string, EntityTypeDeclaration> _types;
     private readonly Dictionary<string, RelationDeclaration> _relations;
     private readonly Dictionary<string, RelationDeclaration> _inverses;
+    private readonly Dictionary<string, IdentityDeclaration> _identities;
+    private readonly Dictionary<string, GroupingDeclaration> _groupings;
 
-    private Ontology(Dictionary<string, EntityTypeDeclaration> types, Dictionary<string, RelationDeclaration> relations)
+    private Ontology(
+        Dictionary<string, EntityTypeDeclaration> types,
+        Dictionary<string, RelationDeclaration> relations,
+        Dictionary<string, IdentityDeclaration> identities,
+        Dictionary<string, GroupingDeclaration> groupings)
     {
         _types = types;
         _relations = relations;
+        _identities = identities;
+        _groupings = groupings;
         _inverses = relations.Values.Where(r => r.Inverse is not null).ToDictionary(r => r.Inverse!, StringComparer.Ordinal);
-        Version = VersionOf([.. types.Values.OrderBy(t => t.Name, StringComparer.Ordinal), .. relations.Values.OrderBy(r => r.Name, StringComparer.Ordinal)]);
+        Version = VersionOf([
+            .. types.Values.OrderBy(t => t.Name, StringComparer.Ordinal),
+            .. relations.Values.OrderBy(r => r.Name, StringComparer.Ordinal),
+            .. identities.Values.OrderBy(i => i.Name, StringComparer.Ordinal),
+            .. groupings.Values.OrderBy(g => g.Name, StringComparer.Ordinal),
+        ]);
     }
 
     /// <summary>
@@ -38,6 +52,12 @@ public sealed class Ontology
 
     /// <summary>The relations that may be walked backwards, by the name of the inverse.</summary>
     public IReadOnlyDictionary<string, RelationDeclaration> Inverses => _inverses;
+
+    /// <summary>The declared identities, by name.</summary>
+    public IReadOnlyDictionary<string, IdentityDeclaration> Identities => _identities;
+
+    /// <summary>The declared groupings, by name.</summary>
+    public IReadOnlyDictionary<string, GroupingDeclaration> Groupings => _groupings;
 
     /// <summary>Builds an ontology from declarations, or refuses them with every problem named.</summary>
     /// <exception cref="OntologyDeclarationException">The declarations are not consistent.</exception>
@@ -125,12 +145,181 @@ public sealed class Ontology
             }
         }
 
+        var identities = new Dictionary<string, IdentityDeclaration>(StringComparer.Ordinal);
+        foreach (var identity in all.OfType<IdentityDeclaration>())
+        {
+            if (Check(identity, types, problems) && !identities.TryAdd(identity.Name, identity))
+            {
+                problems.Add($"Identity '{identity.Name}' is declared more than once.");
+            }
+        }
+
+        var groupings = new Dictionary<string, GroupingDeclaration>(StringComparer.Ordinal);
+        foreach (var grouping in all.OfType<GroupingDeclaration>())
+        {
+            if (!Check(grouping, types, problems))
+            {
+                continue;
+            }
+
+            if (types.ContainsKey(grouping.Name))
+            {
+                problems.Add($"Grouping '{grouping.Name}' has the name of an entity type; a group is a node of its own, so the two cannot share one.");
+            }
+            else if (!groupings.TryAdd(grouping.Name, grouping))
+            {
+                problems.Add($"Grouping '{grouping.Name}' is declared more than once.");
+            }
+        }
+
         if (problems.Count > 0)
         {
             throw new OntologyDeclarationException(problems);
         }
 
-        return new Ontology(types, relations);
+        return new Ontology(types, relations, identities, groupings);
+    }
+
+    private static bool Check(IdentityDeclaration identity, Dictionary<string, EntityTypeDeclaration> types, List<string> problems)
+    {
+        if (Blank(identity.Name, identity.First, identity.Second))
+        {
+            problems.Add($"Identity '{identity.Name}' leaves its name, first or second type empty.");
+            return false;
+        }
+
+        var before = problems.Count;
+        types.TryGetValue(identity.First, out var first);
+        types.TryGetValue(identity.Second, out var second);
+        foreach (var (role, name, type) in new[] { ("first", identity.First, first), ("second", identity.Second, second) })
+        {
+            if (type is null)
+            {
+                problems.Add($"Identity '{identity.Name}' names '{name}' as its {role} type, which is not a declared entity type.");
+            }
+        }
+
+        // One way of telling, not two: a field match and a linkage rule that disagree would leave no answer to which wins.
+        var matches = identity.Match is not null;
+        var links = identity.Linkage is not null;
+        if (matches == links)
+        {
+            problems.Add($"Identity '{identity.Name}' must declare either a field match or a linkage rule, and not both.");
+        }
+        else if (links && string.IsNullOrWhiteSpace(identity.Linkage))
+        {
+            problems.Add($"Identity '{identity.Name}' names an empty linkage rule.");
+        }
+        else if (matches && identity.Match!.Count == 0)
+        {
+            problems.Add($"Identity '{identity.Name}' declares a field match of no fields.");
+        }
+        else if (matches && first is not null && second is not null)
+        {
+            foreach (var pair in identity.Match!)
+            {
+                if (pair is null || Blank(pair.First, pair.Second))
+                {
+                    problems.Add($"Identity '{identity.Name}' matches an empty field.");
+                    continue;
+                }
+
+                if (!first.Fields.ContainsKey(pair.First))
+                {
+                    problems.Add($"Identity '{identity.Name}' matches '{pair.First}', which is not a field of '{first.Name}'.");
+                }
+
+                if (!second.Fields.ContainsKey(pair.Second))
+                {
+                    problems.Add($"Identity '{identity.Name}' matches '{pair.Second}', which is not a field of '{second.Name}'.");
+                }
+
+                if (Unmatchable([(first, pair.First), (second, pair.Second)]) is { } why)
+                {
+                    problems.Add($"Identity '{identity.Name}' matches {why}.");
+                }
+            }
+        }
+
+        return problems.Count == before;
+    }
+
+    private static bool Check(GroupingDeclaration grouping, Dictionary<string, EntityTypeDeclaration> types, List<string> problems)
+    {
+        if (string.IsNullOrWhiteSpace(grouping.Name))
+        {
+            problems.Add("A grouping leaves its name empty.");
+            return false;
+        }
+
+        if (grouping.Members is not { Count: > 0 })
+        {
+            problems.Add($"Grouping '{grouping.Name}' has no member type; a group is nothing but its members.");
+            return false;
+        }
+
+        var before = problems.Count;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var by = new List<(EntityTypeDeclaration Type, string Field)>();
+        foreach (var member in grouping.Members)
+        {
+            if (member is null || Blank(member.Type, member.By))
+            {
+                problems.Add($"Grouping '{grouping.Name}' has a member without a type or a field.");
+                continue;
+            }
+
+            if (!seen.Add(member.Type))
+            {
+                problems.Add($"Grouping '{grouping.Name}' lists '{member.Type}' as a member more than once.");
+                continue;
+            }
+
+            if (!types.TryGetValue(member.Type, out var type))
+            {
+                problems.Add($"Grouping '{grouping.Name}' has '{member.Type}' as a member, which is not a declared entity type.");
+            }
+            else if (!type.Fields.ContainsKey(member.By))
+            {
+                problems.Add($"Grouping '{grouping.Name}' groups '{member.Type}' by '{member.By}', which is not one of its fields.");
+            }
+            else
+            {
+                by.Add((type, member.By));
+            }
+        }
+
+        if (Unmatchable(by) is { } why)
+        {
+            problems.Add($"Grouping '{grouping.Name}' groups by {why}.");
+        }
+
+        return problems.Count == before;
+    }
+
+    /// <summary>
+    /// Why fields cannot be compared for the same value, or null when they can. Only what their declared kinds rule
+    /// out: free text is what a person wrote, never an identifier two records share; a date equals only a date.
+    /// Text, number and key fields may all hold the same code, so they compare.
+    /// </summary>
+    private static string? Unmatchable(IReadOnlyList<(EntityTypeDeclaration Type, string Field)> fields)
+    {
+        var kinds = fields
+            .Select(f => (Name: $"'{f.Type.Name}.{f.Field}'", Kind: f.Type.Kinds is { } k && k.TryGetValue(f.Field, out var kind) ? kind : (FieldKind?)null))
+            .ToList();
+
+        if (kinds.FirstOrDefault(k => k.Kind == FieldKind.FreeText) is { Name: { } free })
+        {
+            return $"{free}, which holds free text — what a person wrote, not a value two records share";
+        }
+
+        var declared = kinds.Where(k => k.Kind is not null).ToList();
+        if (declared.Any(k => k.Kind == FieldKind.Date) && declared.Any(k => k.Kind != FieldKind.Date))
+        {
+            return $"{string.Join(" and ", declared.Select(k => k.Name))}, a date and a value that is not one";
+        }
+
+        return null;
     }
 
     private static string VersionOf(IReadOnlyList<Declaration> declarations) =>

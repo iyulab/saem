@@ -156,6 +156,8 @@ public static class ReviewSettlement
     {
         EntityTypeDeclaration => "entityType",
         RelationDeclaration => "relation",
+        IdentityDeclaration => "identity",
+        GroupingDeclaration => "grouping",
         _ => declaration.GetType().Name,
     };
 

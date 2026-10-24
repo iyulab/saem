@@ -199,6 +199,17 @@ as the person the lookup is for, follows each relation by the value it read, and
 from those reads alone — where a read returns nothing, the lookup is refused at that hop, naming the
 relation and the system.
 
+Two more kinds of declaration name nodes no single row is. An `identity` says when an entity of one
+type and an entity of another (or of the same type, for duplicates within one table) are one thing —
+by fields that must hold the same value (`match`) or by a named linkage rule (`linkage`), never both —
+and who settles a pair it finds (`decision`: `automatic`, or `confirmed` by a person). A `grouping` — a
+line, a fleet, a team — is nothing but its members: each member type names the field whose value is
+its group's key (`members`), and the declaration has no fields of its own; a file that gives a grouping
+one is refused, since a fact about a group is one a source must hold. Both stand only on declared types
+and fields, and neither matches on a `freeText` field or a date against a value of another kind. They
+are declared, checked and part of the ontology's version; what each produces — the pairs an identity
+finds, the groups a lookup can start from — is not built yet.
+
 A relation may also declare an `inverse` — its name walked backwards, from an entity to every entity
 that leads to it (`owl:inverseOf`). No single read finds every row that names an entity, so a backward
 step — anywhere in a path — asks the edges materialized for the person's groups (below) which

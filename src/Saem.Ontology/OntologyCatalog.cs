@@ -16,7 +16,7 @@ public interface IOntologyCatalog
 
 /// <summary>
 /// Reads the ontology from a JSON file: an array of declarations, each naming its kind
-/// (<c>entityType</c> or <c>relation</c>). The file is read on every call, so an edit is seen by the
+/// (<c>entityType</c>, <c>relation</c>, <c>identity</c> or <c>grouping</c>). The file is read on every call, so an edit is seen by the
 /// next lookup without a restart.
 /// </summary>
 public sealed class FileOntologyCatalog : IOntologyCatalog

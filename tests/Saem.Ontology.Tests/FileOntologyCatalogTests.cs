@@ -134,4 +134,36 @@ public sealed class FileOntologyCatalogTests : IDisposable
             ["Relation 'r' starts at 'A', which is not a declared entity type.", "Relation 'r' leads to 'B', which is not a declared entity type."],
             e.Problems);
     }
+
+    [Fact]
+    public async Task An_identity_and_a_grouping_are_read_from_the_file_and_a_grouping_carrying_fields_is_refused()
+    {
+        const string json = """
+            [
+              { "kind": "entityType", "name": "WorkOrder", "system": "mes", "table": "work_orders", "key": "wo_no",
+                "fields": { "item": "item_code", "line": "line_code" } },
+              { "kind": "entityType", "name": "Item", "system": "erp", "table": "items", "key": "item_code",
+                "fields": { "code": "item_code" } },
+              { "kind": "identity", "name": "same_item", "first": "WorkOrder", "second": "Item", "decision": "confirmed",
+                "match": [ { "first": "item", "second": "code" } ] },
+              { "kind": "grouping", "name": "Line", "members": [ { "type": "WorkOrder", "by": "line" } ] }
+            ]
+            """;
+        await File.WriteAllTextAsync(_path, json, TestContext.Current.CancellationToken);
+
+        var ontology = await new FileOntologyCatalog(_path).GetAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(IdentityDecision.Confirmed, ontology.Identities["same_item"].Decision);
+        Assert.Equal(new FieldPair("item", "code"), Assert.Single(ontology.Identities["same_item"].Match!));
+        Assert.Equal(new GroupMembership("WorkOrder", "line"), Assert.Single(ontology.Groupings["Line"].Members));
+
+        // A group is its members: a value written on the group itself has nowhere to go, so the file is refused, not trimmed.
+        await File.WriteAllTextAsync(
+            _path,
+            json.Replace("\"members\": [", "\"fields\": { \"capacity\": \"cap\" }, \"members\": [", StringComparison.Ordinal),
+            TestContext.Current.CancellationToken);
+
+        var refused = await Assert.ThrowsAsync<OntologyDeclarationException>(() => new FileOntologyCatalog(_path).GetAsync(TestContext.Current.CancellationToken).AsTask());
+        Assert.Contains("fields", refused.Message, StringComparison.Ordinal);
+    }
 }
