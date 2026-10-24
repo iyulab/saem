@@ -451,6 +451,42 @@ public class PersonTests
 
 public class StartupTests
 {
+    /// <summary>
+    /// SD-03: at start the server says which system the ontology declares types on that no source is configured for —
+    /// and still starts, since the catalog is read again on every lookup — and says nothing of a configured one.
+    /// </summary>
+    [Fact]
+    public async Task A_server_warns_at_start_of_a_declared_system_no_source_is_configured_for()
+    {
+        const string Declared = """
+            [
+              { "kind": "entityType", "name": "WorkOrder", "system": "mes", "table": "work_orders", "key": "wo_no", "fields": { "item": "item_code" } },
+              { "kind": "entityType", "name": "Item", "system": "mes", "table": "items", "key": "item_code", "fields": { "name": "name" } }
+            ]
+            """;
+        await using var server = await TestServer.StartAsync(Declared, new Dictionary<string, string?>
+        {
+            ["Saem:Identity:Authority"] = "http://127.0.0.1:9/issuer",
+            ["Saem:Identity:Audience"] = "saem",
+            ["Saem:Sources:Postgres:erp"] = "Host=127.0.0.1;Port=9",
+        });
+        await using var configured = await TestServer.StartAsync(Declared, new Dictionary<string, string?>
+        {
+            ["Saem:Identity:Authority"] = "http://127.0.0.1:9/issuer",
+            ["Saem:Identity:Audience"] = "saem",
+            ["Saem:Sources:Postgres:mes"] = "Host=127.0.0.1;Port=9",
+        });
+        await using var broken = await TestServer.StartAsync("[{", new Dictionary<string, string?>
+        {
+            ["Saem:Identity:Authority"] = "http://127.0.0.1:9/issuer",
+            ["Saem:Identity:Audience"] = "saem",
+        });
+
+        Assert.Contains(server.Logs.Lines, l => l.Contains("declares Item, WorkOrder on 'mes', which no source is configured for", StringComparison.Ordinal));
+        Assert.DoesNotContain(configured.Logs.Lines, l => l.Contains("no source is configured", StringComparison.Ordinal));
+        Assert.Contains(broken.Logs.Lines, l => l.Contains("The ontology cannot be read", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task A_server_without_an_issuer_does_not_start()
     {

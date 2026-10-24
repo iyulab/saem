@@ -421,7 +421,9 @@ the answer contract above, as structured content and as the same JSON in text, d
 output schema. The tool's description and input schema are built from the ontology when tools are
 listed, so the vocabulary a caller sees is the one its call is checked against, and the listing names
 the ontology's version in its `_meta` (`saem/catalogVersion`) — the version every answer carries. A call
-outside that vocabulary is a tool error, not a refusal. A lookup still running at its deadline
+outside that vocabulary is a tool error, not a refusal. At start the server warns of any system the ontology declares types
+on that no source is configured for, and of a catalog it cannot read — it still starts, since the
+catalog is read again on every lookup. A lookup still running at its deadline
 (`Saem:Lookup:Deadline`, 10 seconds by default) is stopped and reported as not answered — a failure,
 like a source that fails, never a refusal.
 

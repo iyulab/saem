@@ -71,6 +71,7 @@ public static class SaemMcpServer
         services.TryAddSingleton<IGroupStores, ConfiguredGroupStores>();
         services.TryAddSingleton<IProjectionStates, FormbaseProjectionStates>();
         services.AddSingleton<LookupTool>();
+        services.AddHostedService<CatalogSourcesCheck>();
 
         services.AddAuthentication(options =>
             {
