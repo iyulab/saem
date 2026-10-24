@@ -247,6 +247,40 @@ public sealed class AuthorCommandTests : IDisposable
         };
     }
 
+    [Fact]
+    public async Task Diff_writes_the_breaking_changes_first_and_says_whether_none_breaks()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const string item = """{ "kind": "entityType", "name": "Item", "system": "erp", "table": "items", "key": "item_code", "fields": { "name": "item_name" } }""";
+        const string order = """{ "kind": "entityType", "name": "WorkOrder", "system": "mes", "table": "work_orders", "key": "wo_no", "fields": { "item": "item_code" } }""";
+        var before = Path.Combine(_dir, "before.json");
+        var added = Path.Combine(_dir, "added.json");
+        var broken = Path.Combine(_dir, "broken.json");
+        await File.WriteAllTextAsync(before, $"[{item}]", ct);
+        await File.WriteAllTextAsync(added, $"[{item}, {order}]", ct);
+        await File.WriteAllTextAsync(broken, $"[{order}]", ct);
+
+        var log = new StringWriter();
+        Assert.True(await DiffRun.RunAsync(new DiffOptions(before, added), log, ct));
+        Assert.EndsWith("0 breaking, 1 additive.\n  additive  entityType WorkOrder: added", log.ToString().Trim().ReplaceLineEndings("\n"), StringComparison.Ordinal);
+
+        log = new StringWriter();
+        Assert.False(await DiffRun.RunAsync(new DiffOptions(before, broken), log, ct));
+        Assert.Equal(
+            ["  breaking  entityType Item: removed", "  additive  entityType WorkOrder: added"],
+            log.ToString().Trim().ReplaceLineEndings("\n").Split('\n')[1..]);
+    }
+
+    [Theory]
+    [InlineData(new[] { "--before", "a.json" }, "--after is required.")]
+    [InlineData(new[] { "--before", "a.json", "--before", "b.json" }, "--before is given more than once.")]
+    [InlineData(new[] { "--after" }, "--after needs a value.")]
+    [InlineData(new[] { "--catalog", "a.json" }, "Unknown argument '--catalog'.")]
+    public void A_diff_command_line_that_is_incomplete_is_refused(string[] args, string message)
+    {
+        Assert.Equal(message, Assert.Throws<AuthorUsageException>(() => DiffOptions.Parse(args)).Message);
+    }
+
     private sealed class Proposer : IOntologyProposer
     {
         public Task<OntologyProposal> ProposeAsync(IReadOnlyList<DeclaredStructure> declaredStructures, IReadOnlyList<RawRecord> records, PriorKnowledge prior, CancellationToken cancellationToken = default) =>

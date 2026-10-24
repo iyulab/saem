@@ -278,6 +278,14 @@ how often proposals of each kind are taken as they were is what a calibrated pro
 chosen from. A pass is recorded once; `--settled-by` keeps an opaque reviewer id, never a name. The lines
 carry what was suggested, which Gil reads from its 0.27.0 (Rust `iyulab-gil` 0.9.0) on.
 
+Before a changed catalog goes in force, `saem-author diff --before ontology.json --after draft.json`
+sorts the change mechanically: **breaking** — a type, relation, field, inverse, identity or grouping
+member taken away, or one that now reads another table, column or key, compares its keys otherwise,
+cites its records otherwise or tells what is one thing otherwise, so a call that worked may now be
+refused or answer from somewhere else — and **additive**, everything new. A declaration renamed reads as
+one removed and one added. Each line names the declaration and the change, the breaking ones first,
+under the two catalog versions an answer carries; the exit status is 1 when any change breaks.
+
 A model call that fails transiently — a dropped stream, a 5xx — is tried again (`--retries`, default
 one), and the review lists every retried attempt. Secrets come from the environment
 (`SAEM_MODEL_API_KEY`, and `SAEM_FORMBASE_TOKEN` when something in front of Formbase asks for one),

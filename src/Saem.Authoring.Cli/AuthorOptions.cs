@@ -65,6 +65,9 @@ internal sealed record AuthorOptions(
 
         Once the review is in the catalog, record what was taken:
           saem-author settle --proposals <file> --catalog <file> --records <file> [--settled-by <id>]
+
+        Before a changed catalog goes in force, sort the change into what breaks and what only adds:
+          saem-author diff --before <file> --after <file>
         """;
 
     /// <summary>Reads the command line, and the secrets from <paramref name="environment"/>.</summary>

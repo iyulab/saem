@@ -11,6 +11,11 @@ if (args is ["settle", .. var settleArgs])
     return await Settle(settleArgs);
 }
 
+if (args is ["diff", .. var diffArgs])
+{
+    return await Diff(diffArgs);
+}
+
 if (args is [] or ["--help"] or ["-h"])
 {
     Console.WriteLine(AuthorOptions.Usage);
@@ -99,5 +104,30 @@ static async Task<int> Settle(string[] args)
     {
         Console.Error.WriteLine(e.Message);
         return 1;
+    }
+}
+
+static async Task<int> Diff(string[] args)
+{
+    if (args is [] or ["--help"] or ["-h"])
+    {
+        Console.WriteLine(DiffOptions.Usage);
+        return args is [] ? 2 : 0;
+    }
+
+    try
+    {
+        return await DiffRun.RunAsync(DiffOptions.Parse(args), Console.Out, CancellationToken.None) ? 0 : 1;
+    }
+    catch (AuthorUsageException e)
+    {
+        Console.Error.WriteLine(e.Message);
+        Console.Error.WriteLine("Run saem-author diff --help for the arguments.");
+        return 2;
+    }
+    catch (OntologyDeclarationException e)
+    {
+        Console.Error.WriteLine(e.Message);
+        return 2;
     }
 }
