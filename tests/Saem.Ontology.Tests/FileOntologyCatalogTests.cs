@@ -1,3 +1,4 @@
+using Saem.Contracts;
 using System.Text.Json;
 using Xunit;
 

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 using System.Text.Json.Serialization;
+using Saem.Contracts;
 
 namespace Saem.Ontology;
 
@@ -91,30 +92,6 @@ public enum KeyKind
     /// <summary>An integer: two keys are the same when they spell the same number, whatever leading zeros or sign.</summary>
     [JsonStringEnumMemberName("number")]
     Number,
-}
-
-/// <summary>What kind of value a field holds. On the wire each kind travels by its camelCase name.</summary>
-public enum FieldKind
-{
-    /// <summary>A short text — a name, a code, a status.</summary>
-    [JsonStringEnumMemberName("text")]
-    Text,
-
-    /// <summary>Text a person wrote freely — a note, a description — which may carry anything, instructions to a model included.</summary>
-    [JsonStringEnumMemberName("freeText")]
-    FreeText,
-
-    /// <summary>A number.</summary>
-    [JsonStringEnumMemberName("number")]
-    Number,
-
-    /// <summary>A date or a moment.</summary>
-    [JsonStringEnumMemberName("date")]
-    Date,
-
-    /// <summary>The key of an entity — of this type, or of the type a relation through this field leads to.</summary>
-    [JsonStringEnumMemberName("key")]
-    Key,
 }
 
 /// <summary>

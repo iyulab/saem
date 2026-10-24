@@ -19,7 +19,7 @@ public sealed class LookupToolTests : IAsyncLifetime
     private const string OntologyJson = """
         [
           { "kind": "entityType", "name": "WorkOrder", "system": "mes", "table": "work_orders", "key": "wo_no",
-            "fields": { "note": "note", "item": "item_code" } },
+            "fields": { "note": "note", "item": "item_code" }, "kinds": { "note": "freeText" } },
           { "kind": "entityType", "name": "Item", "system": "mes", "table": "items", "key": "item_code",
             "fields": { "name": "name" } },
           { "kind": "relation", "name": "producesItem", "from": "WorkOrder", "via": "item", "to": "Item", "inverse": "producedBy" }
@@ -61,7 +61,7 @@ public sealed class LookupToolTests : IAsyncLifetime
         var tool = Assert.Single(await client.ListToolsAsync(cancellationToken: ct));
 
         Assert.Equal("lookup", tool.Name);
-        Assert.Contains("WorkOrder (item, note)", tool.Description, StringComparison.Ordinal);
+        Assert.Contains("WorkOrder (item, note: freeText)", tool.Description, StringComparison.Ordinal);
         Assert.Contains("producesItem: WorkOrder -> Item", tool.Description, StringComparison.Ordinal);
         var types = tool.JsonSchema.GetProperty("properties").GetProperty("start").GetProperty("properties").GetProperty("type").GetProperty("enum");
         Assert.Equal(["Item", "WorkOrder"], types.EnumerateArray().Select(e => e.GetString()));

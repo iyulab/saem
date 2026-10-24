@@ -303,7 +303,10 @@ public sealed class LookupWalker
     {
         var entity = new EntityKey(type.Name, row.Key);
         var source = new SourceRecord(type.System, type.Table, RecordOf(type, row)) { ReadAt = readAt, Projection = projection };
-        return new Answered([.. read.Select(field => new Claim(entity, field, row.Values[type.Fields[field]], [source], [.. hops]))]);
+        return new Answered([.. read.Select(field => new Claim(entity, field, row.Values[type.Fields[field]], [source], [.. hops])
+        {
+            FieldKind = type.Kinds?.TryGetValue(field, out var kind) == true ? kind : null,
+        })]);
     }
 
     private static string RecordOf(EntityTypeDeclaration type, SourceRow row) =>

@@ -137,6 +137,19 @@ public class LookupAnswerJsonTests
             ContractSchema.Answer.GetProperty("$defs").GetProperty("sourceProjection").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
     }
 
+    [Fact]
+    public void A_claims_field_kind_travels_by_name_and_is_left_out_when_undeclared()
+    {
+        var claim = new Claim(Supplier, "note", Value("\"call before noon\""), [Erp], []) { FieldKind = FieldKind.FreeText };
+
+        Assert.Contains("\"fieldKind\":\"freeText\"", Write(new Answered([claim])), StringComparison.Ordinal);
+        Assert.Equal(FieldKind.FreeText, Assert.IsType<Answered>(Read(Write(new Answered([claim])))).Claims[0].FieldKind);
+        Assert.DoesNotContain("fieldKind", Write(new Answered([claim with { FieldKind = null }])), StringComparison.Ordinal);
+        Assert.Equal(
+            Enum.GetValues<FieldKind>().Select(k => JsonSerializer.Serialize(k, ContractJson.Default.FieldKind).Trim('"')),
+            ContractSchema.Answer.GetProperty("$defs").GetProperty("claim").GetProperty("properties").GetProperty("fieldKind").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
+    }
+
     /// <summary>D-80 ⑥: the schema names both cases and holds the same rules as the constructors.</summary>
     [Fact]
     public void The_schema_holds_the_cases_and_the_rules_the_constructors_hold()

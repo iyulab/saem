@@ -245,7 +245,41 @@ public sealed record Claim
 
     /// <summary>The relations followed from the start entity.</summary>
     public IReadOnlyList<Hop> Path { get; }
+
+    /// <summary>
+    /// What kind of value the field holds, as the ontology declares it — null where it declares none. A
+    /// <see cref="FieldKind.FreeText"/> value is whatever a person typed, and may carry words addressed to the
+    /// model reading it: a consumer holds it apart from instructions.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FieldKind? FieldKind { get; init; }
 }
+
+/// <summary>What kind of value a field holds. On the wire each kind travels by its camelCase name.</summary>
+public enum FieldKind
+{
+    /// <summary>A short text — a name, a code, a status.</summary>
+    [JsonStringEnumMemberName("text")]
+    Text,
+
+    /// <summary>Text a person wrote freely — a note, a description — which may carry anything, instructions to a model included.</summary>
+    [JsonStringEnumMemberName("freeText")]
+    FreeText,
+
+    /// <summary>A number.</summary>
+    [JsonStringEnumMemberName("number")]
+    Number,
+
+    /// <summary>A date or a moment.</summary>
+    [JsonStringEnumMemberName("date")]
+    Date,
+
+    /// <summary>The key of an entity — of this type, or of the type a relation through this field leads to.</summary>
+    [JsonStringEnumMemberName("key")]
+    Key,
+}
+
+
 
 /// <summary>
 /// A record in a source system: where a value can be checked. An identifier, not a copy of the record.

@@ -188,7 +188,9 @@ foreign key — neither source holds it — so it exists only as a declaration. 
 of value its key is (`keyKind`: `text`, the default, or `number`) and what kind each field holds
 (`kinds`: `text`, `freeText`, `number`, `date`, `key`). A number key is compared as the integer it
 spells wherever keys meet — a lookup's start, a field followed to the next entity, a relation walked
-backwards, the edges built for groups — so a reference written `0007` reaches the entity keyed `7`. A lookup is checked
+backwards, the edges built for groups — so a reference written `0007` reaches the entity keyed `7`. A
+claim carries its field's declared kind (`fieldKind`), and the tool's description lists the kinds: a
+`freeText` value is whatever a person typed, so a consumer can hold it apart from instructions. A lookup is checked
 against the declarations before any source is asked: a type, relation or field the ontology does
 not declare is a malformed question, answered as an error rather than as a refusal. The
 declarations are read behind a catalog port; the first adapter reads a JSON file and is re-read on

@@ -90,7 +90,8 @@ public static class ContractSchema
                 "field": { "type": "string" },
                 "value": {},
                 "sources": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/sourceRecord" } },
-                "path": { "type": "array", "items": { "$ref": "#/$defs/hop" } }
+                "path": { "type": "array", "items": { "$ref": "#/$defs/hop" } },
+                "fieldKind": { "enum": ["text", "freeText", "number", "date", "key"] }
               }
             },
             "refusal": {

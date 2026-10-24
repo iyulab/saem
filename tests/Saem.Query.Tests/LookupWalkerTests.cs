@@ -88,6 +88,25 @@ public class LookupWalkerTests
         Assert.False(answer.Partitions![0].Blocked);
     }
 
+    /// <summary>SD-17 ①: a claim carries its field's declared kind — a free-text value is marked as such — and nothing where none is declared.</summary>
+    [Fact]
+    public async Task A_claim_carries_the_kind_its_field_declares()
+    {
+        var kinded = new LookupWalker(new FixedCatalog(Ontology.Ontology.Create(
+        [
+            new EntityTypeDeclaration("Supplier", "erp", "visible_suppliers", "supplier_id", new Dictionary<string, string> { ["name"] = "supplier_name" })
+            {
+                Kinds = new Dictionary<string, FieldKind> { ["name"] = FieldKind.FreeText },
+            },
+        ])), new FixedClock(ReadAt));
+
+        var marked = await kinded.RunAsync(new LookupCall(new EntityKey("Supplier", "S-1"), [], ["name"]), new FakeSessions("alice"), TestContext.Current.CancellationToken);
+        var plain = await Run(new FakeSessions("alice"), "Supplier", "S-1", [], ["name"]);
+
+        Assert.Equal(FieldKind.FreeText, Assert.Single(Assert.IsType<Answered>(marked).Claims).FieldKind);
+        Assert.Null(Assert.Single(Assert.IsType<Answered>(plain).Claims).FieldKind);
+    }
+
     /// <summary>The projected tables of a deployment, and how far behind each is; counts how often each is asked.</summary>
     private sealed class Projections(Dictionary<(string, string), SourceProjection> behind) : IProjectionStates
     {
