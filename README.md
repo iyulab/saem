@@ -480,7 +480,8 @@ system, type and key under `Saem:Audit:HmacKey` (with `Saem:Audit:HmacKeyId`), n
 a key, records are not named. No value, key or label is logged. With `Saem:Audit:Ocsf` set, each
 interaction is also written as an OCSF 1.9.0 API Activity event (class 6003, activity Read), one JSON
 object per line under the log category `Saem.Mcp.OcsfEvents`, for a SIEM: the person is
-`actor.user.uid`, the agent acting for them `ai_agent.uid` (`ai_operation` profile), the records reached
+`actor.user.uid`, the agent acting for them `ai_agent.uid` (`ai_operation` profile) with the delegation it
+acts under (`delegation`: the agent's token's `jti` and `iss`, as the issuer named it), the records reached
 `resources` by the same digests, and what OCSF has no attribute for under `unmapped`.
 
 ```json

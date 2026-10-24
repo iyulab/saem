@@ -60,6 +60,10 @@ public class InteractionLogTests
         var resource = ocsf["resources"]![0]!;
         Assert.Equal(("WorkOrder", "ab12", "mes"), ((string?)resource["type"], (string?)resource["uid"], (string?)resource["data"]!["system"]));
         Assert.Equal((1, "erp"), ((int)ocsf["unmapped"]!["saem_refusal_at_hop"]!, (string?)ocsf["unmapped"]!["saem_refusal_system"]));
+        Assert.Null(ocsf["delegation"]);
+
+        var delegated = OcsfEvents.ApiActivityOf(Refused(actor: "agent-for-alice") with { Delegation = new Delegation("t-42", "https://issuer.test") });
+        Assert.Equal(("t-42", "https://issuer.test"), ((string?)delegated["delegation"]!["uid"], (string?)delegated["delegation"]!["issuer_uid"]));
     }
 
     [Fact]

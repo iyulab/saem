@@ -50,7 +50,8 @@ internal sealed record Interaction(
     InteractionRefusal? Refusal,
     string? ErrorType,
     string? KeyId,
-    int SuspectClaims = 0);
+    int SuspectClaims = 0,
+    Delegation? Delegation = null);
 
 /// <summary>A record the call reached: its system and type, its key as a keyed digest, and what came of it.</summary>
 /// <param name="Status"><c>read</c> — returned to the person; <c>notVisible</c> — the source returned nothing to them.</param>

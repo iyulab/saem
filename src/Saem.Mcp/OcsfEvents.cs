@@ -6,7 +6,8 @@ namespace Saem.Mcp;
 /// An interaction as an OCSF 1.9.0 event, for a SIEM that reads that schema: <c>API Activity</c> (class 6003, category
 /// 6), activity <c>Read</c> — a lookup only ever reads. The person the call was for is <c>actor.user.uid</c>; the agent
 /// that made it on their behalf, when the token says one did (<c>act</c>), is <c>ai_agent.uid</c> under the
-/// <c>ai_operation</c> profile. The records reached are <c>resources</c>, named by the same keyed digests as the
+/// <c>ai_operation</c> profile, with the delegation it acts under (<c>delegation</c> — the token's id and issuer, as the
+/// issuer named it). The records reached are <c>resources</c>, named by the same keyed digests as the
 /// interaction log, never by key. What OCSF has no attribute for — the path, the fields read, where a refusal stopped,
 /// which key named the records — goes under <c>unmapped</c>. Like the interaction it is made from, an event holds no
 /// value, record key or label.
@@ -90,6 +91,16 @@ internal static class OcsfEvents
         {
             metadata["profiles"] = new JsonArray("ai_operation");
             activity["ai_agent"] = new JsonObject { ["uid"] = agent };
+            if (interaction.Delegation is { } delegation)
+            {
+                var granted = new JsonObject { ["uid"] = delegation.Id };
+                if (delegation.Issuer is { } issuer)
+                {
+                    granted["issuer_uid"] = issuer;
+                }
+
+                activity["delegation"] = granted;
+            }
         }
 
         return activity;

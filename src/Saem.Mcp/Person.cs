@@ -18,6 +18,13 @@ public sealed record Person(string Subject, string? Actor)
     public IReadOnlyList<string> Groups { get; init; } = [];
 
     /// <summary>
+    /// The delegation the agent acts under: the token the issuer gave it for this person (its <c>jti</c>) and the issuer
+    /// (<c>iss</c>) — named by the authority that granted it, not asserted by the agent. Null when the person called
+    /// directly, or the token has no id.
+    /// </summary>
+    public Delegation? Delegation { get; init; }
+
+    /// <summary>
     /// Reads the person from a validated token's claims, or returns <see langword="null"/> when the
     /// token names nobody.
     /// </summary>
@@ -29,9 +36,11 @@ public sealed record Person(string Subject, string? Actor)
             return null;
         }
 
-        return new Person(subject, ActorOf(user!.FindFirst("act")?.Value))
+        var actor = ActorOf(user!.FindFirst("act")?.Value);
+        return new Person(subject, actor)
         {
             Groups = [.. user.FindAll("groups").Select(c => c.Value).Where(g => g.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)],
+            Delegation = actor is not null && user.FindFirst("jti")?.Value is { Length: > 0 } id ? new Delegation(id, user.FindFirst("iss")?.Value) : null,
         };
     }
 
@@ -63,3 +72,8 @@ public sealed record Person(string Subject, string? Actor)
         }
     }
 }
+
+/// <summary>A delegation an agent acts under, as the token that carries it names it.</summary>
+/// <param name="Id">The token's id (<c>jti</c>), the same for every call made with it.</param>
+/// <param name="Issuer">Who issued it (<c>iss</c>), or null when the token does not say.</param>
+public sealed record Delegation(string Id, string? Issuer);

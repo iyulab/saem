@@ -117,7 +117,7 @@ internal sealed partial class LookupTool
         void Record(string outcome, IReadOnlyList<AccessedRecord> accessed, InteractionRefusal? refusal = null, string? errorType = null, int suspect = 0) =>
             _interactions.Write(new Interaction(
                 lookupId, at, Stopwatch.GetElapsedTime(started).TotalMilliseconds, person.Subject, person.Actor,
-                call.Start.Type, call.Path, call.Read, outcome, accessed, refusal, errorType, _interactions.KeyId, suspect), span);
+                call.Start.Type, call.Path, call.Read, outcome, accessed, refusal, errorType, _interactions.KeyId, suspect, person.Delegation), span);
 
         // A start named by a field's value names no record: the value is not a key, and no value is logged (D-83).
         AccessedRecord Start(string status) =>

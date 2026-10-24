@@ -423,6 +423,17 @@ public class PersonTests
         Assert.Equal(new Person("alice", "agent-7"), person);
     }
 
+    /// <summary>The delegation is the token the issuer gave the agent for the person — its id and issuer; a direct call has none.</summary>
+    [Fact]
+    public void An_agents_token_names_the_delegation_it_acts_under_and_a_direct_call_names_none()
+    {
+        var delegated = Person.From(Claims.Of(("sub", "alice", "string"), ("act", """{"sub":"agent-7"}""", "JSON"), ("jti", "t-42", "string"), ("iss", "https://issuer.test", "string")));
+        var direct = Person.From(Claims.Of(("sub", "bob", "string"), ("jti", "t-43", "string")));
+
+        Assert.Equal(new Delegation("t-42", "https://issuer.test"), delegated!.Delegation);
+        Assert.Null(direct!.Delegation);
+    }
+
     [Fact]
     public void Without_act_the_person_called_directly()
     {
