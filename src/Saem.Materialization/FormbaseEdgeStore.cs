@@ -120,6 +120,45 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     }
 
     /// <summary>
+    /// Compares what the store holds with <paramref name="edges"/> — the edges a pass would give now — and writes
+    /// nothing: how many it holds as given, how many it lacks, holds otherwise, or holds that are no longer given,
+    /// and how many documents its projection skipped. A store that agrees holds exactly what a pass would make it
+    /// hold. Counts only: no edge is named, since an edge names entities by their keys.
+    /// </summary>
+    public async Task<EdgeComparison> CompareAsync(IAsyncEnumerable<MaterializedEdge> edges, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(edges);
+
+        var skipped = 0;
+        var held = await HeldAsync(FormType, "", Fields, cancellationToken, readOn: count => skipped = count).ConfigureAwait(false);
+        var given = new HashSet<string>(StringComparer.Ordinal);
+        int matching = 0, missing = 0, differing = 0;
+        await foreach (var edge in edges.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            var key = KeyOf(edge);
+            if (!given.Add(key))
+            {
+                throw new EdgeStoreException($"Two edges of relation '{edge.Relation}' leave '{edge.From}'; an entity leads through a relation to one entity at most.");
+            }
+
+            if (!held.TryGetValue(key, out var current))
+            {
+                missing++;
+            }
+            else if (current.SequenceEqual(FieldsOf(edge)))
+            {
+                matching++;
+            }
+            else
+            {
+                differing++;
+            }
+        }
+
+        return new EdgeComparison(matching, missing, differing, held.Keys.Count(k => !given.Contains(k)), skipped);
+    }
+
+    /// <summary>
     /// When the latest pass began reading the sources — the time the held edges are as of: an edge a source
     /// row gained after it may be missing. Null before a pass has filed one (a store a pass of an earlier
     /// version wrote has edges and no time).
@@ -330,6 +369,18 @@ public sealed record EdgeWrite(int Written, int Unchanged, int Retired)
 {
     /// <summary>When the pass began reading the sources — what the edges are as of.</summary>
     public DateTimeOffset? ReadFrom { get; init; }
+}
+
+/// <summary>How a store's edges compare with the ones a pass would give now.</summary>
+/// <param name="Matching">Edges the store holds as given.</param>
+/// <param name="Missing">Given edges the store does not hold.</param>
+/// <param name="Differing">Edges the store holds otherwise — leading elsewhere, or cited from another record.</param>
+/// <param name="Extra">Edges the store holds that are no longer given.</param>
+/// <param name="SkippedDocuments">Documents the store's projection skipped — edges it holds but cannot show.</param>
+public sealed record EdgeComparison(int Matching, int Missing, int Differing, int Extra, int SkippedDocuments)
+{
+    /// <summary>The store holds exactly what a pass would make it hold.</summary>
+    public bool Agrees => Missing == 0 && Differing == 0 && Extra == 0 && SkippedDocuments == 0;
 }
 
 /// <summary>The edges a read for a lookup found leading to an entity, and whether the store holds them all.</summary>

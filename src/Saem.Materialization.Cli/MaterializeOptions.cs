@@ -47,6 +47,9 @@ internal sealed record MaterializeOptions(
         is made to hold exactly this pass's edges: unchanged ones are not sent, changed ones are corrected, and
         ones no longer found are retired.
 
+        To compare the store with what a pass would give now, writing nothing: saem-materialize verify <the same
+        arguments> — exit status 1 when it disagrees (edges missing, different or no longer given, or documents its
+        projection skipped); the pass rebuilds it.
         To check the declarations against the sources first, as one account: saem-materialize check --help.
         """;
 

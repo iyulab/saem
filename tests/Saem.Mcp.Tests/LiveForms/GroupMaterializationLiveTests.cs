@@ -56,6 +56,9 @@ public sealed class GroupMaterializationLiveTests : IAsyncLifetime
         Assert.Null(await new FormbaseEdgeStore(_office.Formbase).AsOfAsync(ct));
         Assert.Equal([Edge("WO-2", "I-200"), Edge(Canary, "I-100")], await plant.ReadAsync(ct).ToListAsync(ct));
         Assert.Empty(await new FormbaseEdgeStore(_office.Formbase).ReadAsync(ct).ToListAsync(ct));
+        // D-81 ⑤: compared with what a pass would give now, the store agrees; with a source that moved on, it does not.
+        Assert.True((await plant.CompareAsync(Of(Edge(Canary, "I-100"), Edge("WO-2", "I-200")), ct)).Agrees);
+        Assert.Equal(new EdgeComparison(Matching: 1, Missing: 0, Differing: 1, Extra: 0, SkippedDocuments: 0), await plant.CompareAsync(Of(Edge(Canary, "I-100"), Edge("WO-2", "I-300")), ct));
 
         // The edge table in the plant's project has the edge's fields and the engines' own (fb_ · _), nothing a body could fill.
         using var own = _plant.MorphDbAs(_plant.Project);

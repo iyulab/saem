@@ -126,6 +126,41 @@ public sealed class FormbaseEdgeStoreTests
         await Assert.ThrowsAsync<EdgeStoreException>(async () => await store.ReadAsync(ct).ToListAsync(ct));
     }
 
+    /// <summary>D-81 ⑤: a store compared with the edges a pass would give now — counts of what agrees and what does not, nothing written.</summary>
+    [Fact]
+    public async Task A_store_compared_with_the_edges_a_pass_would_give_counts_what_differs_and_writes_nothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var formbase = new FakeFormbase();
+        var store = new FormbaseEdgeStore(formbase.Client);
+        await store.ReplaceAsync(Of(Edge("WO-1", "I-1"), Edge("WO-2", "I-2"), Edge("WO-3", "I-3")), ct);
+        var appended = formbase.Stream.Count;
+
+        var same = await store.CompareAsync(Of(Edge("WO-1", "I-1"), Edge("WO-2", "I-2"), Edge("WO-3", "I-3")), ct);
+        var drifted = await store.CompareAsync(Of(Edge("WO-1", "I-1"), Edge("WO-2", "I-9"), Edge("WO-4", "I-4")), ct);
+
+        Assert.True(same.Agrees);
+        Assert.Equal(new EdgeComparison(Matching: 1, Missing: 1, Differing: 1, Extra: 1, SkippedDocuments: 0), drifted);
+        Assert.False(drifted.Agrees);
+        Assert.Equal(appended, formbase.Stream.Count);
+        Assert.Equal(new EdgeComparison(0, 2, 0, 0, 0), await new FormbaseEdgeStore(new FakeFormbase().Client).CompareAsync(Of(Edge("WO-1", "I-1"), Edge("WO-2", "I-2")), ct));
+    }
+
+    /// <summary>A projection that skipped documents does not agree, whatever else matches: it holds edges it cannot show.</summary>
+    [Fact]
+    public async Task A_store_whose_projection_skipped_documents_does_not_agree()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var formbase = new FakeFormbase();
+        await new FormbaseEdgeStore(formbase.Client).ReplaceAsync(Of(Edge("WO-1", "I-1")), ct);
+        formbase.Edges.Skipped = 2;
+
+        var comparison = await new FormbaseEdgeStore(formbase.Client).CompareAsync(Of(Edge("WO-1", "I-1")), ct);
+
+        Assert.Equal(new EdgeComparison(1, 0, 0, 0, 2), comparison);
+        Assert.False(comparison.Agrees);
+    }
+
     [Fact]
     public async Task A_form_type_declared_with_another_shape_is_not_written_over()
     {

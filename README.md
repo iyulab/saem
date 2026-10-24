@@ -364,6 +364,11 @@ the base IRI. Each account's secret comes from the environment (`SAEM_SOURCE_SEC
 holds one group's secrets only. A system the relations need but the sources file does not name is refused
 before the store is touched; the run reports how many edges it wrote, left unchanged and retired.
 
+`saem-materialize verify`, given a pass's own arguments, compares the group's store with the edges a pass
+would give now and writes nothing: how many it holds as given, lacks, holds otherwise or holds that are no
+longer given, and how many documents its projection skipped — counts only, since an edge names entities
+by their keys. Its exit status is 1 when the store disagrees; running the pass rebuilds it.
+
 `saem-materialize check` checks the declarations against the sources as the account the sources file
 names — a builder's own — and writes nothing. It reads every declared table whole and reports what only
 the sources can say: a table or column that is not there, rows that share a key or have none, a number

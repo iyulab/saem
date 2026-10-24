@@ -54,7 +54,9 @@ if (args is ["check", .. var checkArgs])
 
 try
 {
-    var options = MaterializeOptions.Parse(args, Environment.GetEnvironmentVariable);
+    // verify takes the pass's own arguments, and compares instead of writing.
+    var verify = args is ["verify", ..];
+    var options = MaterializeOptions.Parse(verify ? args[1..] : args, Environment.GetEnvironmentVariable);
     var ontology = await new FileOntologyCatalog(options.CatalogPath).GetAsync(cancellation.Token);
     using var sources = GroupSources.Load(await File.ReadAllTextAsync(options.SourcesPath, cancellation.Token), Environment.GetEnvironmentVariable);
     using var store = new HttpClient { BaseAddress = options.Store };
@@ -63,7 +65,14 @@ try
         store.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
-    await MaterializeRun.RunAsync(ontology, sources.Openers, options.Group, new EntityIris(options.BaseIri), new FormbaseEdgeStore(store, options.StoreNamespace), Console.Out, cancellation.Token);
+    var edgeStore = new FormbaseEdgeStore(store, options.StoreNamespace);
+    if (verify)
+    {
+        var comparison = await MaterializeRun.VerifyAsync(ontology, sources.Openers, options.Group, new EntityIris(options.BaseIri), edgeStore, Console.Out, cancellation.Token);
+        return comparison.Agrees ? 0 : 1;
+    }
+
+    await MaterializeRun.RunAsync(ontology, sources.Openers, options.Group, new EntityIris(options.BaseIri), edgeStore, Console.Out, cancellation.Token);
     return 0;
 }
 catch (MaterializeUsageException e)
