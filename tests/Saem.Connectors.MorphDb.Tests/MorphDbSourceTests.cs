@@ -74,6 +74,18 @@ public class MorphDbSourceTests
             path);
     }
 
+    /// <summary>SD-08: the latest change is the first row of the latest-first order of rows that have one; changed rows are read at or after it.</summary>
+    [Fact]
+    public void A_pass_over_changed_rows_asks_the_latest_change_and_reads_from_it_in_key_order()
+    {
+        Assert.Equal(
+            "api/data/orders?filter=updated_at%3Aisnotnull&select=updated_at&orderBy=updated_at%3Adesc&page=1&pageSize=1",
+            MorphDbSourceSession.ReadLatest("orders", "updated_at", 1));
+        Assert.Equal(
+            "api/data/orders?filter=updated_at%3Agte%3A2026-10-25T01%3A00%3A00Z&select=wo_no%2Citem&orderBy=wo_no%3Aasc&page=2&pageSize=1000",
+            MorphDbSourceSession.ReadChanged("orders", "wo_no", ["item"], "updated_at", "2026-10-25T01:00:00Z", 2));
+    }
+
     /// <summary>A find stops at its limit, though the source has a next page.</summary>
     [Fact]
     public async Task A_find_stops_at_its_limit()

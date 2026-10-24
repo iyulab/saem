@@ -23,6 +23,12 @@ namespace Saem.Materialization;
 /// row a source gained after that time may have no edge yet (<see cref="AsOfAsync"/>).
 /// </para>
 /// <para>
+/// A pass may have read some relations in part — only the rows changed since the last one (SD-08,
+/// <see cref="MergeAsync"/>): of those, the rows it read correct their edges and the rest stand. It files, per
+/// relation, the latest change it read from (a third form type, <see cref="WatermarkFormType"/>), which the next
+/// such pass reads on from (<see cref="WatermarksAsync"/>).
+/// </para>
+/// <para>
 /// Which group the store is is the host's: the client reaches a Formbase started with that group's project
 /// and the secret confined to it, so a write meant for another group has no way there.
 /// </para>
@@ -44,7 +50,19 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     /// <summary>The table the latest pass projects into.</summary>
     public const string PassTableName = "saem_edge_passes";
 
+    /// <summary>The form type each relation's latest change is filed under, one record per relation.</summary>
+    public const string WatermarkFormType = "edge_watermarks";
+
+    /// <summary>The table the latest changes project into.</summary>
+    public const string WatermarkTableName = "saem_edge_watermarks";
+
     private const string LatestPass = "latest";
+
+    private static readonly string[] WatermarkFields = ["relation", "latest_change"];
+
+    private static readonly IReadOnlySet<string> NoneInPart = new HashSet<string>();
+
+    private static readonly IReadOnlyDictionary<string, string> NoWatermarks = new Dictionary<string, string>();
 
     private static readonly string[] Fields = ["from_iri", "relation", "to_iri", "source_system", "source_table", "source_record"];
 
@@ -55,23 +73,62 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     private readonly FormbaseForms _forms = new(http, formbaseNamespace, message => new EdgeStoreException(message));
 
     /// <summary>Makes the store hold exactly <paramref name="edges"/>, and projects them.</summary>
-    public async Task<EdgeWrite> ReplaceAsync(IAsyncEnumerable<MaterializedEdge> edges, CancellationToken cancellationToken = default)
+    public Task<EdgeWrite> ReplaceAsync(IAsyncEnumerable<MaterializedEdge> edges, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(edges);
+        return MergeAsync(RowsOf(edges, cancellationToken), NoneInPart, NoWatermarks, cancellationToken);
+    }
+
+    private static async IAsyncEnumerable<EdgeRow> RowsOf(IAsyncEnumerable<MaterializedEdge> edges, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var edge in edges.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            yield return new EdgeRow(edge.Relation, edge.From, edge);
+        }
+    }
+
+    /// <summary>
+    /// Makes the store hold what a pass read (<see cref="EdgeMaterializer.RowsAsync"/>) and projects it. A row that gives an
+    /// edge files it (unless held unchanged); a row that gives none retires the edge held for its entity. Of a relation in
+    /// <paramref name="readInPart"/> — read only where its rows changed — no other edge is touched; of every other, a held
+    /// edge no row gave is retired, as a whole pass does. <paramref name="latestChanges"/> are filed as where the next pass
+    /// narrowed to changed rows reads each relation from; a relation not among them is read whole by it.
+    /// </summary>
+    public async Task<EdgeWrite> MergeAsync(
+        IAsyncEnumerable<EdgeRow> rows,
+        IReadOnlySet<string> readInPart,
+        IReadOnlyDictionary<string, string> latestChanges,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(readInPart);
+        ArgumentNullException.ThrowIfNull(latestChanges);
 
         await _forms.DeclareAsync(FormType, TableName, Fields, cancellationToken).ConfigureAwait(false);
         var held = await _forms.HeldAsync(FormType, "", Fields, cancellationToken).ConfigureAwait(false);
 
         // The edges are read from the sources as they are enumerated, from here on.
         var readFrom = _time.GetUtcNow();
-        var given = new HashSet<string>(StringComparer.Ordinal);
-        int written = 0, unchanged = 0;
-        await foreach (var edge in edges.WithCancellation(cancellationToken).ConfigureAwait(false))
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        int written = 0, unchanged = 0, retired = 0, read = 0;
+        await foreach (var row in rows.WithCancellation(cancellationToken).ConfigureAwait(false))
         {
-            var key = KeyOf(edge);
-            if (!given.Add(key))
+            read++;
+            var key = row.Relation + " " + row.From;
+            if (!seen.Add(key))
             {
-                throw new EdgeStoreException($"Two edges of relation '{edge.Relation}' leave '{edge.From}'; an entity leads through a relation to one entity at most.");
+                throw new EdgeStoreException($"Two edges of relation '{row.Relation}' leave '{row.From}'; an entity leads through a relation to one entity at most.");
+            }
+
+            if (row.Edge is not { } edge)
+            {
+                if (held.ContainsKey(key))
+                {
+                    await _forms.RetireAsync(FormType, key, "Retiring an edge", cancellationToken).ConfigureAwait(false);
+                    retired++;
+                }
+
+                continue;
             }
 
             var fields = FieldsOf(edge);
@@ -85,8 +142,8 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
             written++;
         }
 
-        var retired = 0;
-        foreach (var key in held.Keys.Where(k => !given.Contains(k)).Order(StringComparer.Ordinal))
+        // A relation read whole gave every edge it holds; one read in part said nothing of the rows it did not read.
+        foreach (var (key, _) in held.Where(h => !seen.Contains(h.Key) && !readInPart.Contains(h.Value[1])).OrderBy(h => h.Key, StringComparer.Ordinal))
         {
             await _forms.RetireAsync(FormType, key, "Retiring an edge", cancellationToken).ConfigureAwait(false);
             retired++;
@@ -94,12 +151,39 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
 
         await _forms.ProjectAsync(FormType, "Projecting the edges", cancellationToken).ConfigureAwait(false);
 
+        await _forms.DeclareAsync(WatermarkFormType, WatermarkTableName, WatermarkFields, cancellationToken).ConfigureAwait(false);
+        var heldMarks = await _forms.HeldAsync(WatermarkFormType, "", WatermarkFields, cancellationToken).ConfigureAwait(false);
+        foreach (var (relation, latest) in latestChanges.OrderBy(m => m.Key, StringComparer.Ordinal))
+        {
+            if (!(heldMarks.TryGetValue(relation, out var mark) && mark[1] == latest))
+            {
+                await _forms.FileAsync(WatermarkFormType, relation, WatermarkFields, [relation, latest], "Filing a latest change", cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        foreach (var relation in heldMarks.Keys.Where(r => !latestChanges.ContainsKey(r)).Order(StringComparer.Ordinal))
+        {
+            await _forms.RetireAsync(WatermarkFormType, relation, "Retiring a latest change", cancellationToken).ConfigureAwait(false);
+        }
+
+        await _forms.ProjectAsync(WatermarkFormType, "Projecting the latest changes", cancellationToken).ConfigureAwait(false);
+
         // Filed only once the edges are in: a pass that failed leaves the time of the last one that did not.
         await _forms.DeclareAsync(PassFormType, PassTableName, PassFields, cancellationToken).ConfigureAwait(false);
         await _forms.FileAsync(PassFormType, LatestPass, PassFields, [readFrom.ToString("O", CultureInfo.InvariantCulture)], "Filing the pass", cancellationToken).ConfigureAwait(false);
         await _forms.ProjectAsync(PassFormType, "Projecting the pass", cancellationToken).ConfigureAwait(false);
 
-        return new EdgeWrite(written, unchanged, retired) { ReadFrom = readFrom };
+        return new EdgeWrite(written, unchanged, retired) { ReadFrom = readFrom, RowsRead = read, ReadInPart = readInPart.Count };
+    }
+
+    /// <summary>
+    /// Where the last pass left each relation's reading: the latest change it read from, by relation, as the source spells
+    /// it — none for a relation it read whole without one, nor before a pass filed any.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, string>> WatermarksAsync(CancellationToken cancellationToken = default)
+    {
+        var held = await _forms.HeldAsync(WatermarkFormType, "", WatermarkFields, cancellationToken).ConfigureAwait(false);
+        return held.ToDictionary(m => m.Key, m => m.Value[1], StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -216,6 +300,12 @@ public sealed record EdgeWrite(int Written, int Unchanged, int Retired)
 {
     /// <summary>When the pass began reading the sources — what the edges are as of.</summary>
     public DateTimeOffset? ReadFrom { get; init; }
+
+    /// <summary>How many rows of the sources the pass read.</summary>
+    public int RowsRead { get; init; }
+
+    /// <summary>How many relations the pass read only where their rows changed.</summary>
+    public int ReadInPart { get; init; }
 }
 
 /// <summary>How a store's edges compare with the ones a pass would give now.</summary>

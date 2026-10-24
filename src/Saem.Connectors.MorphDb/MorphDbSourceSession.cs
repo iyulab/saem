@@ -11,7 +11,7 @@ namespace Saem.Connectors.MorphDb;
 /// sent. MorphDB's row-level security, evaluated as that person, decides which rows come back — a row
 /// they may not see is not returned, exactly as a row that does not exist.
 /// </summary>
-internal sealed class MorphDbSourceSession : ISourceSession
+internal sealed class MorphDbSourceSession : ISourceSession, IChangedRows
 {
     /// <summary>Rows asked for per page; the largest the service serves.</summary>
     internal const int PageSize = 1000;
@@ -99,6 +99,39 @@ internal sealed class MorphDbSourceSession : ISourceSession
         return PagesAsync(table, keyColumn, columns, page => ReadAll(table, keyColumn, columns, page), cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async ValueTask<string?> LatestChangeAsync(string table, string column, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(table);
+        ArgumentException.ThrowIfNullOrWhiteSpace(column);
+
+        // The first row of the latest-first order is the latest; the pages after it are never asked.
+        await foreach (var row in PagesAsync(table, column, [column], page => ReadLatest(table, column, page), cancellationToken).ConfigureAwait(false))
+        {
+            return row.Key;
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc />
+    public IAsyncEnumerable<SourceRow> ScanChangedAsync(
+        string table,
+        string keyColumn,
+        IReadOnlyList<string> columns,
+        string column,
+        string since,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(table);
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyColumn);
+        ArgumentException.ThrowIfNullOrWhiteSpace(column);
+        ArgumentNullException.ThrowIfNull(columns);
+        ArgumentNullException.ThrowIfNull(since);
+
+        return PagesAsync(table, keyColumn, columns, page => ReadChanged(table, keyColumn, columns, column, since, page), cancellationToken);
+    }
+
     private async IAsyncEnumerable<SourceRow> PagesAsync(
         string table,
         string keyColumn,
@@ -180,6 +213,27 @@ internal sealed class MorphDbSourceSession : ISourceSession
         return string.Create(CultureInfo.InvariantCulture,
             $"api/data/{Uri.EscapeDataString(table)}?select={Uri.EscapeDataString(select)}" +
             $"&orderBy={Uri.EscapeDataString($"{keyColumn}:asc")}&page={page}&pageSize={PageSize}");
+    }
+
+    /// <summary>
+    /// <c>api/data/{table}?filter={column}:isnotnull&amp;select={column}&amp;orderBy={column}:desc&amp;page=…&amp;pageSize=1</c> —
+    /// the latest value of the column, one row a page; a row that leaves it empty is not a change.
+    /// </summary>
+    internal static string ReadLatest(string table, string column, int page) =>
+        string.Create(CultureInfo.InvariantCulture,
+            $"api/data/{Uri.EscapeDataString(table)}?filter={Uri.EscapeDataString($"{column}:isnotnull")}" +
+            $"&select={Uri.EscapeDataString(column)}&orderBy={Uri.EscapeDataString($"{column}:desc")}&page={page}&pageSize=1");
+
+    /// <summary>
+    /// <c>api/data/{table}?filter={column}:gte:{since}&amp;select={key},{columns…}&amp;orderBy={key}:asc&amp;page=…&amp;pageSize=…</c> —
+    /// the rows changed at or after a latest change, in key order.
+    /// </summary>
+    internal static string ReadChanged(string table, string keyColumn, IReadOnlyList<string> columns, string column, string since, int page)
+    {
+        var select = string.Join(',', new[] { keyColumn }.Concat(columns.Where(c => c != keyColumn)));
+        return string.Create(CultureInfo.InvariantCulture,
+            $"api/data/{Uri.EscapeDataString(table)}?filter={Uri.EscapeDataString($"{column}:gte:{since}")}" +
+            $"&select={Uri.EscapeDataString(select)}&orderBy={Uri.EscapeDataString($"{keyColumn}:asc")}&page={page}&pageSize={PageSize}");
     }
 
     private static string AsText(JsonElement value) => value.ValueKind switch

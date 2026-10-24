@@ -26,7 +26,7 @@ public sealed class FormbaseEdgeStoreTests
 
         var write = await new FormbaseEdgeStore(formbase.Client).ReplaceAsync(Of(Edge("WO-1", "I-1"), Edge("WO-2", "I-2")), TestContext.Current.CancellationToken);
 
-        Assert.Equal(new EdgeWrite(Written: 2, Unchanged: 0, Retired: 0), write with { ReadFrom = null });
+        Assert.Equal(new EdgeWrite(Written: 2, Unchanged: 0, Retired: 0), write with { ReadFrom = null, RowsRead = 0 });
         var declaration = Assert.IsType<JsonObject>(formbase.Declaration);
         Assert.Equal("saem_edges", (string?)declaration["tableName"]);
         Assert.Equal(
@@ -58,7 +58,7 @@ public sealed class FormbaseEdgeStoreTests
 
         var again = await store.ReplaceAsync(Of(Edge("WO-2", "I-2"), Edge("WO-1", "I-1")), TestContext.Current.CancellationToken);
 
-        Assert.Equal(new EdgeWrite(Written: 0, Unchanged: 2, Retired: 0), again with { ReadFrom = null });
+        Assert.Equal(new EdgeWrite(Written: 0, Unchanged: 2, Retired: 0), again with { ReadFrom = null, RowsRead = 0 });
         Assert.Equal(2, formbase.Stream.Count);
     }
 
@@ -71,7 +71,7 @@ public sealed class FormbaseEdgeStoreTests
 
         var next = await store.ReplaceAsync(Of(Edge("WO-1", "I-9")), TestContext.Current.CancellationToken);
 
-        Assert.Equal(new EdgeWrite(Written: 1, Unchanged: 0, Retired: 1), next with { ReadFrom = null });
+        Assert.Equal(new EdgeWrite(Written: 1, Unchanged: 0, Retired: 1), next with { ReadFrom = null, RowsRead = 0 });
         Assert.Equal([Edge("WO-1", "I-9")], await store.ReadAsync(TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken));
     }
 

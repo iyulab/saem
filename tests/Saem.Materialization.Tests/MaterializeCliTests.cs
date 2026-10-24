@@ -89,7 +89,7 @@ public sealed class MaterializeCliTests
 
         var write = await MaterializeRun.RunAsync(Plant, openers, "g-plant", new EntityIris(new Uri("https://example.org/ontology/")), new FormbaseEdgeStore(formbase.Client), null, output, TestContext.Current.CancellationToken);
 
-        Assert.Equal(new EdgeWrite(1, 0, 0), write with { ReadFrom = null });
+        Assert.Equal(new EdgeWrite(1, 0, 0), write with { ReadFrom = null, RowsRead = 0 });
         Assert.Equal($"group g-plant: 1 edge(s) written, 0 unchanged, 0 retired; as of {write.ReadFrom:O}.", output.ToString().Trim());
     }
 
