@@ -15,6 +15,25 @@ public class LookupAnswerTests
 
     private static JsonElement Value(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
+    [Theory]
+    [InlineData("S-7", true)]
+    [InlineData(null, false)]
+    public void A_start_names_its_entity_by_a_key_or_by_a_field_and_never_both_nor_neither(string? key, bool where)
+    {
+        var thrown = Assert.Throws<ArgumentException>(() => new LookupStart("Supplier", key, where ? new FieldMatch("name", "Acme") : null));
+
+        Assert.Equal("key", thrown.ParamName);
+    }
+
+    [Fact]
+    public void Candidates_are_two_or_more()
+    {
+        var one = new Candidate(Supplier, Erp);
+
+        Assert.Equal("entities", Assert.Throws<ArgumentException>(() => new Candidates([one])).ParamName);
+        Assert.Equal(2, new Candidates([one, one with { Entity = new EntityKey("Supplier", "S-8") }]).Entities.Count);
+    }
+
     [Fact]
     public void A_claim_without_a_source_cannot_be_built()
     {

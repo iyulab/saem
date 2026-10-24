@@ -32,6 +32,21 @@ public interface ISourceSession : IAsyncDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads the rows of <paramref name="table"/> whose <paramref name="column"/> holds <paramref name="value"/>
+    /// (compared as text, as the key is), each keyed by <paramref name="keyColumn"/> and with the named columns,
+    /// in key order — at most <paramref name="limit"/>. The source's rules decide which rows the person sees,
+    /// exactly as for <see cref="ReadAsync"/>. How an entity is found by a field it is not keyed by.
+    /// </summary>
+    ValueTask<IReadOnlyList<SourceRow>> FindAsync(
+        string table,
+        string keyColumn,
+        string column,
+        string value,
+        IReadOnlyList<string> columns,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads every row of <paramref name="table"/> the person may see, with the named columns, ordered by
     /// <paramref name="keyColumn"/> (as the source orders it, so two passes meet the rows in the same order) — a pass over a whole table, as the
     /// materialization of a group's edges makes, rather than one row a walk asked for. Rows arrive as

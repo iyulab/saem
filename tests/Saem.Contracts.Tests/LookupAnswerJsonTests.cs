@@ -128,12 +128,41 @@ public class LookupAnswerJsonTests
         var schema = ContractSchema.Answer;
         var defs = schema.GetProperty("$defs");
 
-        Assert.Equal(["answered", "refused"], schema.GetProperty("oneOf").EnumerateArray().Select(c => c.GetProperty("properties").GetProperty("kind").GetProperty("const").GetString()));
+        Assert.Equal(["answered", "refused", "candidates"], schema.GetProperty("oneOf").EnumerateArray().Select(c => c.GetProperty("properties").GetProperty("kind").GetProperty("const").GetString()));
         Assert.Equal(1, schema.GetProperty("oneOf")[0].GetProperty("properties").GetProperty("claims").GetProperty("minItems").GetInt32());
         Assert.Equal(1, defs.GetProperty("claim").GetProperty("properties").GetProperty("sources").GetProperty("minItems").GetInt32());
+        Assert.Equal(2, schema.GetProperty("oneOf")[2].GetProperty("properties").GetProperty("entities").GetProperty("minItems").GetInt32());
         Assert.Equal(
             Enum.GetValues<RefusalReason>().Select(r => JsonSerializer.Serialize(r, ContractJson.Default.RefusalReason).Trim('"')),
             defs.GetProperty("refusal").GetProperty("properties").GetProperty("reason").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
+    }
+
+    [Fact]
+    public void Candidates_name_their_case_and_read_back()
+    {
+        var json = Write(new Candidates([new Candidate(Supplier, Erp), new Candidate(new EntityKey("Supplier", "S-8"), Erp with { Record = "S-8" })]));
+
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal("candidates", document.RootElement.GetProperty("kind").GetString());
+        Assert.Equal(["S-7", "S-8"], Assert.IsType<Candidates>(Read(json)).Entities.Select(c => c.Entity.Key));
+        Assert.ThrowsAny<ArgumentException>(() => Read("""{"kind":"candidates","entities":[{"entity":{"type":"Supplier","key":"S-7"},"source":{"system":"erp","table":"suppliers","record":"S-7"}}]}"""));
+    }
+
+    /// <summary>A call starts by a key or by a field's value; on the wire one of the two, and a payload with both is refused while it is read.</summary>
+    [Fact]
+    public void A_call_reads_back_with_either_start_and_refuses_both()
+    {
+        var byValue = new LookupCall(new LookupStart("Supplier", where: new FieldMatch("name", "Acme")), [], ["name"]);
+
+        var json = JsonSerializer.Serialize(byValue, ContractJson.Default.LookupCall);
+        var read = JsonSerializer.Deserialize(json, ContractJson.Default.LookupCall)!;
+
+        Assert.Equal(new FieldMatch("name", "Acme"), read.Start.Where);
+        Assert.Null(read.Start.Key);
+        Assert.DoesNotContain("\"key\"", json, StringComparison.Ordinal);
+        Assert.Equal("S-7", JsonSerializer.Deserialize("""{"start":{"type":"Supplier","key":"S-7"},"path":[],"read":["name"]}""", ContractJson.Default.LookupCall)!.Start.Key);
+        Assert.ThrowsAny<ArgumentException>(() => JsonSerializer.Deserialize(
+            """{"start":{"type":"Supplier","key":"S-7","where":{"field":"name","value":"Acme"}},"path":[],"read":["name"]}""", ContractJson.Default.LookupCall));
     }
 
     [Fact]

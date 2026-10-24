@@ -104,6 +104,12 @@ internal sealed partial class InteractionLog
     /// </summary>
     public IReadOnlyList<AccessedRecord> Reached(LookupAnswer answer, Func<string, string> systemOf)
     {
+        if (answer is Candidates candidates)
+        {
+            // Each candidate is a row the person's read returned.
+            return [.. candidates.Entities.Select(c => new AccessedRecord(c.Source.System, c.Entity.Type, Name(c.Source.System, c.Entity.Type, c.Entity.Key), "read"))];
+        }
+
         if (answer is not Answered answered)
         {
             return [];

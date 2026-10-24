@@ -15,14 +15,63 @@ public sealed record EntityKey(string Type, string Key);
 /// walk ends at. Every term is the ontology's — the caller composes the question; saem runs it against
 /// the source systems with the credentials of the person the caller acts for, and does not interpret it.
 /// </summary>
-/// <param name="Start">The entity the walk starts from.</param>
+/// <param name="Start">The entity the walk starts from — by its key, or by a field's value.</param>
 /// <param name="Path">The relations to follow, in order; empty reads the start entity itself.</param>
 /// <param name="Read">The fields to read on the entity the walk ends at.</param>
-public sealed record LookupCall(EntityKey Start, IReadOnlyList<string> Path, IReadOnlyList<string> Read);
+public sealed record LookupCall(LookupStart Start, IReadOnlyList<string> Path, IReadOnlyList<string> Read);
+
+/// <summary>
+/// Where a walk starts: an entity of a declared type, named either by its key or by the value of one of its
+/// declared fields. A field may hold the same value on several entities; then the lookup answers with the
+/// <see cref="Candidates"/> the person can see, and the caller starts again from one of them by key.
+/// </summary>
+public sealed record LookupStart
+{
+    /// <param name="type">The entity type, as the ontology declares it.</param>
+    /// <param name="key">The entity's key in its source system; given when <paramref name="where"/> is not.</param>
+    /// <param name="where">A declared field and the value it holds; given when <paramref name="key"/> is not.</param>
+    [JsonConstructor]
+    public LookupStart(string type, string? key = null, FieldMatch? where = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(type);
+        if ((key is null) == (where is null))
+        {
+            throw new ArgumentException("A start names its entity by a key or by a field's value — exactly one of the two.", nameof(key));
+        }
+
+        Type = type;
+        Key = key;
+        Where = where;
+    }
+
+    /// <summary>The entity type.</summary>
+    public string Type { get; }
+
+    /// <summary>The entity's key, or null when it is named by <see cref="Where"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Key { get; }
+
+    /// <summary>The field and value the entity is named by, or null when it is named by <see cref="Key"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FieldMatch? Where { get; }
+
+    /// <summary>A start at a known entity.</summary>
+    public static implicit operator LookupStart(EntityKey entity)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        return new LookupStart(entity.Type, entity.Key);
+    }
+}
+
+/// <summary>A declared field and the value an entity holds in it, compared as the source compares it.</summary>
+/// <param name="Field">The field, as the entity type declares it.</param>
+/// <param name="Value">The value, as text.</param>
+public sealed record FieldMatch(string Field, string Value);
 
 /// <summary>
 /// What a lookup answers: facts, each with where it came from — or a refusal saying where the walk
-/// found nothing. Never both, never neither. On the wire the case is named in <c>kind</c>
+/// found nothing — or, for a start named by a field's value that several entities hold, those entities
+/// to choose from. Exactly one of the three. On the wire the case is named in <c>kind</c>
 /// (<see cref="ContractJson"/>); <see cref="ContractSchema"/> is the same shape as a JSON Schema.
 /// <para>
 /// An answer is not a snapshot. Each source record says when it was read (<see cref="SourceRecord.ReadAt"/>),
@@ -33,6 +82,7 @@ public sealed record LookupCall(EntityKey Start, IReadOnlyList<string> Path, IRe
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(Answered), "answered")]
 [JsonDerivedType(typeof(Refused), "refused")]
+[JsonDerivedType(typeof(Candidates), "candidates")]
 public abstract record LookupAnswer
 {
     private protected LookupAnswer()
@@ -124,6 +174,33 @@ public sealed record Answered : LookupAnswer
 /// <summary>A lookup that found nothing to state, and says where.</summary>
 /// <param name="Refusal">Why nothing is stated, and where the walk stopped.</param>
 public sealed record Refused(Refusal Refusal) : LookupAnswer;
+
+/// <summary>
+/// A start named by a field's value that more than one entity visible to the person holds: the walk did
+/// not start, and these are the entities to start from by key. Only rows the person's own read returned.
+/// </summary>
+public sealed record Candidates : LookupAnswer
+{
+    /// <param name="entities">The entities; at least two — one would have been walked from, none is a refusal.</param>
+    public Candidates(IReadOnlyList<Candidate> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+        if (entities.Count < 2)
+        {
+            throw new ArgumentException("Candidates are two or more; a single match is walked from, and none is refused.", nameof(entities));
+        }
+
+        Entities = entities;
+    }
+
+    /// <summary>The entities to choose from.</summary>
+    public IReadOnlyList<Candidate> Entities { get; }
+}
+
+/// <summary>An entity a start's field value matched: its key, and the record that names it.</summary>
+/// <param name="Entity">The entity — its type and the key to start from.</param>
+/// <param name="Source">The record it was read from, cited as its type declares (the name a person recognises it by).</param>
+public sealed record Candidate(EntityKey Entity, SourceRecord Source);
 
 /// <summary>
 /// One fact: a field of an entity and its value, with the source records the value was read from and

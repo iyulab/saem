@@ -161,9 +161,11 @@ about the wiring instead of a promise.
 
 **The answer contract** (`Saem.Contracts`, no reference to the server) is what a consumer codes
 against. A lookup starts at one entity, follows declared relations, and reads declared fields — the
-caller composes it in the ontology's terms; no model sits inside saem's path. The answer is either
-facts, each with the source records it was read from and the relations that reached it, or a
-refusal that says where the walk stopped. A fact without a source cannot be built. A refusal never
+caller composes it in the ontology's terms; no model sits inside saem's path. The start names its
+entity by its key, or by a declared field and the value it holds. The answer is either facts, each
+with the source records it was read from and the relations that reached it, or a refusal that says
+where the walk stopped — or, when the start's value is held by several entities the person can see,
+those entities (`candidates`: each key and the record it was read from) to start again from by key. A fact without a source cannot be built. A refusal never
 says "does not exist": a source that enforces its own permissions returns no rows both for what is
 absent and for what this person may not see, and saem cannot tell the two apart. An answer is not a
 snapshot: each source record says when it was read (`readAt`), and a walk that crosses systems reads
@@ -201,6 +203,7 @@ missing — it is read over the edges that stand, since an edge only finds a can
 leave an answer out but never put a wrong one in. A step is bounded: when a partition leads to more
 candidates than one step may read (`Saem:Lookup:MaxCandidatesPerStep`, 50 by default), none is read and
 the lookup is a tool error asking for a narrower one — a limit of saem's, not an answer about the sources.
+The same limit bounds a start named by a value.
 
 **Ontology authoring** combines standard domain packs, entity/relation proposals from
 [Eyu](https://github.com/iyulab/Eyu) (the LLM-assisted extraction and mapping engine, consumed —
@@ -386,7 +389,8 @@ var sessions = new PersonSessions(new Dictionary<string, SourceOpener> { ["forms
 ### MCP server
 
 `Saem.Mcp` serves one tool, `lookup`, over MCP's Streamable HTTP transport. Its input is a lookup in
-the ontology's terms — `start` (type and key), `path` (relations), `read` (fields) — and its result is
+the ontology's terms — `start` (type, and key or `where`: a field and its value), `path` (relations),
+`read` (fields) — and its result is
 the answer contract above, as structured content and as the same JSON in text, declared as the tool's
 output schema. The tool's description and input schema are built from the ontology when tools are
 listed, so the vocabulary a caller sees is the one its call is checked against, and the listing names

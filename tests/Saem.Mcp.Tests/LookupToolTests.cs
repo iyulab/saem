@@ -26,6 +26,8 @@ public sealed class LookupToolTests : IAsyncLifetime
         ]
         """;
 
+    private static readonly string[] ReadName = ["name"];
+
     private TestServer _server = null!;
 
     public async ValueTask InitializeAsync()
@@ -285,6 +287,53 @@ public sealed class LookupToolTests : IAsyncLifetime
         Assert.Contains("not answered within 0.3 seconds", text, StringComparison.Ordinal);
         Assert.Contains("not a refusal", text, StringComparison.Ordinal);
         Assert.Contains(server.Logs.Lines, l => l.Contains("\"errorType\":\"deadline\"", StringComparison.Ordinal));
+    }
+
+    /// <summary>D-80 ④ through the tool: a start by a field's value several visible work orders hold answers with them; one walks.</summary>
+    [Fact]
+    public async Task A_start_by_a_value_answers_with_the_candidates_or_walks_from_the_one()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var server = await TestServer.StartAsync(OntologyJson, new FakeLogins(new()
+        {
+            ["alice"] = new()
+            {
+                ["work_orders"] = [FakeLogins.Row("WO-3", ("note", "a"), ("item_code", "I-200")), FakeLogins.Row("WO-5", ("note", "b"), ("item_code", "I-200"))],
+                ["items"] = [FakeLogins.Row("I-200", ("name", "Bracket"))],
+            },
+        }));
+        await using var alice = await server.ClientAsync(TestServer.Token("alice"), ct);
+        Dictionary<string, object?> ByValue(string type, string field, string value, string[] read) => new()
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = type, ["where"] = new Dictionary<string, object?> { ["field"] = field, ["value"] = value } },
+            ["path"] = Array.Empty<string>(),
+            ["read"] = read,
+        };
+
+        var several = (await alice.CallToolAsync("lookup", ByValue("WorkOrder", "item", "I-200", ["note"]), cancellationToken: ct)).StructuredContent!.Value;
+        var one = (await alice.CallToolAsync("lookup", ByValue("Item", "name", "Bracket", ["name"]), cancellationToken: ct)).StructuredContent!.Value;
+
+        Assert.Equal("candidates", several.GetProperty("kind").GetString());
+        Assert.Equal(["WO-3", "WO-5"], several.GetProperty("entities").EnumerateArray().Select(e => e.GetProperty("entity").GetProperty("key").GetString()));
+        Assert.Equal("answered", one.GetProperty("kind").GetString());
+        Assert.Contains(server.Logs.Lines, l => l.Contains(" candidates ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_start_with_both_a_key_and_a_field_is_a_tool_error()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var alice = await _server.ClientAsync(TestServer.Token("alice"), ct);
+
+        var result = await alice.CallToolAsync("lookup", new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = "Item", ["key"] = "I-200", ["where"] = new Dictionary<string, object?> { ["field"] = "name", ["value"] = "Bracket" } },
+            ["path"] = Array.Empty<string>(),
+            ["read"] = ReadName,
+        }, cancellationToken: ct);
+
+        Assert.True(result.IsError);
+        Assert.Contains("exactly one of the two", Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text, StringComparison.Ordinal);
     }
 
     [Fact]

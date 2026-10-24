@@ -83,6 +83,31 @@ internal sealed class PostgresSourceSession : ISourceSession
     }
 
     /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<SourceRow>> FindAsync(
+        string table,
+        string keyColumn,
+        string column,
+        string value,
+        IReadOnlyList<string> columns,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        ArgumentOutOfRangeException.ThrowIfNegative(limit);
+
+        await using var command = new NpgsqlCommand(SelectWhere(table, keyColumn, column, columns, limit), _connection, _transaction);
+        command.Parameters.AddWithValue("value", value);
+
+        var rows = new List<SourceRow>();
+        await foreach (var row in RowsAsync(command, columns, cancellationToken).ConfigureAwait(false))
+        {
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    /// <inheritdoc />
     public async IAsyncEnumerable<SourceRow> ScanAsync(
         string table,
         string keyColumn,
@@ -126,6 +151,17 @@ internal sealed class PostgresSourceSession : ISourceSession
         var key = Identifier(keyColumn);
         var select = string.Join(", ", columns.Select(Identifier));
         return $"SELECT {key}::text{(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} WHERE {key}::text = @key";
+    }
+
+    /// <summary>
+    /// <c>SELECT key::text, columns… FROM table WHERE column::text = @value ORDER BY 1 LIMIT n</c> — the rows a
+    /// field's value names, in key order as text.
+    /// </summary>
+    internal static string SelectWhere(string table, string keyColumn, string column, IReadOnlyList<string> columns, int limit)
+    {
+        var select = string.Join(", ", columns.Select(Identifier));
+        return $"SELECT {Identifier(keyColumn)}::text{(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} " +
+            $"WHERE {Identifier(column)}::text = @value ORDER BY 1 LIMIT {limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
     }
 
     /// <summary><c>SELECT key::text, columns… FROM table ORDER BY 1</c> — every row, in key order as text.</summary>

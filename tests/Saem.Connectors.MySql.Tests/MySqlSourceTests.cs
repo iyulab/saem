@@ -41,6 +41,14 @@ public class MySqlSourceTests
     }
 
     [Fact]
+    public void A_find_selects_by_a_field_as_text_in_key_order_up_to_the_limit()
+    {
+        Assert.Equal(
+            "SELECT CAST(`supplier_id` AS CHAR), `supplier_name` FROM `visible_suppliers` WHERE CAST(`supplier_name` AS CHAR) = @value ORDER BY 1 LIMIT 51",
+            MySqlSourceSession.SelectWhere("visible_suppliers", "supplier_id", "supplier_name", ["supplier_name"], 51));
+    }
+
+    [Fact]
     public void Every_name_is_quoted_as_an_identifier_even_a_hostile_one()
     {
         Assert.Equal(

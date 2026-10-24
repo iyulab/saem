@@ -113,6 +113,9 @@ internal static class DelegationCost
         public ValueTask<IReadOnlyList<SourceRow>> ReadAsync(string table, string keyColumn, string key, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
             inner.ReadAsync(table, keyColumn, key, columns, cancellationToken);
 
+        public ValueTask<IReadOnlyList<SourceRow>> FindAsync(string table, string keyColumn, string column, string value, IReadOnlyList<string> columns, int limit, CancellationToken cancellationToken = default) =>
+            inner.FindAsync(table, keyColumn, column, value, columns, limit, cancellationToken);
+
         public IAsyncEnumerable<SourceRow> ScanAsync(string table, string keyColumn, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
             inner.ScanAsync(table, keyColumn, columns, cancellationToken);
 
@@ -123,6 +126,9 @@ internal static class DelegationCost
     {
         public ValueTask<IReadOnlyList<SourceRow>> ReadAsync(string table, string keyColumn, string key, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
             inner.ReadAsync(table, keyColumn, key, columns, cancellationToken);
+
+        public ValueTask<IReadOnlyList<SourceRow>> FindAsync(string table, string keyColumn, string column, string value, IReadOnlyList<string> columns, int limit, CancellationToken cancellationToken = default) =>
+            inner.FindAsync(table, keyColumn, column, value, columns, limit, cancellationToken);
 
         public IAsyncEnumerable<SourceRow> ScanAsync(string table, string keyColumn, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
             inner.ScanAsync(table, keyColumn, columns, cancellationToken);

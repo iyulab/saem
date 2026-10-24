@@ -146,6 +146,11 @@ public sealed class Ontology
         }
 
         var problems = new List<string>();
+        if (call.Start.Where is { } where && !start.Fields.ContainsKey(where.Field))
+        {
+            problems.Add($"The start names '{start.Name}' by '{where.Field}', which is not a field of '{start.Name}'.");
+        }
+
         var steps = new List<RelationDeclaration>();
         RelationDeclaration? inverse = null;
         var at = start;

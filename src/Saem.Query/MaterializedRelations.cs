@@ -111,9 +111,16 @@ public sealed class TooBroadException : Exception
         Relation = relation;
     }
 
-    /// <summary>The step that was too broad: n for the n-th relation of the path.</summary>
-    public int AtHop { get; }
+    /// <summary>Creates the exception for a start named by <paramref name="field"/>'s value, which more than <paramref name="limit"/> entities hold.</summary>
+    public static TooBroadException AtStart(string type, string field, int limit) =>
+        new($"The start names '{type}' by '{field}', and that value is held by more than {limit} entities, so none was read. Narrow the lookup: start by a key, or by a field that names fewer.")
+        {
+            AtHop = 0,
+        };
 
-    /// <summary>The relation that step walks.</summary>
-    public string? Relation { get; }
+    /// <summary>The step that was too broad: 0 for the start, n for the n-th relation of the path.</summary>
+    public int AtHop { get; private init; }
+
+    /// <summary>The relation that step walks; null at the start.</summary>
+    public string? Relation { get; private init; }
 }

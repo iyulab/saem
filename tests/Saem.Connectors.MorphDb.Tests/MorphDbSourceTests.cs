@@ -65,6 +65,29 @@ public class MorphDbSourceTests
     }
 
     [Fact]
+    public void A_find_asks_by_a_field_in_key_order_with_every_part_escaped()
+    {
+        var path = MorphDbSourceSession.ReadWhere("orders", "wo_no", "note", "a:b&c", ["note"], 1, 51);
+
+        Assert.Equal(
+            "api/data/orders?filter=note%3Aeq%3Aa%3Ab%26c&select=wo_no%2Cnote&orderBy=wo_no%3Aasc&page=1&pageSize=51",
+            path);
+    }
+
+    /// <summary>A find stops at its limit, though the source has a next page.</summary>
+    [Fact]
+    public async Task A_find_stops_at_its_limit()
+    {
+        var (source, recorder) = Source(_ => Page(true, new { k = "a" }, new { k = "b" }));
+        await using var session = await source.As(_ => ValueTask.FromResult("t"))(TestContext.Current.CancellationToken);
+
+        var rows = await session.FindAsync("t", "k", "v", "x", [], 2, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["a", "b"], rows.Select(r => r.Key));
+        Assert.Single(recorder.Requests);
+    }
+
+    [Fact]
     public async Task Every_request_presents_the_persons_token_and_the_project_and_only_reads()
     {
         var (source, recorder) = Source(_ => Page(false, new { fb_doc_id = "d1", result = "pass" }));

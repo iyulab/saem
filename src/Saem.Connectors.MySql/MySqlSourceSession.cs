@@ -59,6 +59,31 @@ internal sealed class MySqlSourceSession : ISourceSession
     }
 
     /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<SourceRow>> FindAsync(
+        string table,
+        string keyColumn,
+        string column,
+        string value,
+        IReadOnlyList<string> columns,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        ArgumentOutOfRangeException.ThrowIfNegative(limit);
+
+        await using var command = new MySqlCommand(SelectWhere(table, keyColumn, column, columns, limit), _connection);
+        command.Parameters.AddWithValue("@value", value);
+
+        var rows = new List<SourceRow>();
+        await foreach (var row in RowsAsync(command, columns, cancellationToken).ConfigureAwait(false))
+        {
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    /// <inheritdoc />
     public async IAsyncEnumerable<SourceRow> ScanAsync(
         string table,
         string keyColumn,
@@ -102,6 +127,17 @@ internal sealed class MySqlSourceSession : ISourceSession
         var key = $"CAST({Identifier(keyColumn)} AS CHAR)";
         var select = string.Join(", ", columns.Select(Identifier));
         return $"SELECT {key}{(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} WHERE {key} = @key";
+    }
+
+    /// <summary>
+    /// <c>SELECT CAST(key AS CHAR), columns… FROM table WHERE CAST(column AS CHAR) = @value ORDER BY 1 LIMIT n</c> —
+    /// the rows a field's value names, in key order as text.
+    /// </summary>
+    internal static string SelectWhere(string table, string keyColumn, string column, IReadOnlyList<string> columns, int limit)
+    {
+        var select = string.Join(", ", columns.Select(Identifier));
+        return $"SELECT CAST({Identifier(keyColumn)} AS CHAR){(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} " +
+            $"WHERE CAST({Identifier(column)} AS CHAR) = @value ORDER BY 1 LIMIT {limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
     }
 
     /// <summary><c>SELECT CAST(key AS CHAR), columns… FROM table ORDER BY 1</c> — every row, in key order as text.</summary>

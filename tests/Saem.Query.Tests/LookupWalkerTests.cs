@@ -49,6 +49,64 @@ public class LookupWalkerTests
     private static Task<LookupAnswer> Run(FakeSessions sessions, string start, string key, string[] path, string[] read) =>
         Walker.RunAsync(new LookupCall(new EntityKey(start, key), path, read), sessions, TestContext.Current.CancellationToken);
 
+    private static Task<LookupAnswer> Find(FakeSessions sessions, string start, string field, string value, string[] path, string[] read, LookupWalker? walker = null) =>
+        (walker ?? Walker).RunAsync(new LookupCall(new LookupStart(start, where: new FieldMatch(field, value)), path, read), sessions, TestContext.Current.CancellationToken);
+
+    /// <summary>D-80 ④: a start named by a field's value that one visible entity holds is walked from that entity.</summary>
+    [Fact]
+    public async Task A_start_named_by_a_value_one_visible_entity_holds_walks_from_it()
+    {
+        var answer = await Find(new FakeSessions("alice"), "Supplier", "name", "Hanbit Parts", [], ["name"]);
+
+        var claim = Assert.Single(Assert.IsType<Answered>(answer).Claims);
+        Assert.Equal(new EntityKey("Supplier", "S-1"), claim.Entity);
+    }
+
+    /// <summary>Several visible entities hold the value: the walk does not start, and they are offered by key and record — only the person's own rows.</summary>
+    [Fact]
+    public async Task A_start_named_by_a_value_several_visible_entities_hold_answers_with_them_to_choose_from()
+    {
+        var alice = new FakeSessions("alice");
+        var answer = await Find(alice, "WorkOrder", "item", "I-100", ["orders_item"], ["name"]);
+
+        var candidates = Assert.IsType<Candidates>(answer).Entities;
+        Assert.Equal([new EntityKey("WorkOrder", "WO-1"), new EntityKey("WorkOrder", "WO-3")], candidates.Select(c => c.Entity));
+        Assert.Equal(new SourceRecord("mes", "work_orders", "WO-1") { ReadAt = ReadAt }, candidates[0].Source);
+        Assert.Equal(["mes work_orders item_code=I-100 [] limit 51"], alice.Reads);
+        // bob sees only WO-1 of the two: one match, so his lookup walks from it.
+        Assert.IsType<Answered>(await Find(new FakeSessions("bob"), "WorkOrder", "item", "I-100", ["orders_item"], ["name"]));
+    }
+
+    [Fact]
+    public async Task A_start_named_by_a_value_no_visible_entity_holds_is_refused_at_the_start()
+    {
+        var answer = await Find(new FakeSessions("bob"), "Supplier", "name", Canary, [], ["name"]);
+
+        Assert.Equal(new Refusal(RefusalReason.NoVisibleResult, 0, null, "erp"), Assert.IsType<Refused>(answer).Refusal);
+    }
+
+    /// <summary>D-84 ①: more matches than one step may read is too broad — at the start, no count said.</summary>
+    [Fact]
+    public async Task A_start_value_more_entities_hold_than_the_limit_is_too_broad()
+    {
+        var narrow = new LookupWalker(new FixedCatalog(Ontology.Ontology.Create(Rig)), new FixedClock(ReadAt), maxCandidatesPerStep: 1);
+
+        var thrown = await Assert.ThrowsAsync<TooBroadException>(() => Find(new FakeSessions("alice"), "WorkOrder", "item", "I-100", [], ["quantity"], narrow));
+
+        Assert.Equal((0, (string?)null), (thrown.AtHop, thrown.Relation));
+    }
+
+    [Fact]
+    public async Task A_start_named_by_an_undeclared_field_is_a_malformed_question_and_reads_nothing()
+    {
+        var sessions = new FakeSessions("alice");
+
+        var thrown = await Assert.ThrowsAsync<UnknownTermException>(() => Find(sessions, "Supplier", "phone", "1", [], ["name"]));
+
+        Assert.Contains("by 'phone', which is not a field of 'Supplier'", Assert.Single(thrown.Problems), StringComparison.Ordinal);
+        Assert.Empty(sessions.Opened);
+    }
+
     [Fact]
     public async Task A_walk_across_two_systems_answers_with_the_record_it_read_and_the_relations_it_followed()
     {
@@ -384,8 +442,23 @@ public class LookupWalkerTests
                 return ValueTask.FromResult(rows);
             }
 
+            public ValueTask<IReadOnlyList<SourceRow>> FindAsync(string table, string keyColumn, string column, string value, IReadOnlyList<string> columns, int limit, CancellationToken cancellationToken = default)
+            {
+                owner.Reads.Add($"{system} {table} {column}={value} [{string.Join(",", columns)}] limit {limit}");
+                IReadOnlyList<SourceRow> rows =
+                [
+                    .. Rows
+                        .Where(r => r.System == system && r.Table == table && r.SeenBy.Contains(owner.Person)
+                            && r.Values.TryGetValue(column, out var held) && Convert.ToString(held, System.Globalization.CultureInfo.InvariantCulture) == value)
+                        .OrderBy(r => r.Key, StringComparer.Ordinal)
+                        .Take(limit)
+                        .Select(r => new SourceRow(r.Key, columns.ToDictionary(c => c, c => JsonSerializer.SerializeToElement(r.Values[c])))),
+                ];
+                return ValueTask.FromResult(rows);
+            }
+
             public IAsyncEnumerable<SourceRow> ScanAsync(string table, string keyColumn, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
-                throw new NotSupportedException("A walk reads rows by key; it never scans a table.");
+                throw new NotSupportedException("A walk reads rows by key or finds them by a field; it never scans a table.");
 
             public ValueTask DisposeAsync()
             {

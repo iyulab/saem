@@ -4,8 +4,8 @@ namespace Saem.Contracts;
 
 /// <summary>
 /// The answer contract as a JSON Schema (draft 2020-12): what <see cref="ContractJson"/> writes for a
-/// <see cref="LookupAnswer"/>. The rules the constructors hold — a claim names at least one source, and
-/// an answer states at least one claim — are held here too, so a consumer that
+/// <see cref="LookupAnswer"/>. The rules the constructors hold — a claim names at least one source, an
+/// answer states at least one claim, candidates are two or more — are held here too, so a consumer that
 /// validates against the schema refuses what the contract cannot build. saem declares it as its tool's
 /// output schema.
 /// </summary>
@@ -21,7 +21,7 @@ public static class ContractSchema
           "type": "object",
           "required": ["kind"],
           "properties": {
-            "kind": { "enum": ["answered", "refused"] },
+            "kind": { "enum": ["answered", "refused", "candidates"] },
             "answeredFor": { "$ref": "#/$defs/viewer" },
             "catalogVersion": { "type": "string" },
             "partitions": { "type": "array", "items": { "$ref": "#/$defs/partitionRead" } }
@@ -40,6 +40,13 @@ public static class ContractSchema
                 "refusal": { "$ref": "#/$defs/refusal" }
               },
               "required": ["kind", "refusal"]
+            },
+            {
+              "properties": {
+                "kind": { "const": "candidates" },
+                "entities": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/candidate" } }
+              },
+              "required": ["kind", "entities"]
             }
           ],
           "$defs": {
@@ -94,6 +101,14 @@ public static class ContractSchema
                 "relation": { "type": ["string", "null"] },
                 "system": { "type": "string" },
                 "statement": { "type": "string" }
+              }
+            },
+            "candidate": {
+              "type": "object",
+              "required": ["entity", "source"],
+              "properties": {
+                "entity": { "$ref": "#/$defs/entityKey" },
+                "source": { "$ref": "#/$defs/sourceRecord" }
               }
             },
             "partitionRead": {

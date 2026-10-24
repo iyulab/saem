@@ -101,6 +101,9 @@ public sealed class EdgeMaterializerTests
             public ValueTask<IReadOnlyList<SourceRow>> ReadAsync(string table, string keyColumn, string key, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
                 throw new NotSupportedException("Materialization scans; it never reads by key.");
 
+            public ValueTask<IReadOnlyList<SourceRow>> FindAsync(string table, string keyColumn, string column, string value, IReadOnlyList<string> columns, int limit, CancellationToken cancellationToken = default) =>
+                throw new NotSupportedException("Materialization scans; it never finds by a field.");
+
             public IAsyncEnumerable<SourceRow> ScanAsync(string table, string keyColumn, IReadOnlyList<string> columns, CancellationToken cancellationToken = default)
             {
                 owner.Scans.Add($"{system} {table} {keyColumn} [{string.Join(",", columns)}]");

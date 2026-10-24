@@ -34,6 +34,17 @@ public class PostgresSourceTests
     }
 
     [Fact]
+    public void A_find_selects_by_a_field_as_text_in_key_order_up_to_the_limit()
+    {
+        Assert.Equal(
+            """SELECT "item_code"::text, "item_name" FROM "erp"."items" WHERE "item_name"::text = @value ORDER BY 1 LIMIT 51""",
+            PostgresSourceSession.SelectWhere("erp.items", "item_code", "item_name", ["item_name"], 51));
+        Assert.Equal(
+            """SELECT "id"::text FROM "t" WHERE "x""; --"::text = @value ORDER BY 1 LIMIT 2""",
+            PostgresSourceSession.SelectWhere("t", "id", "x\"; --", [], 2));
+    }
+
+    [Fact]
     public void A_scan_selects_every_row_in_key_order_as_text()
     {
         Assert.Equal(

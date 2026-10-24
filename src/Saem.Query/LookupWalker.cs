@@ -79,7 +79,35 @@ public sealed class LookupWalker
         try
         {
             var at = plan.Start;
-            var key = call.Start.Key;
+            string key;
+            if (call.Start.Where is { } where)
+            {
+                // Named by a field's value: one visible match is walked from; several are offered to choose from.
+                var found = await FindAsync(open, sessions, at, where, MaxCandidatesPerStep + 1, cancellationToken).ConfigureAwait(false);
+                if (found.Count == 0)
+                {
+                    return Refuse(0, null, at.System);
+                }
+
+                if (found.Count > MaxCandidatesPerStep)
+                {
+                    throw TooBroadException.AtStart(at.Name, where.Field, MaxCandidatesPerStep);
+                }
+
+                if (found.Count > 1)
+                {
+                    var readAt = _time.GetUtcNow();
+                    return new Candidates([.. found.Select(row => new Candidate(
+                        new EntityKey(at.Name, row.Key), new SourceRecord(at.System, at.Table, RecordOf(at, row)) { ReadAt = readAt }))]);
+                }
+
+                key = found[0].Key;
+            }
+            else
+            {
+                key = call.Start.Key!;
+            }
+
             var hops = new List<Hop>();
 
             for (var hop = 0; ; hop++)
@@ -197,6 +225,30 @@ public sealed class LookupWalker
         return reads.Count > 0 ? answer with { Partitions = reads } : answer;
     }
 
+    /// <summary>The rows of <paramref name="type"/> whose field holds the value, with the record columns — at most <paramref name="limit"/>.</summary>
+    private static async Task<IReadOnlyList<SourceRow>> FindAsync(
+        Dictionary<string, ISourceSession> open,
+        ISourceSessions sessions,
+        EntityTypeDeclaration type,
+        FieldMatch where,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var session = await SessionAsync(open, sessions, type.System, cancellationToken).ConfigureAwait(false);
+        return await session.FindAsync(type.Table, type.Key, type.Fields[where.Field], where.Value, [.. type.Record ?? []], limit, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<ISourceSession> SessionAsync(Dictionary<string, ISourceSession> open, ISourceSessions sessions, string system, CancellationToken cancellationToken)
+    {
+        if (!open.TryGetValue(system, out var session))
+        {
+            session = await sessions.OpenAsync(system, cancellationToken).ConfigureAwait(false);
+            open.Add(system, session);
+        }
+
+        return session;
+    }
+
     private static async Task<SourceRow?> ReadAsync(
         Dictionary<string, ISourceSession> open,
         ISourceSessions sessions,
@@ -205,11 +257,7 @@ public sealed class LookupWalker
         IReadOnlyList<string> fields,
         CancellationToken cancellationToken)
     {
-        if (!open.TryGetValue(type.System, out var session))
-        {
-            session = await sessions.OpenAsync(type.System, cancellationToken).ConfigureAwait(false);
-            open.Add(type.System, session);
-        }
+        var session = await SessionAsync(open, sessions, type.System, cancellationToken).ConfigureAwait(false);
 
         // The record columns are read beside the asked ones: the answer cites the record a row is.
         var columns = fields.Select(f => type.Fields[f]).Concat(type.Record ?? []).Distinct(StringComparer.Ordinal).ToList();

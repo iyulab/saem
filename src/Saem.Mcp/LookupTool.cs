@@ -91,14 +91,15 @@ internal sealed partial class LookupTool
         {
             call = JsonSerializer.Deserialize(JsonSerializer.SerializeToElement(request.Arguments ?? new Dictionary<string, JsonElement>()), ContractJson.Default.LookupCall);
         }
-        catch (JsonException e)
+        catch (Exception e) when (e is JsonException or ArgumentException)
         {
+            // ArgumentException: a shape the contract refuses while it is read (a start with both a key and a field, or neither).
             return Error($"The arguments are not a lookup: {e.Message}");
         }
 
         if (call?.Start is null || call.Path is null || call.Read is null)
         {
-            return Error("A lookup names 'start' (type and key), 'path' (relations, possibly none) and 'read' (fields).");
+            return Error("A lookup names 'start' (type, and key or where), 'path' (relations, possibly none) and 'read' (fields).");
         }
 
         // The call's span, under the request's trace when there is one (W3C trace context): its trace id names
@@ -117,8 +118,9 @@ internal sealed partial class LookupTool
                 lookupId, at, Stopwatch.GetElapsedTime(started).TotalMilliseconds, person.Subject, person.Actor,
                 call.Start.Type, call.Path, call.Read, outcome, accessed, refusal, errorType, _interactions.KeyId, suspect), span);
 
+        // A start named by a field's value names no record: the value is not a key, and no value is logged (D-83).
         AccessedRecord Start(string status) =>
-            new(SystemOf(call.Start.Type), call.Start.Type, _interactions.Name(SystemOf(call.Start.Type), call.Start.Type, call.Start.Key), status);
+            new(SystemOf(call.Start.Type), call.Start.Type, call.Start.Key is { } key ? _interactions.Name(SystemOf(call.Start.Type), call.Start.Type, key) : null, status);
 
         LookupAnswer answer;
         // The deadline bounds the whole lookup — token exchanges, source reads, partition reads (saem D-84).
@@ -176,7 +178,7 @@ internal sealed partial class LookupTool
         }
         else
         {
-            Record("answered", _interactions.Reached(answer, SystemOf), suspect: suspect?.Count ?? 0);
+            Record(answer is Candidates ? "candidates" : "answered", _interactions.Reached(answer, SystemOf), suspect: suspect?.Count ?? 0);
         }
 
         // The answer is this person's view: said in it, so it is not taken for anyone else's once passed on.
@@ -202,7 +204,8 @@ internal sealed partial class LookupTool
         text.Append("Reads facts from the organisation's systems as the person this request acts for: ")
             .Append("start at one entity, follow declared relations in order, and read declared fields of the entity the walk ends at. ")
             .Append("Each source decides what the person may see. The answer is either facts, each with the source record it was read from and the relations followed, ")
-            .Append("or a refusal saying where the walk found nothing visible to this person — which never means the thing does not exist.");
+            .Append("or a refusal saying where the walk found nothing visible to this person — which never means the thing does not exist. ")
+            .Append("A start named by a field's value that several visible entities hold answers with those candidates instead; start again from one by its key.");
         text.Append("\n\nEntity types (fields):");
         foreach (var type in ontology.EntityTypes.Values.OrderBy(t => t.Name, StringComparer.Ordinal))
         {
@@ -244,13 +247,28 @@ internal sealed partial class LookupTool
                 ["start"] = new JsonObject
                 {
                     ["type"] = "object",
-                    ["description"] = "The entity the walk starts from: its declared type and its key in its source system.",
+                    ["description"] = "The entity the walk starts from: its declared type, and either its key in its source system or a declared field and the value it holds. "
+                        + "A value several visible entities hold answers with those candidates to start again from by key.",
                     ["properties"] = new JsonObject
                     {
                         ["type"] = new JsonObject { ["type"] = "string", ["enum"] = Names(ontology.EntityTypes.Keys) },
                         ["key"] = new JsonObject { ["type"] = "string" },
+                        ["where"] = new JsonObject
+                        {
+                            ["type"] = "object",
+                            ["properties"] = new JsonObject
+                            {
+                                ["field"] = new JsonObject { ["type"] = "string" },
+                                ["value"] = new JsonObject { ["type"] = "string" },
+                            },
+                            ["required"] = new JsonArray("field", "value"),
+                            ["additionalProperties"] = false,
+                        },
                     },
-                    ["required"] = new JsonArray("type", "key"),
+                    ["required"] = new JsonArray("type"),
+                    ["oneOf"] = new JsonArray(
+                        new JsonObject { ["required"] = new JsonArray("key") },
+                        new JsonObject { ["required"] = new JsonArray("where") }),
                     ["additionalProperties"] = false,
                 },
                 ["path"] = new JsonObject

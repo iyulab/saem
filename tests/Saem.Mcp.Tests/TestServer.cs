@@ -159,6 +159,13 @@ internal sealed class FakeLogins(Dictionary<string, Dictionary<string, List<Sour
                 [.. (tables.GetValueOrDefault(table) ?? []).Where(r => r.Key == key)
                     .Select(r => new SourceRow(r.Key, columns.ToDictionary(c => c, c => r.Values[c])))]);
 
+        public ValueTask<IReadOnlyList<SourceRow>> FindAsync(string table, string keyColumn, string column, string value, IReadOnlyList<string> columns, int limit, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IReadOnlyList<SourceRow>>(
+                [.. (tables.GetValueOrDefault(table) ?? [])
+                    .Where(r => r.Values.TryGetValue(column, out var held) && held.ValueKind == JsonValueKind.String && held.GetString() == value)
+                    .OrderBy(r => r.Key, StringComparer.Ordinal).Take(limit)
+                    .Select(r => new SourceRow(r.Key, columns.ToDictionary(c => c, c => r.Values[c])))]);
+
         public IAsyncEnumerable<SourceRow> ScanAsync(string table, string keyColumn, IReadOnlyList<string> columns, CancellationToken cancellationToken = default) =>
             (tables.GetValueOrDefault(table) ?? []).OrderBy(r => r.Key, StringComparer.Ordinal)
                 .Select(r => new SourceRow(r.Key, columns.ToDictionary(c => c, c => r.Values[c]))).ToAsyncEnumerable();

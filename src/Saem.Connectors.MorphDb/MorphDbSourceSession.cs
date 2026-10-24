@@ -50,6 +50,42 @@ internal sealed class MorphDbSourceSession : ISourceSession
     }
 
     /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<SourceRow>> FindAsync(
+        string table,
+        string keyColumn,
+        string column,
+        string value,
+        IReadOnlyList<string> columns,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(table);
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyColumn);
+        ArgumentException.ThrowIfNullOrWhiteSpace(column);
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(columns);
+        ArgumentOutOfRangeException.ThrowIfNegative(limit);
+
+        var rows = new List<SourceRow>();
+        if (limit == 0)
+        {
+            return rows;
+        }
+
+        var pageSize = Math.Min(limit, PageSize);
+        await foreach (var row in PagesAsync(table, keyColumn, columns, page => ReadWhere(table, keyColumn, column, value, columns, page, pageSize), cancellationToken).ConfigureAwait(false))
+        {
+            rows.Add(row);
+            if (rows.Count == limit)
+            {
+                break;
+            }
+        }
+
+        return rows;
+    }
+
+    /// <inheritdoc />
     public IAsyncEnumerable<SourceRow> ScanAsync(
         string table,
         string keyColumn,
@@ -119,6 +155,18 @@ internal sealed class MorphDbSourceSession : ISourceSession
         return string.Create(CultureInfo.InvariantCulture,
             $"api/data/{Uri.EscapeDataString(table)}?filter={Uri.EscapeDataString($"{keyColumn}:eq:{key}")}" +
             $"&select={Uri.EscapeDataString(select)}&page={page}&pageSize={PageSize}");
+    }
+
+    /// <summary>
+    /// <c>api/data/{table}?filter={column}:eq:{value}&amp;select={key},{columns…}&amp;orderBy={key}:asc&amp;page=…&amp;pageSize=…</c>
+    /// — the rows a field's value names, in key order, a page at a time.
+    /// </summary>
+    internal static string ReadWhere(string table, string keyColumn, string column, string value, IReadOnlyList<string> columns, int page, int pageSize)
+    {
+        var select = string.Join(',', new[] { keyColumn }.Concat(columns.Where(c => c != keyColumn)));
+        return string.Create(CultureInfo.InvariantCulture,
+            $"api/data/{Uri.EscapeDataString(table)}?filter={Uri.EscapeDataString($"{column}:eq:{value}")}" +
+            $"&select={Uri.EscapeDataString(select)}&orderBy={Uri.EscapeDataString($"{keyColumn}:asc")}&page={page}&pageSize={pageSize}");
     }
 
     /// <summary>
