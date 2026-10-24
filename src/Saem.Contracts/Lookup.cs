@@ -266,6 +266,33 @@ public sealed record SourceRecord(string System, string Table, string Record)
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTimeOffset? ReadAt { get; init; }
+
+    /// <summary>
+    /// Where the table is a projection of documents kept elsewhere (a form's records), and that projection is
+    /// not current: the value is what the projection holds, and the documents may say otherwise. Null when the
+    /// table is no projection, or its projection is current.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceProjection? Projection { get; init; }
+}
+
+/// <summary>
+/// How far a projected table is behind the documents it is projected from — said only when it is behind.
+/// On the wire each state travels by its camelCase name.
+/// </summary>
+public enum SourceProjection
+{
+    /// <summary>The documents have no projected table yet: nothing projected can be read.</summary>
+    [JsonStringEnumMemberName("notProjected")]
+    NotProjected,
+
+    /// <summary>Documents, or their declaration, changed after the projection ran: rows may be missing or out of date.</summary>
+    [JsonStringEnumMemberName("stale")]
+    Stale,
+
+    /// <summary>A rebuild of the projection failed, so nothing vouches for its rows.</summary>
+    [JsonStringEnumMemberName("unverified")]
+    Unverified,
 }
 
 /// <summary>One relation followed: from one entity to the next.</summary>
@@ -304,6 +331,13 @@ public sealed record Hop(string Relation, EntityKey From, EntityKey To)
 /// <param name="System">The source system that returned nothing — or, for a relation walked backwards, the one its entities stand on.</param>
 public sealed record Refusal(RefusalReason Reason, int AtHop, string? Relation, string System)
 {
+    /// <summary>
+    /// Where the table the walk found nothing in is a projection of documents kept elsewhere and is behind
+    /// them: what was not found there may be in documents not yet projected. Null otherwise.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceProjection? Projection { get; init; }
+
     /// <summary>
     /// What a refusal means, worded so it cannot be read as absence. Carried in every refusal so a
     /// consumer that renders it has the words in hand.

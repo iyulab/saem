@@ -121,6 +121,22 @@ public class LookupAnswerJsonTests
         Assert.DoesNotContain("catalogVersion", bare, StringComparison.Ordinal);
     }
 
+    /// <summary>F-17 ③: a source and a refusal say how far a projection is behind by name, and nothing when it is current.</summary>
+    [Fact]
+    public void A_projection_behind_its_documents_travels_by_name_and_is_left_out_when_current()
+    {
+        var answered = new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp with { Projection = SourceProjection.Stale }], [])]);
+        var refused = new Refused(new Refusal(RefusalReason.NoVisibleResult, 0, null, "erp") { Projection = SourceProjection.Unverified });
+
+        Assert.Contains("\"projection\":\"stale\"", Write(answered), StringComparison.Ordinal);
+        Assert.Equal(SourceProjection.Stale, Assert.IsType<Answered>(Read(Write(answered))).Claims[0].Sources[0].Projection);
+        Assert.Equal(SourceProjection.Unverified, Assert.IsType<Refused>(Read(Write(refused))).Refusal.Projection);
+        Assert.DoesNotContain("projection", Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [])])), StringComparison.Ordinal);
+        Assert.Equal(
+            Enum.GetValues<SourceProjection>().Select(p => JsonSerializer.Serialize(p, ContractJson.Default.SourceProjection).Trim('"')),
+            ContractSchema.Answer.GetProperty("$defs").GetProperty("sourceProjection").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
+    }
+
     /// <summary>D-80 ⑥: the schema names both cases and holds the same rules as the constructors.</summary>
     [Fact]
     public void The_schema_holds_the_cases_and_the_rules_the_constructors_hold()

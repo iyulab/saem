@@ -52,6 +52,67 @@ public class LookupWalkerTests
     private static Task<LookupAnswer> Find(FakeSessions sessions, string start, string field, string value, string[] path, string[] read, LookupWalker? walker = null) =>
         (walker ?? Walker).RunAsync(new LookupCall(new LookupStart(start, where: new FieldMatch(field, value)), path, read), sessions, TestContext.Current.CancellationToken);
 
+    /// <summary>The projected tables of a deployment, and how far behind each is; counts how often each is asked.</summary>
+    private sealed class Projections(Dictionary<(string, string), SourceProjection> behind) : IProjectionStates
+    {
+        public List<(string, string)> Asked { get; } = [];
+
+        public ValueTask<SourceProjection?> StateOfAsync(string system, string table, CancellationToken cancellationToken = default)
+        {
+            Asked.Add((system, table));
+            return ValueTask.FromResult<SourceProjection?>(behind.TryGetValue((system, table), out var state) ? state : null);
+        }
+    }
+
+    private static LookupWalker WithProjections(IProjectionStates projections) =>
+        new(new FixedCatalog(Ontology.Ontology.Create(Rig)), new FixedClock(ReadAt), projections: projections);
+
+    /// <summary>
+    /// F-17 ③: a source read from a projected table that is behind its documents says so; a table whose projection
+    /// is current, or that is no projection, says nothing — and each table is asked about once per lookup.
+    /// </summary>
+    [Fact]
+    public async Task A_source_read_from_a_projection_behind_its_documents_says_so()
+    {
+        var projections = new Projections(new() { [("erp", "visible_suppliers")] = SourceProjection.Stale });
+
+        var answer = await WithProjections(projections).RunAsync(
+            new LookupCall(new EntityKey("WorkOrder", "WO-2"), ["orders_item", "supplied_by"], ["name"]), new FakeSessions("alice"), TestContext.Current.CancellationToken);
+
+        var claim = Assert.Single(Assert.IsType<Answered>(answer).Claims);
+        Assert.Equal(SourceProjection.Stale, Assert.Single(claim.Sources).Projection);
+        Assert.Equal([("erp", "visible_suppliers")], projections.Asked);
+
+        var current = await WithProjections(projections).RunAsync(
+            new LookupCall(new EntityKey("Item", "I-100"), [], ["name", "supplier"]), new FakeSessions("alice"), TestContext.Current.CancellationToken);
+        Assert.All(Assert.IsType<Answered>(current).Claims, c => Assert.Null(Assert.Single(c.Sources).Projection));
+    }
+
+    /// <summary>A refusal at a projected table that is behind says so: what was not found may be in documents not yet projected.</summary>
+    [Fact]
+    public async Task A_refusal_at_a_projection_behind_its_documents_says_so()
+    {
+        var projections = new Projections(new() { [("erp", "visible_suppliers")] = SourceProjection.NotProjected });
+
+        var answer = await WithProjections(projections).RunAsync(
+            new LookupCall(new EntityKey("Supplier", "S-2"), [], ["name"]), new FakeSessions("bob"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(SourceProjection.NotProjected, Assert.IsType<Refused>(answer).Refusal.Projection);
+    }
+
+    /// <summary>A refusal where nothing was read from the next table — the field naming it is empty — asks nothing of it.</summary>
+    [Fact]
+    public async Task A_refusal_before_a_table_is_read_asks_nothing_of_its_projection()
+    {
+        var projections = new Projections(new() { [("erp", "visible_items")] = SourceProjection.Stale });
+
+        var answer = await WithProjections(projections).RunAsync(
+            new LookupCall(new EntityKey("WorkOrder", "WO-4"), ["orders_item"], ["name"]), new FakeSessions("alice"), TestContext.Current.CancellationToken);
+
+        Assert.Null(Assert.IsType<Refused>(answer).Refusal.Projection);
+        Assert.DoesNotContain(("erp", "visible_items"), projections.Asked);
+    }
+
     /// <summary>D-80 ④: a start named by a field's value that one visible entity holds is walked from that entity.</summary>
     [Fact]
     public async Task A_start_named_by_a_value_one_visible_entity_holds_walks_from_it()

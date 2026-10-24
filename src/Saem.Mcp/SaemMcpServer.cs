@@ -69,6 +69,7 @@ public static class SaemMcpServer
         services.AddHttpContextAccessor();
         services.TryAddSingleton<ISourceLogins, ConfiguredSourceLogins>();
         services.TryAddSingleton<IGroupStores, ConfiguredGroupStores>();
+        services.TryAddSingleton<IProjectionStates, FormbaseProjectionStates>();
         services.AddSingleton<LookupTool>();
 
         services.AddAuthentication(options =>

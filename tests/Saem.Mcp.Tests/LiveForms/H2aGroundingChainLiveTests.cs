@@ -18,6 +18,8 @@ public sealed class H2aGroundingChainLiveTests : IAsyncLifetime
     private string _document = "";
     private TestServer _server = null!;
 
+    private static readonly string[] Finding = ["finding"];
+
     public async ValueTask InitializeAsync()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -37,7 +39,16 @@ public sealed class H2aGroundingChainLiveTests : IAsyncLifetime
               { "kind": "entityType", "name": "Inspection", "system": "forms", "table": "inspection", "key": "fb_doc_id",
                 "fields": { "finding": "finding" } }
             ]
-            """, _rig.ServerSettings);
+            """, Settings(_rig));
+    }
+
+    // The forms source, and the Formbase that projects its table — so an answer says when the projection is behind.
+    private static Dictionary<string, string?> Settings(FormsRig rig)
+    {
+        var settings = rig.ServerSettings;
+        settings["Saem:Sources:Projections:forms:Url"] = rig.Formbase.BaseAddress!.AbsoluteUri;
+        settings["Saem:Sources:Projections:forms:FormTypes:inspection"] = "inspection";
+        return settings;
     }
 
     public async ValueTask DisposeAsync()
@@ -81,5 +92,31 @@ public sealed class H2aGroundingChainLiveTests : IAsyncLifetime
 
         Assert.Equal("refused", forBob.GetProperty("kind").GetString());
         Assert.DoesNotContain(Canary, forBob.GetRawText(), StringComparison.Ordinal);
+        // Projected and nothing filed since: the source says nothing of its projection.
+        Assert.False(source.TryGetProperty("projection", out _));
+    }
+
+    /// <summary>
+    /// F-17 ③ on the rig: a document filed after the projection ran leaves the table behind; an answer read from
+    /// it says the projection is stale — the value is what the table holds, the documents may say more.
+    /// </summary>
+    [Fact]
+    public async Task An_answer_read_from_a_projection_behind_its_documents_says_it_is_stale()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await _rig.FileAsync("inspection", new { inspector = "alice", finding = "scratch" }, ct);
+        var call = new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = "Inspection", ["key"] = _document },
+            ["path"] = Array.Empty<string>(),
+            ["read"] = Finding,
+        };
+
+        await using var alice = await _server.ClientAsync(await FormsRig.TokenAsync("alice", ct), ct);
+        var forAlice = (await alice.CallToolAsync("lookup", call, cancellationToken: ct)).StructuredContent!.Value;
+
+        var source = forAlice.GetProperty("claims")[0].GetProperty("sources")[0];
+        Assert.Equal("stale", source.GetProperty("projection").GetString());
+        Assert.Equal(Canary, forAlice.GetProperty("claims")[0].GetProperty("value").GetString());
     }
 }

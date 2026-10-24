@@ -67,7 +67,8 @@ public static class ContractSchema
                 "system": { "type": "string" },
                 "table": { "type": "string" },
                 "record": { "type": "string" },
-                "readAt": { "type": "string", "format": "date-time" }
+                "readAt": { "type": "string", "format": "date-time" },
+                "projection": { "$ref": "#/$defs/sourceProjection" }
               }
             },
             "hop": {
@@ -100,7 +101,8 @@ public static class ContractSchema
                 "atHop": { "type": "integer", "minimum": 0 },
                 "relation": { "type": ["string", "null"] },
                 "system": { "type": "string" },
-                "statement": { "type": "string" }
+                "statement": { "type": "string" },
+                "projection": { "$ref": "#/$defs/sourceProjection" }
               }
             },
             "candidate": {
@@ -111,6 +113,7 @@ public static class ContractSchema
                 "source": { "$ref": "#/$defs/sourceRecord" }
               }
             },
+            "sourceProjection": { "enum": ["notProjected", "stale", "unverified"] },
             "partitionRead": {
               "type": "object",
               "required": ["name", "blocked", "incomplete", "statements"],

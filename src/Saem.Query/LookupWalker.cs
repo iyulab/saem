@@ -29,17 +29,23 @@ public sealed class LookupWalker
 
     private readonly IOntologyCatalog _catalog;
     private readonly TimeProvider _time;
+    private readonly IProjectionStates _projections;
 
     /// <summary>Creates a walker over the ontology <paramref name="catalog"/> holds.</summary>
     /// <param name="catalog">The ontology.</param>
     /// <param name="time">The clock a source record's read time is taken from; omitted, the system's.</param>
     /// <param name="maxCandidatesPerStep">The most candidates one step may read; omitted, <see cref="DefaultMaxCandidatesPerStep"/>.</param>
-    public LookupWalker(IOntologyCatalog catalog, TimeProvider? time = null, int maxCandidatesPerStep = DefaultMaxCandidatesPerStep)
+    /// <param name="projections">
+    /// Which tables are projections of documents kept elsewhere and how far behind each is — said on the
+    /// sources read from them, and on a refusal at them; omitted, no table is.
+    /// </param>
+    public LookupWalker(IOntologyCatalog catalog, TimeProvider? time = null, int maxCandidatesPerStep = DefaultMaxCandidatesPerStep, IProjectionStates? projections = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxCandidatesPerStep, 1);
         _catalog = catalog;
         _time = time ?? TimeProvider.System;
+        _projections = projections ?? NoProjectionStates.Instance;
         MaxCandidatesPerStep = maxCandidatesPerStep;
     }
 
@@ -76,6 +82,7 @@ public sealed class LookupWalker
     {
 
         var open = new Dictionary<string, ISourceSession>(StringComparer.Ordinal);
+        var states = new Dictionary<(string, string), SourceProjection?>();
         try
         {
             var at = plan.Start;
@@ -86,7 +93,7 @@ public sealed class LookupWalker
                 var found = await FindAsync(open, sessions, at, where, MaxCandidatesPerStep + 1, cancellationToken).ConfigureAwait(false);
                 if (found.Count == 0)
                 {
-                    return Refuse(0, null, at.System);
+                    return Refuse(0, null, at.System, await StateAsync(states, at, cancellationToken).ConfigureAwait(false));
                 }
 
                 if (found.Count > MaxCandidatesPerStep)
@@ -97,8 +104,9 @@ public sealed class LookupWalker
                 if (found.Count > 1)
                 {
                     var readAt = _time.GetUtcNow();
+                    var projection = await StateAsync(states, at, cancellationToken).ConfigureAwait(false);
                     return new Candidates([.. found.Select(row => new Candidate(
-                        new EntityKey(at.Name, row.Key), new SourceRecord(at.System, at.Table, RecordOf(at, row)) { ReadAt = readAt }))]);
+                        new EntityKey(at.Name, row.Key), new SourceRecord(at.System, at.Table, RecordOf(at, row)) { ReadAt = readAt, Projection = projection }))]);
                 }
 
                 key = found[0].Key;
@@ -116,19 +124,19 @@ public sealed class LookupWalker
                 if (next is null && plan.Inverse is { } inverse)
                 {
                     // The entity reached is not read: what is asked is the entities that lead to it.
-                    return await BackwardsAsync(open, sessions, relations, inverse, new EntityKey(at.Name, key), plan, hops, cancellationToken).ConfigureAwait(false);
+                    return await BackwardsAsync(open, states, sessions, relations, inverse, new EntityKey(at.Name, key), plan, hops, cancellationToken).ConfigureAwait(false);
                 }
 
                 var fields = next is null ? plan.Read : [next.Via];
                 var row = await ReadAsync(open, sessions, at, key, fields, cancellationToken).ConfigureAwait(false);
                 if (row is null)
                 {
-                    return Refuse(hop, hop == 0 ? null : plan.Steps[hop - 1].Name, at.System);
+                    return Refuse(hop, hop == 0 ? null : plan.Steps[hop - 1].Name, at.System, await StateAsync(states, at, cancellationToken).ConfigureAwait(false));
                 }
 
                 if (next is null)
                 {
-                    return Answer(at, row, _time.GetUtcNow(), plan.Read, hops);
+                    return Answer(at, row, _time.GetUtcNow(), await StateAsync(states, at, cancellationToken).ConfigureAwait(false), plan.Read, hops);
                 }
 
                 var to = ontology.EntityTypes[next.To];
@@ -164,6 +172,7 @@ public sealed class LookupWalker
     /// </summary>
     private async Task<LookupAnswer> BackwardsAsync(
         Dictionary<string, ISourceSession> open,
+        Dictionary<(string, string), SourceProjection?> states,
         ISourceSessions sessions,
         IMaterializedRelations relations,
         RelationDeclaration relation,
@@ -215,13 +224,15 @@ public sealed class LookupWalker
                 }
 
                 var back = new Hop(relation.Inverse!, to, new EntityKey(from.Name, row.Key)) { Partition = partition, PartitionAsOf = asOf };
-                claims.AddRange(Answer(from, row, _time.GetUtcNow(), plan.Read, [.. hops, back]).Claims);
+                claims.AddRange(Answer(from, row, _time.GetUtcNow(), await StateAsync(states, from, cancellationToken).ConfigureAwait(false), plan.Read, [.. hops, back]).Claims);
             }
 
             reads.Add(new PartitionRead(partition, asOf, blocked, edges.Incomplete));
         }
 
-        LookupAnswer answer = claims.Count > 0 ? new Answered(claims) : Refuse(atHop, relation.Inverse, from.System);
+        LookupAnswer answer = claims.Count > 0
+            ? new Answered(claims)
+            : Refuse(atHop, relation.Inverse, from.System, reads.Count > 0 ? await StateAsync(states, from, cancellationToken).ConfigureAwait(false) : null);
         return reads.Count > 0 ? answer with { Partitions = reads } : answer;
     }
 
@@ -273,10 +284,22 @@ public sealed class LookupWalker
 
     /// <param name="readAt">When the row came back from its source — taken as each read returns, so a walk that
     /// crosses systems says when each one was read.</param>
-    private static Answered Answer(EntityTypeDeclaration type, SourceRow row, DateTimeOffset readAt, IReadOnlyList<string> read, IReadOnlyList<Hop> hops)
+    /// <summary>How far <paramref name="type"/>'s table is behind its documents — asked once per table per lookup.</summary>
+    private async ValueTask<SourceProjection?> StateAsync(Dictionary<(string, string), SourceProjection?> states, EntityTypeDeclaration type, CancellationToken cancellationToken)
+    {
+        if (!states.TryGetValue((type.System, type.Table), out var state))
+        {
+            state = await _projections.StateOfAsync(type.System, type.Table, cancellationToken).ConfigureAwait(false);
+            states.Add((type.System, type.Table), state);
+        }
+
+        return state;
+    }
+
+    private static Answered Answer(EntityTypeDeclaration type, SourceRow row, DateTimeOffset readAt, SourceProjection? projection, IReadOnlyList<string> read, IReadOnlyList<Hop> hops)
     {
         var entity = new EntityKey(type.Name, row.Key);
-        var source = new SourceRecord(type.System, type.Table, RecordOf(type, row)) { ReadAt = readAt };
+        var source = new SourceRecord(type.System, type.Table, RecordOf(type, row)) { ReadAt = readAt, Projection = projection };
         return new Answered([.. read.Select(field => new Claim(entity, field, row.Values[type.Fields[field]], [source], [.. hops]))]);
     }
 
@@ -290,6 +313,6 @@ public sealed class LookupWalker
         _ => value.GetRawText(),
     };
 
-    private static Refused Refuse(int atHop, string? relation, string system) =>
-        new(new Refusal(RefusalReason.NoVisibleResult, atHop, relation, system));
+    private static Refused Refuse(int atHop, string? relation, string system, SourceProjection? projection = null) =>
+        new(new Refusal(RefusalReason.NoVisibleResult, atHop, relation, system) { Projection = projection });
 }

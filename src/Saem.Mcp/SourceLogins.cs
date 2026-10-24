@@ -37,6 +37,12 @@ public sealed class SourceOptions
     /// </summary>
     public Dictionary<string, MorphDbSourceOptions> MorphDb { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The systems whose tables are a Formbase's projections, by system name: an answer read from such a table, or
+    /// refused at it, says when its projection is behind the documents (<see cref="ProjectionSourceOptions"/>).
+    /// </summary>
+    public Dictionary<string, ProjectionSourceOptions> Projections { get; } = new(StringComparer.Ordinal);
+
     /// <summary>Where a person's token is exchanged for a source's; required when any source takes a token.</summary>
     public TokenExchangeOptions TokenExchange { get; set; } = new();
 

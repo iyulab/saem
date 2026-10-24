@@ -59,6 +59,35 @@ public interface ISourceSession : IAsyncDisposable
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Which source tables are projections of documents kept elsewhere — a form's records, projected by the
+/// service that keeps the forms — and whether each is behind its documents. Asked once per table per lookup;
+/// the answer is about the table, not about any person's rows.
+/// </summary>
+public interface IProjectionStates
+{
+    /// <summary>
+    /// How far <paramref name="table"/> of <paramref name="system"/> is behind its documents; null when it is no
+    /// projection, its projection is current, or its state could not be learned.
+    /// </summary>
+    ValueTask<Contracts.SourceProjection?> StateOfAsync(string system, string table, CancellationToken cancellationToken = default);
+}
+
+/// <summary>A deployment that knows of no projected table.</summary>
+public sealed class NoProjectionStates : IProjectionStates
+{
+    /// <summary>The one instance.</summary>
+    public static NoProjectionStates Instance { get; } = new();
+
+    private NoProjectionStates()
+    {
+    }
+
+    /// <inheritdoc />
+    public ValueTask<Contracts.SourceProjection?> StateOfAsync(string system, string table, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult<Contracts.SourceProjection?>(null);
+}
+
 /// <summary>A row as the source returned it: its key, and the asked columns' values.</summary>
 /// <param name="Key">The row's key, as text.</param>
 /// <param name="Values">The asked columns, by column name; <see cref="JsonValueKind.Null"/> for an empty one.</param>

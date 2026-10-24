@@ -35,11 +35,12 @@ internal sealed partial class LookupTool
     private readonly InteractionLog _interactions;
     private readonly ILogger<LookupTool> _logger;
 
-    public LookupTool(IOntologyCatalog catalog, ISourceLogins logins, IGroupStores groups, InteractionLog interactions, IOptions<LookupOptions> options, ILogger<LookupTool> logger)
+    public LookupTool(
+        IOntologyCatalog catalog, ISourceLogins logins, IGroupStores groups, IProjectionStates projections, InteractionLog interactions, IOptions<LookupOptions> options, ILogger<LookupTool> logger)
     {
         _interactions = interactions;
         _catalog = catalog;
-        _walker = new LookupWalker(catalog, maxCandidatesPerStep: options.Value.MaxCandidatesPerStep);
+        _walker = new LookupWalker(catalog, maxCandidatesPerStep: options.Value.MaxCandidatesPerStep, projections: projections);
         _deadline = options.Value.Deadline;
         _logins = logins;
         _groups = groups;
