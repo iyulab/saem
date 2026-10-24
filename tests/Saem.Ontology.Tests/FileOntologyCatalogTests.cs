@@ -58,6 +58,27 @@ public sealed class FileOntologyCatalogTests : IDisposable
         Assert.DoesNotContain("record", JsonSerializer.Serialize<Declaration>(OntologyTests.Item, OntologyJson.Default.Options), StringComparison.Ordinal);
     }
 
+    /// <summary>D-82: a key's kind and the fields' kinds are read from the file by name, and left out where undeclared.</summary>
+    [Fact]
+    public async Task Key_and_field_kinds_are_read_from_the_file_by_name()
+    {
+        await File.WriteAllTextAsync(_path, """
+            [
+              { "kind": "entityType", "name": "Part", "system": "mes", "table": "parts", "key": "part_no", "keyKind": "number",
+                "fields": { "name": "part_name", "note": "remark" }, "kinds": { "note": "freeText" } }
+            ]
+            """, TestContext.Current.CancellationToken);
+
+        var part = (await new FileOntologyCatalog(_path).GetAsync(TestContext.Current.CancellationToken)).EntityTypes["Part"];
+
+        Assert.Equal(KeyKind.Number, part.KeyKind);
+        Assert.Equal(FieldKind.FreeText, part.Kinds!["note"]);
+        Assert.False(part.Kinds.ContainsKey("name"));
+        var written = System.Text.Json.JsonSerializer.Serialize<IReadOnlyList<Declaration>>([part with { KeyKind = null, Kinds = null }], OntologyJson.Default.IReadOnlyListDeclaration);
+        Assert.DoesNotContain("kind\":\"number", written, StringComparison.Ordinal);
+        Assert.DoesNotContain("kinds", written, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task An_edit_to_the_file_is_seen_by_the_next_read()
     {

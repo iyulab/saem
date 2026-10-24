@@ -42,6 +42,23 @@ public sealed class EdgeMaterializerTests
         ], edges);
     }
 
+    /// <summary>D-82 ② · defect #12: an edge names a number-keyed entity by the integer its reference spells — the IRI a lookup asks by.</summary>
+    [Fact]
+    public async Task An_edge_to_a_number_keyed_entity_names_it_by_the_integer()
+    {
+        var numbered = Ontology.Ontology.Create(
+        [
+            new EntityTypeDeclaration("WorkOrder", "mes", "work_orders", "wo_no", new Dictionary<string, string> { ["item"] = "item_code" }),
+            new EntityTypeDeclaration("Item", "erp", "items", "item_code", new Dictionary<string, string> { ["name"] = "item_name" }) { KeyKind = KeyKind.Number },
+            new RelationDeclaration("orders_item", "WorkOrder", "item", "Item"),
+        ]);
+        var sessions = new Sessions(new() { ["mes/work_orders"] = [Row("WO-1", ("item_code", "000100"))] });
+
+        var edge = Assert.Single(await new EdgeMaterializer(numbered, Iris).MaterializeAsync(sessions, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal("https://example.org/ontology/Item/100", edge.To);
+    }
+
     [Fact]
     public async Task Only_the_relation_field_and_the_record_columns_are_read_and_every_session_is_closed()
     {

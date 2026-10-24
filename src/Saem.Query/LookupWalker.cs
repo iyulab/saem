@@ -109,11 +109,11 @@ public sealed class LookupWalker
                         new EntityKey(at.Name, row.Key), new SourceRecord(at.System, at.Table, RecordOf(at, row)) { ReadAt = readAt, Projection = projection }))]);
                 }
 
-                key = found[0].Key;
+                key = at.Normalize(found[0].Key);
             }
             else
             {
-                key = call.Start.Key!;
+                key = at.Normalize(call.Start.Key!);
             }
 
             var hops = new List<Hop>();
@@ -124,7 +124,7 @@ public sealed class LookupWalker
                 if (next is null && plan.Inverse is { } inverse)
                 {
                     // The entity reached is not read: what is asked is the entities that lead to it.
-                    return await BackwardsAsync(open, states, sessions, relations, inverse, new EntityKey(at.Name, key), plan, hops, cancellationToken).ConfigureAwait(false);
+                    return await BackwardsAsync(open, states, sessions, relations, inverse, at, new EntityKey(at.Name, key), plan, hops, cancellationToken).ConfigureAwait(false);
                 }
 
                 var fields = next is null ? plan.Read : [next.Via];
@@ -148,7 +148,8 @@ public sealed class LookupWalker
                     return Refuse(hop + 1, next.Name, to.System);
                 }
 
-                var nextKey = via.ValueKind == JsonValueKind.String ? via.GetString()! : via.GetRawText();
+                // The field holds the next entity's key as the next type spells keys.
+                var nextKey = to.Normalize(via.ValueKind == JsonValueKind.String ? via.GetString()! : via.GetRawText());
                 hops.Add(new Hop(next.Name, new EntityKey(at.Name, row.Key), new EntityKey(to.Name, nextKey)));
                 at = to;
                 key = nextKey;
@@ -176,6 +177,7 @@ public sealed class LookupWalker
         ISourceSessions sessions,
         IMaterializedRelations relations,
         RelationDeclaration relation,
+        EntityTypeDeclaration reached,
         EntityKey to,
         LookupPlan plan,
         List<Hop> hops,
@@ -217,7 +219,8 @@ public sealed class LookupWalker
             foreach (var key in edges.Keys)
             {
                 var row = await ReadAsync(open, sessions, from, key, [.. plan.Read, relation.Via], cancellationToken).ConfigureAwait(false);
-                if (row is null || Text(row.Values[from.Fields[relation.Via]]) != to.Key)
+                // The field still names the entity reached — as that entity's type spells keys.
+                if (row is null || Text(row.Values[from.Fields[relation.Via]]) is not { } leadsTo || reached.Normalize(leadsTo) != to.Key)
                 {
                     blocked = true;
                     continue;

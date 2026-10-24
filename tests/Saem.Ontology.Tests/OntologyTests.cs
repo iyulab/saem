@@ -28,6 +28,38 @@ public class OntologyTests
 
     private static Ontology Rig() => Ontology.Create([WorkOrder, Item, Supplier, OrdersItem, SuppliedBy]);
 
+    /// <summary>D-82 ②: a number key names one entity whatever its leading zeros or sign; a text key is itself.</summary>
+    [Theory]
+    [InlineData("0007", "7")]
+    [InlineData("+7", "7")]
+    [InlineData(" 7 ", "7")]
+    [InlineData("-007", "-7")]
+    [InlineData("7.0", "7.0")]
+    [InlineData("A-7", "A-7")]
+    public void A_number_key_is_spelled_as_the_integer_it_names(string key, string normalized)
+    {
+        Assert.Equal(normalized, (WorkOrder with { KeyKind = KeyKind.Number }).Normalize(key));
+        Assert.Equal(key, WorkOrder.Normalize(key));
+        Assert.Equal(key, (WorkOrder with { KeyKind = KeyKind.Text }).Normalize(key));
+    }
+
+    /// <summary>D-82 ①: a field's kind is declared for a field the type has; a kind for no such field is refused.</summary>
+    [Fact]
+    public void A_kind_declared_for_a_field_the_type_does_not_have_is_refused()
+    {
+        var thrown = Assert.Throws<OntologyDeclarationException>(() => Ontology.Create(
+            [WorkOrder with { Kinds = new Dictionary<string, FieldKind> { ["item"] = FieldKind.Key, ["salary"] = FieldKind.Number } }]));
+
+        Assert.Contains("declares the kind of 'salary', which is not one of its fields", Assert.Single(thrown.Problems), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_change_to_a_key_kind_changes_the_ontology_version()
+    {
+        Assert.NotEqual(Rig().Version, Ontology.Create([WorkOrder with { KeyKind = KeyKind.Number }, Item, Supplier, OrdersItem, SuppliedBy]).Version);
+        Assert.Equal(Rig().Version, Ontology.Create([SuppliedBy, OrdersItem, Supplier, Item, WorkOrder]).Version);
+    }
+
     [Fact]
     public void A_walk_across_two_systems_is_planned_from_declarations_alone()
     {

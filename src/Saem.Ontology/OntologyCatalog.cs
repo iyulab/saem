@@ -60,6 +60,6 @@ public sealed class FileOntologyCatalog : IOntologyCatalog
 /// <summary>
 /// The declarations on the wire: camelCase members, the kind in <c>kind</c> wherever it appears.
 /// </summary>
-[JsonSourceGenerationOptions(JsonSerializerDefaults.Web, AllowOutOfOrderMetadataProperties = true)]
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web, AllowOutOfOrderMetadataProperties = true, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(IReadOnlyList<Declaration>))]
 public sealed partial class OntologyJson : JsonSerializerContext;

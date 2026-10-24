@@ -44,6 +44,9 @@ public class LookupWalkerTests
         ("erp", "visible_suppliers", "S-2", new() { ["supplier_name"] = Canary }, ["alice"]),
         ("forms", "inspections", "IN-7", new() { ["finding"] = "dent", ["fb_doc_id"] = "0f8e2c4a-1b2d-4c6e-9a0b-7d5e3f1a2b4c" }, ["alice"]),
         ("forms", "inspection_defects", "D-1", new() { ["part"] = "left door", ["fb_doc_id"] = "0f8e2c4a-1b2d-4c6e-9a0b-7d5e3f1a2b4c", ["fb_row"] = 1 }, ["alice"]),
+        // A number-keyed table reads its key back as the integer's text, as a source's key::text does.
+        ("mes", "parts", "7", new() { ["part_name"] = "Valve" }, ["alice"]),
+        ("mes", "jobs", "J-1", new() { ["part_ref"] = "0007" }, ["alice"]),
     ];
 
     private static Task<LookupAnswer> Run(FakeSessions sessions, string start, string key, string[] path, string[] read) =>
@@ -51,6 +54,39 @@ public class LookupWalkerTests
 
     private static Task<LookupAnswer> Find(FakeSessions sessions, string start, string field, string value, string[] path, string[] read, LookupWalker? walker = null) =>
         (walker ?? Walker).RunAsync(new LookupCall(new LookupStart(start, where: new FieldMatch(field, value)), path, read), sessions, TestContext.Current.CancellationToken);
+
+    // D-82 ② · defect #12: jobs name their part by a zero-padded code; parts are keyed by the number it spells.
+    private static readonly LookupWalker Numbered = new(new FixedCatalog(Ontology.Ontology.Create(
+    [
+        new EntityTypeDeclaration("Job", "mes", "jobs", "job_no", new Dictionary<string, string> { ["part"] = "part_ref" }),
+        new EntityTypeDeclaration("Part", "mes", "parts", "part_no", new Dictionary<string, string> { ["name"] = "part_name" }) { KeyKind = KeyKind.Number },
+        new RelationDeclaration("uses_part", "Job", "part", "Part", Inverse: "used_by"),
+    ])), new FixedClock(ReadAt));
+
+    /// <summary>A number key is read as the integer it spells: a job's «0007» reaches part 7, and a caller's «007» starts there.</summary>
+    [Fact]
+    public async Task A_number_key_is_followed_and_started_from_as_the_integer_it_spells()
+    {
+        var forward = await Numbered.RunAsync(new LookupCall(new EntityKey("Job", "J-1"), ["uses_part"], ["name"]), new FakeSessions("alice"), TestContext.Current.CancellationToken);
+        var started = await Numbered.RunAsync(new LookupCall(new EntityKey("Part", "007"), [], ["name"]), new FakeSessions("alice"), TestContext.Current.CancellationToken);
+
+        var claim = Assert.Single(Assert.IsType<Answered>(forward).Claims);
+        Assert.Equal(new EntityKey("Part", "7"), claim.Entity);
+        Assert.Equal(new EntityKey("Part", "7"), Assert.Single(claim.Path).To);
+        Assert.Equal("Valve", Assert.Single(Assert.IsType<Answered>(started).Claims).Value.GetString());
+    }
+
+    /// <summary>Defect #12: walked backwards, a job whose field spells the part «0007» still leads to part 7 — it was silently dropped as text.</summary>
+    [Fact]
+    public async Task Walked_backwards_a_zero_padded_reference_to_a_number_key_still_leads_there()
+    {
+        var edges = new Partitions { ["g-plant"] = [("uses_part", "7", "J-1")] };
+
+        var answer = await Numbered.RunAsync(new LookupCall(new EntityKey("Part", "0007"), ["used_by"], ["part"]), new FakeSessions("alice"), edges, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["J-1"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Entity.Key));
+        Assert.False(answer.Partitions![0].Blocked);
+    }
 
     /// <summary>The projected tables of a deployment, and how far behind each is; counts how often each is asked.</summary>
     private sealed class Projections(Dictionary<(string, string), SourceProjection> behind) : IProjectionStates

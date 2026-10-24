@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Numerics;
 using System.Text.Json.Serialization;
 
 namespace Saem.Ontology;
@@ -50,6 +52,69 @@ public sealed record EntityTypeDeclaration(
     /// <inheritdoc cref="EntityTypeDeclaration" path="/param[@name='Record']"/>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? Record { get; init; } = Record;
+
+    /// <summary>
+    /// What kind of value the key is, which decides when two spellings name the same entity. Omitted, text:
+    /// two keys are the same only when they are the same text.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public KeyKind? KeyKind { get; init; }
+
+    /// <summary>
+    /// What kind of value each field holds, by field name — for the fields that declare one. Omitted, a field's
+    /// kind is not declared.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, FieldKind>? Kinds { get; init; }
+
+    /// <summary>
+    /// The one spelling of <paramref name="key"/> every comparison of this type's keys uses: a number key is
+    /// compared as the integer it spells, so <c>0001</c>, <c>+1</c> and <c>1</c> name one entity; a text key is
+    /// itself. A number key that spells no integer is left as written — it names no entity a source holds.
+    /// </summary>
+    public string Normalize(string key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        return KeyKind == global::Saem.Ontology.KeyKind.Number && BigInteger.TryParse(key.Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var number)
+            ? number.ToString(CultureInfo.InvariantCulture)
+            : key;
+    }
+}
+
+/// <summary>What kind of value an entity type's key is. On the wire each kind travels by its camelCase name.</summary>
+public enum KeyKind
+{
+    /// <summary>Text: two keys are the same only when they are the same text.</summary>
+    [JsonStringEnumMemberName("text")]
+    Text,
+
+    /// <summary>An integer: two keys are the same when they spell the same number, whatever leading zeros or sign.</summary>
+    [JsonStringEnumMemberName("number")]
+    Number,
+}
+
+/// <summary>What kind of value a field holds. On the wire each kind travels by its camelCase name.</summary>
+public enum FieldKind
+{
+    /// <summary>A short text — a name, a code, a status.</summary>
+    [JsonStringEnumMemberName("text")]
+    Text,
+
+    /// <summary>Text a person wrote freely — a note, a description — which may carry anything, instructions to a model included.</summary>
+    [JsonStringEnumMemberName("freeText")]
+    FreeText,
+
+    /// <summary>A number.</summary>
+    [JsonStringEnumMemberName("number")]
+    Number,
+
+    /// <summary>A date or a moment.</summary>
+    [JsonStringEnumMemberName("date")]
+    Date,
+
+    /// <summary>The key of an entity — of this type, or of the type a relation through this field leads to.</summary>
+    [JsonStringEnumMemberName("key")]
+    Key,
 }
 
 /// <summary>

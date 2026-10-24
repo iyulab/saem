@@ -43,6 +43,7 @@ public sealed class EdgeMaterializer(Ontology.Ontology ontology, EntityIris iris
             foreach (var relation in ontology.Relations.Values.OrderBy(r => r.Name, StringComparer.Ordinal))
             {
                 var from = ontology.EntityTypes[relation.From];
+                var to = ontology.EntityTypes[relation.To];
                 var via = from.Fields[relation.Via];
                 if (!open.TryGetValue(from.System, out var session))
                 {
@@ -58,10 +59,11 @@ public sealed class EdgeMaterializer(Ontology.Ontology ontology, EntityIris iris
                         continue;
                     }
 
+                    // Each entity is named by its key as its type spells keys, the same spelling a lookup asks by.
                     yield return new MaterializedEdge(
-                        iris.For(from.Name, row.Key),
+                        iris.For(from.Name, from.Normalize(row.Key)),
                         relation.Name,
-                        iris.For(relation.To, target),
+                        iris.For(relation.To, to.Normalize(target)),
                         new SourceRecord(from.System, from.Table, from.Record is null ? row.Key : string.Join('/', from.Record.Select(c => Text(row.Values[c]) ?? ""))));
                 }
             }

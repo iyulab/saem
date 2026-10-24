@@ -70,6 +70,12 @@ public sealed class Ontology
                 continue;
             }
 
+            if (type.Kinds?.Keys.Where(field => !type.Fields.ContainsKey(field)).ToList() is { Count: > 0 } undeclared)
+            {
+                problems.Add($"Entity type '{type.Name}' declares the kind of {string.Join(", ", undeclared.Select(f => $"'{f}'"))}, which is not one of its fields.");
+                continue;
+            }
+
             if (!types.TryAdd(type.Name, type))
             {
                 problems.Add($"Entity type '{type.Name}' is declared more than once.");
