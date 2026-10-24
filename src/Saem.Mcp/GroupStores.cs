@@ -1,5 +1,7 @@
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Saem.Materialization;
 using Saem.Ontology;
@@ -57,11 +59,11 @@ public sealed class GroupStoreOptions
 }
 
 /// <summary>The stores the configuration names, each reached over its own client.</summary>
-internal sealed class ConfiguredGroupStores : IGroupStores
+internal sealed partial class ConfiguredGroupStores : IGroupStores
 {
     private readonly Dictionary<string, GroupStore> _stores = new(StringComparer.Ordinal);
 
-    public ConfiguredGroupStores(IOptions<MaterializationOptions> options, IHttpClientFactory httpClients)
+    public ConfiguredGroupStores(IOptions<MaterializationOptions> options, IHttpClientFactory httpClients, ILogger<ConfiguredGroupStores>? logger = null)
     {
         var materialization = options.Value;
         if (materialization.Groups.Count > 0 && !Uri.TryCreate(materialization.BaseIri, UriKind.Absolute, out _))
@@ -84,11 +86,18 @@ internal sealed class ConfiguredGroupStores : IGroupStores
                 http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", store.AccessKey);
             }
 
-            _stores.Add(group, new GroupStore(group, new FormbaseEdgeStore(http, store.Namespace)));
+            // A partition whose projection skipped a document is read over the edges that stand — a lookup can then
+            // miss an answer, never state a wrong one — and the skip is logged for whoever runs the store.
+            var partition = group;
+            _stores.Add(group, new GroupStore(group, new FormbaseEdgeStore(http, store.Namespace,
+                onSkipped: (formType, count) => LogSkipped((ILogger?)logger ?? NullLogger.Instance, partition, formType, count))));
         }
     }
 
     public EntityIris? Iris { get; }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The materialized relations of the group '{Group}' are read in part: the projection of '{FormType}' skipped {Count} document(s), so a lookup walking them back may miss an answer. Rerun the group's materialization.")]
+    private static partial void LogSkipped(ILogger logger, string group, string formType, int count);
 
     public IReadOnlyList<GroupStore> StoresOf(Person person) =>
         [.. person.Groups.Where(_stores.ContainsKey).Select(g => _stores[g])];

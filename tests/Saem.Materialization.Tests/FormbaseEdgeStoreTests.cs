@@ -89,6 +89,30 @@ public sealed class FormbaseEdgeStoreTests
         Assert.Empty(await new FormbaseEdgeStore(new FakeFormbase().Client).LeadingToAsync("orders_item", "https://example.org/Item/I-1", TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken));
     }
 
+    /// <summary>
+    /// A projection that skipped a document is read over the rows that stand for a lookup, and the skip is told
+    /// to whoever asked to hear it: an edge is a candidate read again as the person, so a missing one can only
+    /// leave an answer out. A pass never reads on — what it cannot see it cannot retire.
+    /// </summary>
+    [Fact]
+    public async Task A_lookup_reads_a_partly_skipped_projection_over_what_stands_and_a_pass_does_not()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var formbase = new FakeFormbase();
+        await new FormbaseEdgeStore(formbase.Client).ReplaceAsync(Of(Edge("WO-1", "I-1")), ct);
+        formbase.Edges.Skipped = 1;
+        var told = new List<(string, int)>();
+        var store = new FormbaseEdgeStore(formbase.Client, onSkipped: (type, count) => told.Add((type, count)));
+
+        var leading = await store.LeadingToAsync("orders_item", "https://example.org/Item/I-1", ct).ToListAsync(ct);
+
+        Assert.Equal([Edge("WO-1", "I-1")], leading);
+        Assert.Equal([("edges", 1)], told);
+        await Assert.ThrowsAsync<EdgeStoreException>(() => store.ReplaceAsync(Of(Edge("WO-1", "I-1")), ct));
+        await Assert.ThrowsAsync<EdgeStoreException>(async () =>
+            await new FormbaseEdgeStore(formbase.Client).LeadingToAsync("orders_item", "https://example.org/Item/I-1", ct).ToListAsync(ct));
+    }
+
     [Fact]
     public async Task A_form_type_declared_with_another_shape_is_not_written_over()
     {

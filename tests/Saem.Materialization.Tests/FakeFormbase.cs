@@ -81,7 +81,7 @@ internal sealed class FakeFormbase : HttpMessageHandler
                 {
                     rows = page.Select(d => new { record = new { document = Guid.NewGuid(), key = d.Key }, fields = d.Body }),
                     stale = false,
-                    skippedDocuments = 0,
+                    skippedDocuments = type.Skipped,
                 });
             default:
                 throw new InvalidOperationException($"unexpected request {request.Method} {request.RequestUri.PathAndQuery}");
@@ -96,6 +96,9 @@ internal sealed class FakeFormbase : HttpMessageHandler
         public JsonObject? Declaration { get; set; }
 
         public bool Projected { get; private set; }
+
+        /// <summary>How many documents the projection reports it skipped — a document it could not map.</summary>
+        public int Skipped { get; set; }
 
         public List<(string Key, JsonObject? Body)> Stream { get; } = [];
 

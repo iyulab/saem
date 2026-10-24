@@ -30,7 +30,14 @@ namespace Saem.Materialization;
 /// <param name="http">A client whose <see cref="HttpClient.BaseAddress"/> is the group's Formbase. The caller owns its lifetime.</param>
 /// <param name="formbaseNamespace">The Formbase namespace to address, sent as <c>Formbase-Namespace</c>; omitted, the instance's own.</param>
 /// <param name="time">The clock a pass's start is taken from; omitted, the system's.</param>
-public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace = null, TimeProvider? time = null)
+/// <param name="onSkipped">
+/// Told the form type and how many documents its projection skipped, when a read for a lookup meets such a
+/// projection — and the read goes on over the rows that stand. An edge is only a candidate a lookup reads again
+/// as the person, so an edge missing from a skipped document can only leave an answer out, as a pass that has
+/// not run yet does; it cannot put a wrong one in. Omitted, such a read fails instead. A pass never reads on:
+/// what it does not see it cannot retire.
+/// </param>
+public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace = null, TimeProvider? time = null, Action<string, int>? onSkipped = null)
 {
     /// <summary>The form type the edges are filed under.</summary>
     public const string FormType = "edges";
@@ -63,7 +70,7 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
         ArgumentNullException.ThrowIfNull(edges);
 
         await DeclareAsync(FormType, TableName, Fields, cancellationToken).ConfigureAwait(false);
-        var held = await HeldAsync(FormType, "", Fields, cancellationToken).ConfigureAwait(false);
+        var held = await HeldAsync(FormType, "", Fields, cancellationToken, strict: true).ConfigureAwait(false);
 
         // The edges are read from the sources as they are enumerated, from here on.
         var readFrom = _time.GetUtcNow();
@@ -206,7 +213,7 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     /// parameters, each led by <c>&amp;</c>), by record key, each as its <paramref name="fields"/>; none before
     /// the first pass declared and projected them.
     /// </summary>
-    private async Task<Dictionary<string, string[]>> HeldAsync(string formType, string filter, string[] fields, CancellationToken cancellationToken)
+    private async Task<Dictionary<string, string[]>> HeldAsync(string formType, string filter, string[] fields, CancellationToken cancellationToken, bool strict = false)
     {
         var held = new Dictionary<string, string[]>(StringComparer.Ordinal);
         for (var offset = 0; ; offset += PageSize)
@@ -228,7 +235,15 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
             // A Formbase before 0.35 does not report skips; one that does and reports some cannot be read in full.
             if (page.TryGetProperty("skippedDocuments", out var skipped) && skipped.GetInt32() > 0)
             {
-                throw new EdgeStoreException($"The projection of '{formType}' skipped documents, so what the store holds cannot be read in full.");
+                if (strict || onSkipped is null)
+                {
+                    throw new EdgeStoreException($"The projection of '{formType}' skipped documents, so what the store holds cannot be read in full.");
+                }
+
+                if (offset == 0)
+                {
+                    onSkipped(formType, skipped.GetInt32());
+                }
             }
 
             var rows = page.GetProperty("rows");
