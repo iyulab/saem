@@ -46,24 +46,21 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
 
     private const string LatestPass = "latest";
 
-    private const string NamespaceHeader = "Formbase-Namespace";
-    private const int PageSize = 1000;
-
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
     private static readonly string[] Fields = ["from_iri", "relation", "to_iri", "source_system", "source_table", "source_record"];
 
     private static readonly string[] PassFields = ["read_from"];
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
 
+    private readonly FormbaseForms _forms = new(http, formbaseNamespace, message => new EdgeStoreException(message));
+
     /// <summary>Makes the store hold exactly <paramref name="edges"/>, and projects them.</summary>
     public async Task<EdgeWrite> ReplaceAsync(IAsyncEnumerable<MaterializedEdge> edges, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(edges);
 
-        await DeclareAsync(FormType, TableName, Fields, cancellationToken).ConfigureAwait(false);
-        var held = await HeldAsync(FormType, "", Fields, cancellationToken).ConfigureAwait(false);
+        await _forms.DeclareAsync(FormType, TableName, Fields, cancellationToken).ConfigureAwait(false);
+        var held = await _forms.HeldAsync(FormType, "", Fields, cancellationToken).ConfigureAwait(false);
 
         // The edges are read from the sources as they are enumerated, from here on.
         var readFrom = _time.GetUtcNow();
@@ -84,37 +81,23 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
                 continue;
             }
 
-            using var request = Request(HttpMethod.Post, $"formtypes/{FormType}/documents?recordKey={Uri.EscapeDataString(key)}");
-            request.Content = JsonContent.Create(Fields.Zip(fields).ToDictionary(p => p.First, p => p.Second), options: Json);
-            await SendAsync(request, "Filing an edge", cancellationToken).ConfigureAwait(false);
+            await _forms.FileAsync(FormType, key, Fields, fields, "Filing an edge", cancellationToken).ConfigureAwait(false);
             written++;
         }
 
         var retired = 0;
         foreach (var key in held.Keys.Where(k => !given.Contains(k)).Order(StringComparer.Ordinal))
         {
-            using var request = Request(HttpMethod.Delete, $"formtypes/{FormType}/records?recordKey={Uri.EscapeDataString(key)}");
-            await SendAsync(request, "Retiring an edge", cancellationToken).ConfigureAwait(false);
+            await _forms.RetireAsync(FormType, key, "Retiring an edge", cancellationToken).ConfigureAwait(false);
             retired++;
         }
 
-        using (var project = Request(HttpMethod.Post, $"formtypes/{FormType}/projection"))
-        {
-            await SendAsync(project, "Projecting the edges", cancellationToken).ConfigureAwait(false);
-        }
+        await _forms.ProjectAsync(FormType, "Projecting the edges", cancellationToken).ConfigureAwait(false);
 
         // Filed only once the edges are in: a pass that failed leaves the time of the last one that did not.
-        await DeclareAsync(PassFormType, PassTableName, PassFields, cancellationToken).ConfigureAwait(false);
-        using (var pass = Request(HttpMethod.Post, $"formtypes/{PassFormType}/documents?recordKey={LatestPass}"))
-        {
-            pass.Content = JsonContent.Create(new Dictionary<string, string> { [PassFields[0]] = readFrom.ToString("O", CultureInfo.InvariantCulture) }, options: Json);
-            await SendAsync(pass, "Filing the pass", cancellationToken).ConfigureAwait(false);
-        }
-
-        using (var project = Request(HttpMethod.Post, $"formtypes/{PassFormType}/projection"))
-        {
-            await SendAsync(project, "Projecting the pass", cancellationToken).ConfigureAwait(false);
-        }
+        await _forms.DeclareAsync(PassFormType, PassTableName, PassFields, cancellationToken).ConfigureAwait(false);
+        await _forms.FileAsync(PassFormType, LatestPass, PassFields, [readFrom.ToString("O", CultureInfo.InvariantCulture)], "Filing the pass", cancellationToken).ConfigureAwait(false);
+        await _forms.ProjectAsync(PassFormType, "Projecting the pass", cancellationToken).ConfigureAwait(false);
 
         return new EdgeWrite(written, unchanged, retired) { ReadFrom = readFrom };
     }
@@ -130,7 +113,7 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
         ArgumentNullException.ThrowIfNull(edges);
 
         var skipped = 0;
-        var held = await HeldAsync(FormType, "", Fields, cancellationToken, readOn: count => skipped = count).ConfigureAwait(false);
+        var held = await _forms.HeldAsync(FormType, "", Fields, cancellationToken, readOn: count => skipped = count).ConfigureAwait(false);
         var given = new HashSet<string>(StringComparer.Ordinal);
         int matching = 0, missing = 0, differing = 0;
         await foreach (var edge in edges.WithCancellation(cancellationToken).ConfigureAwait(false))
@@ -166,7 +149,7 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     public async Task<DateTimeOffset?> AsOfAsync(CancellationToken cancellationToken = default)
     {
         // Read for a lookup, so a skipped pass record reads as no time rather than failing the lookup.
-        var held = await HeldAsync(PassFormType, "", PassFields, cancellationToken, readOn: _ => { }).ConfigureAwait(false);
+        var held = await _forms.HeldAsync(PassFormType, "", PassFields, cancellationToken, readOn: _ => { }).ConfigureAwait(false);
         if (!held.TryGetValue(LatestPass, out var fields))
         {
             return null;
@@ -180,7 +163,7 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     /// <summary>The edges the store holds now, in key order — all of them, or a failure when the projection skipped documents.</summary>
     public async IAsyncEnumerable<MaterializedEdge> ReadAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        foreach (var edge in Edges(await HeldAsync(FormType, "", Fields, cancellationToken).ConfigureAwait(false)))
+        foreach (var edge in Edges(await _forms.HeldAsync(FormType, "", Fields, cancellationToken).ConfigureAwait(false)))
         {
             yield return edge;
         }
@@ -204,7 +187,7 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
         ArgumentException.ThrowIfNullOrEmpty(to);
         ArgumentOutOfRangeException.ThrowIfNegative(limit);
         var skipped = 0;
-        var held = await HeldAsync(
+        var held = await _forms.HeldAsync(
             FormType,
             $"&filter={Uri.EscapeDataString("relation:" + relation)}&filter={Uri.EscapeDataString("to_iri:" + to)}",
             Fields,
@@ -218,147 +201,11 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
         held.OrderBy(p => p.Key, StringComparer.Ordinal)
             .Select(p => new MaterializedEdge(p.Value[0], p.Value[1], p.Value[2], new SourceRecord(p.Value[3], p.Value[4], p.Value[5])));
 
-    /// <summary>
-    /// Puts the declaration of <paramref name="formType"/> in force when it has none. One already in force must
-    /// be that declaration: a store whose form type was declared otherwise is not written over.
-    /// </summary>
-    private async Task DeclareAsync(string formType, string tableName, string[] fields, CancellationToken cancellationToken)
-    {
-        using (var read = Request(HttpMethod.Get, $"formtypes/{formType}/declaration"))
-        using (var response = await http.SendAsync(read, cancellationToken).ConfigureAwait(false))
-        {
-            if (response.IsSuccessStatusCode)
-            {
-                var declaration = await response.Content.ReadFromJsonAsync<JsonElement>(Json, cancellationToken).ConfigureAwait(false);
-                var declared = declaration.GetProperty("fields").EnumerateArray()
-                    .Select(f => (Name: f.GetProperty("name").GetString(), Type: f.GetProperty("type").GetString(), Nullable: f.GetProperty("nullable").GetBoolean()))
-                    .ToList();
-                if (declaration.GetProperty("tableName").GetString() != tableName
-                    || !declared.SequenceEqual(fields.Select(f => ((string?)f, (string?)"text", false))))
-                {
-                    throw new EdgeStoreException($"The form type '{formType}' is declared with another shape than saem's; it is not written over.");
-                }
-
-                return;
-            }
-
-            if (response.StatusCode != HttpStatusCode.NotFound)
-            {
-                throw await FailureAsync($"Reading the declaration of '{formType}'", response, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        using var put = Request(HttpMethod.Put, $"formtypes/{formType}/declaration");
-        put.Content = JsonContent.Create(new
-        {
-            tableName,
-            declarationVersion = 1,
-            fields = fields.Select(name => new { name, type = "text", nullable = false }),
-        }, options: Json);
-        await SendAsync(put, $"Declaring '{formType}'", cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// The projected records of <paramref name="formType"/> that <paramref name="filter"/> admits (query
-    /// parameters, each led by <c>&amp;</c>), by record key, each as its <paramref name="fields"/>; none before
-    /// the first pass declared and projected them. A projection that skipped documents fails the read, unless
-    /// <paramref name="readOn"/> is given: then it is told how many, and the read goes on over the rows that stand.
-    /// <paramref name="atMost"/> stops the read once that many records are in.
-    /// </summary>
-    private async Task<Dictionary<string, string[]>> HeldAsync(
-        string formType, string filter, string[] fields, CancellationToken cancellationToken, Action<int>? readOn = null, int atMost = int.MaxValue)
-    {
-        var held = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        var pageSize = Math.Min(PageSize, atMost);
-        for (var offset = 0; ; offset += pageSize)
-        {
-            using var request = Request(HttpMethod.Get, $"formtypes/{formType}/records?limit={pageSize}&offset={offset}{filter}");
-            using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound
-                && await ProblemAsync(response, cancellationToken).ConfigureAwait(false) is "/problems/not-projected" or "/problems/no-declaration")
-            {
-                return held;
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                throw await FailureAsync($"Reading the held records of '{formType}'", response, cancellationToken).ConfigureAwait(false);
-            }
-
-            var page = await response.Content.ReadFromJsonAsync<JsonElement>(Json, cancellationToken).ConfigureAwait(false);
-            // A Formbase before 0.35 does not report skips; one that does and reports some cannot be read in full.
-            if (page.TryGetProperty("skippedDocuments", out var skipped) && skipped.GetInt32() > 0)
-            {
-                if (readOn is null)
-                {
-                    throw new EdgeStoreException($"The projection of '{formType}' skipped documents, so what the store holds cannot be read in full.");
-                }
-
-                if (offset == 0)
-                {
-                    readOn(skipped.GetInt32());
-                }
-            }
-
-            var rows = page.GetProperty("rows");
-            foreach (var row in rows.EnumerateArray())
-            {
-                var key = row.GetProperty("record").GetProperty("key").GetString()
-                    ?? throw new EdgeStoreException($"A record of '{formType}' without a key is in the store; saem files every record under one.");
-                var values = row.GetProperty("fields");
-                held[key] = [.. fields.Select(f => values.GetProperty(f).GetString() ?? "")];
-            }
-
-            if (rows.GetArrayLength() < pageSize || held.Count >= atMost)
-            {
-                return held;
-            }
-        }
-    }
-
     private static string KeyOf(MaterializedEdge edge) => edge.Relation + " " + edge.From;
 
     private static string[] FieldsOf(MaterializedEdge edge) =>
         [edge.From, edge.Relation, edge.To, edge.Source.System, edge.Source.Table, edge.Source.Record];
 
-    private HttpRequestMessage Request(HttpMethod method, string path)
-    {
-        var request = new HttpRequestMessage(method, path);
-        if (formbaseNamespace is not null)
-        {
-            request.Headers.Add(NamespaceHeader, formbaseNamespace);
-        }
-
-        return request;
-    }
-
-    private async Task SendAsync(HttpRequestMessage request, string what, CancellationToken cancellationToken)
-    {
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw await FailureAsync(what, response, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private static async Task<string?> ProblemAsync(HttpResponseMessage response, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var problem = await response.Content.ReadFromJsonAsync<JsonElement>(Json, cancellationToken).ConfigureAwait(false);
-            return problem.TryGetProperty("type", out var type) ? type.GetString() : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static async Task<EdgeStoreException> FailureAsync(string what, HttpResponseMessage response, CancellationToken cancellationToken)
-    {
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        return new EdgeStoreException($"{what} answered {(int)response.StatusCode}: {body}");
-    }
 }
 
 /// <summary>What a pass did to the store.</summary>

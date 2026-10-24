@@ -86,10 +86,38 @@ public sealed class MaterializeCliTests
             ["mes"] = _ => ValueTask.FromResult<ISourceSession>(new Table([Row("WO-1", "I-100"), Row("WO-2", null)])),
         };
 
-        var write = await MaterializeRun.RunAsync(Plant, openers, "g-plant", new EntityIris(new Uri("https://example.org/ontology/")), new FormbaseEdgeStore(formbase.Client), output, TestContext.Current.CancellationToken);
+        var write = await MaterializeRun.RunAsync(Plant, openers, "g-plant", new EntityIris(new Uri("https://example.org/ontology/")), new FormbaseEdgeStore(formbase.Client), null, output, TestContext.Current.CancellationToken);
 
         Assert.Equal(new EdgeWrite(1, 0, 0), write with { ReadFrom = null });
         Assert.Equal($"group g-plant: 1 edge(s) written, 0 unchanged, 0 retired; as of {write.ReadFrom:O}.", output.ToString().Trim());
+    }
+
+    [Fact]
+    public async Task A_pass_with_a_store_for_identities_files_what_each_finds_after_the_edges()
+    {
+        var formbase = new FakeFormbase();
+        var output = new StringWriter();
+        var openers = new Dictionary<string, SourceOpener>
+        {
+            ["mes"] = _ => ValueTask.FromResult<ISourceSession>(new Table([Row("WO-1", "I-100"), Row("WO-2", "I-100"), Row("WO-3", "I-200")])),
+        };
+        var duplicates = Ontology.Ontology.Create(
+        [
+            .. Plant.EntityTypes.Values,
+            .. Plant.Relations.Values,
+            new IdentityDeclaration("same_order", "WorkOrder", "WorkOrder", IdentityDecision.Automatic) { Match = [new FieldPair("item", "item")] },
+        ]);
+
+        await MaterializeRun.RunAsync(
+            duplicates, openers, "g-plant", new EntityIris(new Uri("https://example.org/ontology/")), new FormbaseEdgeStore(formbase.Client), new FormbaseIdentityStore(formbase.Client), output, TestContext.Current.CancellationToken);
+
+        Assert.EndsWith(
+            "group g-plant: 1 identified thing(s) — 1 new, 0 merged, 0 gone; 2 cross-reference(s) and 1 ground(s) written.",
+            output.ToString().Trim(),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            ["https://example.org/ontology/WorkOrder/WO-1", "https://example.org/ontology/WorkOrder/WO-2"],
+            Assert.Single(await new FormbaseIdentityStore(formbase.Client).ReadAsync(TestContext.Current.CancellationToken)).Members);
     }
 
     /// <summary>A system missing from the sources file is found before the pass, so the store is not left half replaced.</summary>
@@ -99,7 +127,7 @@ public sealed class MaterializeCliTests
         var formbase = new FakeFormbase();
 
         await Assert.ThrowsAsync<MaterializeUsageException>(() => MaterializeRun.RunAsync(
-            Plant, new Dictionary<string, SourceOpener>(), "g-plant", new EntityIris(new Uri("https://example.org/ontology/")), new FormbaseEdgeStore(formbase.Client), TextWriter.Null, TestContext.Current.CancellationToken));
+            Plant, new Dictionary<string, SourceOpener>(), "g-plant", new EntityIris(new Uri("https://example.org/ontology/")), new FormbaseEdgeStore(formbase.Client), new FormbaseIdentityStore(formbase.Client), TextWriter.Null, TestContext.Current.CancellationToken));
         Assert.Empty(formbase.Requests);
     }
 

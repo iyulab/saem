@@ -2,25 +2,38 @@ using Saem.Query;
 
 namespace Saem.Materialization.Cli;
 
-/// <summary>One group's pass: its edges, read as its accounts, made what its store holds.</summary>
+/// <summary>One group's pass: its edges and what its identities find, read as its accounts, made what its stores hold.</summary>
 internal static class MaterializeRun
 {
-    /// <exception cref="MaterializeUsageException">A relation leaves a type on a system the sources file does not name.</exception>
+    /// <param name="identities">The group's identity store; omitted, the pass writes edges only.</param>
+    /// <exception cref="MaterializeUsageException">A relation or an identity stands on a type on a system the sources file does not name.</exception>
     public static async Task<EdgeWrite> RunAsync(
         Ontology.Ontology ontology,
         IReadOnlyDictionary<string, SourceOpener> openers,
         string group,
         EntityIris iris,
         FormbaseEdgeStore store,
+        FormbaseIdentityStore? identities,
         TextWriter output,
         CancellationToken cancellationToken)
     {
         // Checked before the pass: a system found missing halfway would leave the store half replaced.
-        RequireSystems(ontology, openers);
+        RequireSystems(ontology, openers, identities is not null);
 
         var edges = new EdgeMaterializer(ontology, iris).MaterializeAsync(new PersonSessions(openers), cancellationToken);
         var write = await store.ReplaceAsync(edges, cancellationToken).ConfigureAwait(false);
         await output.WriteLineAsync($"group {group}: {write.Written} edge(s) written, {write.Unchanged} unchanged, {write.Retired} retired; as of {write.ReadFrom:O}.").ConfigureAwait(false);
+
+        if (identities is not null)
+        {
+            // Run even with no identity declared: one declared before leaves its records behind otherwise.
+            var clusters = new IdentityMatcher(ontology, iris).MatchAsync(new PersonSessions(openers), cancellationToken);
+            var found = await identities.ReplaceAsync(ontology, clusters, cancellationToken).ConfigureAwait(false);
+            await output.WriteLineAsync(
+                $"group {group}: {found.Canonical.Written + found.Canonical.Unchanged} identified thing(s) — {found.Issued} new, {found.Merged} merged, " +
+                $"{found.Canonical.Retired - found.Merged} gone; {found.Members.Written} cross-reference(s) and {found.Grounds.Written} ground(s) written.").ConfigureAwait(false);
+        }
+
         return write;
     }
 
@@ -38,7 +51,7 @@ internal static class MaterializeRun
         TextWriter output,
         CancellationToken cancellationToken)
     {
-        RequireSystems(ontology, openers);
+        RequireSystems(ontology, openers, identities: false);
         var edges = new EdgeMaterializer(ontology, iris).MaterializeAsync(new PersonSessions(openers), cancellationToken);
         var comparison = await store.CompareAsync(edges, cancellationToken).ConfigureAwait(false);
         await output.WriteLineAsync(
@@ -48,17 +61,23 @@ internal static class MaterializeRun
         return comparison;
     }
 
-    private static void RequireSystems(Ontology.Ontology ontology, IReadOnlyDictionary<string, SourceOpener> openers)
+    private static void RequireSystems(Ontology.Ontology ontology, IReadOnlyDictionary<string, SourceOpener> openers, bool identities)
     {
-        var missing = ontology.Relations.Values
-            .Select(r => ontology.EntityTypes[r.From].System)
+        var read = ontology.Relations.Values.Select(r => r.From);
+        if (identities)
+        {
+            read = read.Concat(ontology.Identities.Values.Where(i => i.Match is not null).SelectMany(i => new[] { i.First, i.Second }));
+        }
+
+        var missing = read
+            .Select(type => ontology.EntityTypes[type].System)
             .Distinct(StringComparer.Ordinal)
             .Where(system => !openers.ContainsKey(system))
             .Order(StringComparer.Ordinal)
             .ToList();
         if (missing.Count > 0)
         {
-            throw new MaterializeUsageException($"The relations leave types on {string.Join(", ", missing.Select(s => $"'{s}'"))}, which the sources file does not name.");
+            throw new MaterializeUsageException($"The relations and identities stand on types on {string.Join(", ", missing.Select(s => $"'{s}'"))}, which the sources file does not name.");
         }
     }
 }

@@ -207,8 +207,14 @@ line, a fleet, a team — is nothing but its members: each member type names the
 its group's key (`members`), and the declaration has no fields of its own; a file that gives a grouping
 one is refused, since a fact about a group is one a source must hold. Both stand only on declared types
 and fields, and neither matches on a `freeText` field or a date against a value of another kind. They
-are declared, checked and part of the ontology's version; what each produces — the pairs an identity
-finds, the groups a lookup can start from — is not built yet.
+are declared, checked and part of the ontology's version. A materialization pass (below) finds what each
+identity declaring a `match` says is one thing — the entities whose matched fields hold the same values,
+read as the group — and files it in the group's store beside the edges: a canonical id per thing, issued
+once and carried from pass to pass (a merge keeps the older id, the part split off gets a new one), a
+cross-reference per member, and the grounds each pair was judged on (the rule, its score, the two entity
+IRIs, who judged, the pass) — no value of any record. An identity a person settles files its pairs as
+grounds only, and issues no id until someone has confirmed them. Identities by a linkage rule, a
+person's settling, and the groups a lookup can start from are not built yet.
 
 A relation may also declare an `inverse` — its name walked backwards, from an entity to every entity
 that leads to it (`owl:inverseOf`). No single read finds every row that names an entity, so a backward

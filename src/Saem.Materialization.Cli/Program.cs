@@ -72,7 +72,8 @@ try
         return comparison.Agrees ? 0 : 1;
     }
 
-    await MaterializeRun.RunAsync(ontology, sources.Openers, options.Group, new EntityIris(options.BaseIri), edgeStore, Console.Out, cancellation.Token);
+    var identityStore = new FormbaseIdentityStore(store, options.StoreNamespace);
+    await MaterializeRun.RunAsync(ontology, sources.Openers, options.Group, new EntityIris(options.BaseIri), edgeStore, identityStore, Console.Out, cancellation.Token);
     return 0;
 }
 catch (MaterializeUsageException e)
@@ -81,7 +82,7 @@ catch (MaterializeUsageException e)
     Console.Error.WriteLine("Run saem-materialize --help for the arguments.");
     return 2;
 }
-catch (Exception e) when (e is EdgeStoreException or OntologyDeclarationException or NoSourceLoginException or MorphDbSourceException or InsecureSourceRoleException
+catch (Exception e) when (e is EdgeStoreException or IdentityStoreException or OntologyDeclarationException or NoSourceLoginException or MorphDbSourceException or InsecureSourceRoleException
                           or System.Data.Common.DbException or HttpRequestException or IOException or InvalidOperationException)
 {
     Console.Error.WriteLine(e.Message);

@@ -20,7 +20,8 @@ internal sealed record MaterializeOptions(
     public const string SourceSecretPrefix = "SAEM_SOURCE_SECRET_";
 
     public const string Usage = """
-        saem-materialize — build one group's instance edges from what its accounts may read, into its own store.
+        saem-materialize — build one group's instance edges, and what its identities find, from what its accounts may
+        read, into its own store.
 
         Usage:
           saem-materialize --catalog <file> --sources <file> --group <name> --base-iri <iri> --store <url> [options]
@@ -45,7 +46,10 @@ internal sealed record MaterializeOptions(
 
         Only the relations' leaving types are read, and only their relation fields and record columns. The store
         is made to hold exactly this pass's edges: unchanged ones are not sent, changed ones are corrected, and
-        ones no longer found are retired.
+        ones no longer found are retired. Then each identity declaring a field match reads its two types' matched
+        fields, and the store is made to hold what it finds: canonical ids carried on from the last pass (a merge keeps
+        the older, the part split off gets a new one), each entity's cross-reference and the grounds of each pair. An
+        identity a person settles (decision "confirmed") files its pairs as grounds only.
 
         To compare the store with what a pass would give now, writing nothing: saem-materialize verify <the same
         arguments> — exit status 1 when it disagrees (edges missing, different or no longer given, or documents its
