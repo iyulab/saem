@@ -234,6 +234,16 @@ internal sealed partial class LookupTool
             }
         }
 
+        if (ontology.Identities.Count > 0)
+        {
+            text.Append("\n\nIdentities crossed (each leads to every entity of the other type held to be the same thing as the one reached — ")
+                .Append("found among the identities settled ahead of time for the groups the person is in, then read as the person; each hop says whether the rule or a person settled the pair):");
+            foreach (var identity in ontology.Identities.Values.OrderBy(i => i.Name, StringComparer.Ordinal))
+            {
+                text.Append("\n- ").Append(identity.Name).Append(": ").Append(identity.First).Append(" <-> ").Append(identity.Second);
+            }
+        }
+
         return text.ToString();
     }
 
@@ -276,8 +286,8 @@ internal sealed partial class LookupTool
                 ["path"] = new JsonObject
                 {
                     ["type"] = "array",
-                    ["description"] = "The relations to follow, in order; empty to read the start entity itself. A relation walked backwards leads to every entity that names the one reached, and the walk goes on from each.",
-                    ["items"] = new JsonObject { ["type"] = "string", ["enum"] = Names(ontology.Relations.Keys.Concat(ontology.Inverses.Keys)) },
+                    ["description"] = "The relations to follow and identities to cross, in order; empty to read the start entity itself. A relation walked backwards, or an identity crossed, leads to every entity that names the one reached or is held the same thing as it, and the walk goes on from each.",
+                    ["items"] = new JsonObject { ["type"] = "string", ["enum"] = Names(ontology.Relations.Keys.Concat(ontology.Inverses.Keys).Concat(ontology.Identities.Keys)) },
                 },
                 ["read"] = new JsonObject
                 {

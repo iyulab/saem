@@ -82,6 +82,21 @@ public class LookupAnswerJsonTests
         Assert.Equal(back, Assert.IsType<Answered>(Read(json)).Claims[0].Path[1]);
     }
 
+    /// <summary>D-86 ⑤: a hop that crossed an identity says who held the two one, by name; a relation's hop says nothing of it.</summary>
+    [Fact]
+    public void A_hop_across_an_identity_says_who_settled_it_by_name()
+    {
+        var same = new Hop("same_supplier", Supplier, Supplier with { Key = "S-9" }) { Partition = "g-plant", Identity = IdentityDecision.Confirmed };
+        var json = Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [same])]));
+
+        Assert.Contains("\"identity\":\"confirmed\"", json, StringComparison.Ordinal);
+        Assert.Equal(same, Assert.IsType<Answered>(Read(json)).Claims[0].Path[0]);
+        Assert.DoesNotContain("identity", Write(new Answered([new Claim(Order, "qty", Value("5"), [Erp], [new Hop("supplied_by", Order, Supplier)])])), StringComparison.Ordinal);
+        Assert.Equal(
+            Enum.GetValues<IdentityDecision>().Select(d => JsonSerializer.Serialize(d, ContractJson.Default.IdentityDecision).Trim('"')),
+            ContractSchema.Answer.GetProperty("$defs").GetProperty("hop").GetProperty("properties").GetProperty("identity").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
+    }
+
     [Fact]
     public void A_refusal_for_want_of_a_partition_says_so_by_name()
     {

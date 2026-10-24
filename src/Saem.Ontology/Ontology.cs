@@ -5,7 +5,8 @@ using Saem.Contracts;
 namespace Saem.Ontology;
 
 /// <summary>
-/// A consistent set of declarations: every name unique among its kind, every relation starting and
+/// A consistent set of declarations: every name unique among its kind — and a path's steps, relations, inverses and
+/// identities, unique among them all — every relation starting and
 /// ending at a declared type and leaving through a declared field, every identity and grouping standing on
 /// declared types and fields. Built only through
 /// <see cref="Create"/>, which reports every inconsistency at once — a catalog with one mistake is
@@ -148,7 +149,17 @@ public sealed class Ontology
         var identities = new Dictionary<string, IdentityDeclaration>(StringComparer.Ordinal);
         foreach (var identity in all.OfType<IdentityDeclaration>())
         {
-            if (Check(identity, types, problems) && !identities.TryAdd(identity.Name, identity))
+            if (!Check(identity, types, problems))
+            {
+                continue;
+            }
+
+            // A path crosses an identity by its name, as it walks a relation by its own: one name, one step.
+            if (relations.ContainsKey(identity.Name) || inverses.Contains(identity.Name))
+            {
+                problems.Add($"Identity '{identity.Name}' has the name of a relation or an inverse; a path steps by the name, so the two cannot share one.");
+            }
+            else if (!identities.TryAdd(identity.Name, identity))
             {
                 problems.Add($"Identity '{identity.Name}' is declared more than once.");
             }
@@ -330,7 +341,7 @@ public sealed class Ontology
     /// leaving the type the previous one led to — and the fields it reads at the end. Says nothing
     /// about whether any entity exists; that is the sources' to answer, under the person's own access.
     /// </summary>
-    /// <exception cref="UnknownTermException">The lookup names something the ontology does not declare, or walks a relation from the wrong type.</exception>
+    /// <exception cref="UnknownTermException">The lookup names something the ontology does not declare, or walks a relation or crosses an identity from the wrong type.</exception>
     public LookupPlan Plan(LookupCall call)
     {
         ArgumentNullException.ThrowIfNull(call);
@@ -351,6 +362,20 @@ public sealed class Ontology
         for (var i = 0; i < call.Path.Count; i++)
         {
             var name = call.Path[i];
+            if (_identities.TryGetValue(name, out var identity))
+            {
+                if (!string.Equals(identity.First, at.Name, StringComparison.Ordinal) && !string.Equals(identity.Second, at.Name, StringComparison.Ordinal))
+                {
+                    problems.Add($"Path step {i + 1}: '{name}' joins '{identity.First}' and '{identity.Second}', but the walk is at '{at.Name}'.");
+                    break;
+                }
+
+                var crossed = new LookupStep(identity, at.Name);
+                steps.Add(crossed);
+                at = _types[crossed.Reaches];
+                continue;
+            }
+
             if (_inverses.TryGetValue(name, out var walkedBack))
             {
                 if (!string.Equals(walkedBack.To, at.Name, StringComparison.Ordinal))
@@ -359,7 +384,7 @@ public sealed class Ontology
                     break;
                 }
 
-                steps.Add(new LookupStep(walkedBack, Backwards: true));
+                steps.Add(new LookupStep(walkedBack, backwards: true));
                 at = _types[walkedBack.From];
                 continue;
             }
@@ -376,7 +401,7 @@ public sealed class Ontology
                 break;
             }
 
-            steps.Add(new LookupStep(relation, Backwards: false));
+            steps.Add(new LookupStep(relation, backwards: false));
             at = _types[relation.To];
         }
 
@@ -416,18 +441,47 @@ public sealed record LookupPlan(
 
 /// <summary>
 /// One step of a walk: a relation followed forwards — from an entity, through its field, to the one entity
-/// the field names — or backwards, from an entity to every entity whose field names it.
+/// the field names — or backwards, from an entity to every entity whose field names it; or an identity
+/// crossed, from an entity to every entity of the other type the identity holds to be the same thing.
 /// </summary>
-/// <param name="Relation">The relation, as declared.</param>
-/// <param name="Backwards">Whether the step walks it backwards (by its <see cref="RelationDeclaration.Inverse"/>).</param>
-public sealed record LookupStep(RelationDeclaration Relation, bool Backwards)
+public sealed record LookupStep
 {
-    /// <summary>The name the path gives the step: the relation's, or its inverse's when walked backwards.</summary>
-    public string Name => Backwards ? Relation.Inverse! : Relation.Name;
+    /// <summary>A step along <paramref name="relation"/>, backwards (by its <see cref="RelationDeclaration.Inverse"/>) when <paramref name="backwards"/>.</summary>
+    public LookupStep(RelationDeclaration relation, bool backwards)
+    {
+        ArgumentNullException.ThrowIfNull(relation);
+        Relation = relation;
+        Backwards = backwards;
+        Name = backwards ? relation.Inverse! : relation.Name;
+        Leaves = backwards ? relation.To : relation.From;
+        Reaches = backwards ? relation.From : relation.To;
+    }
+
+    /// <summary>A step across <paramref name="identity"/> from <paramref name="leaves"/>, one of its two types, to the other — the same type for duplicates within one.</summary>
+    public LookupStep(IdentityDeclaration identity, string leaves)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        Identity = identity;
+        Name = identity.Name;
+        Leaves = leaves;
+        Reaches = string.Equals(leaves, identity.First, StringComparison.Ordinal) ? identity.Second : identity.First;
+    }
+
+    /// <summary>The relation followed, as declared; null when the step crosses an identity.</summary>
+    public RelationDeclaration? Relation { get; }
+
+    /// <summary>Whether the relation is walked backwards.</summary>
+    public bool Backwards { get; }
+
+    /// <summary>The identity crossed, as declared; null when the step follows a relation.</summary>
+    public IdentityDeclaration? Identity { get; }
+
+    /// <summary>The name the path gives the step: the relation's, its inverse's when walked backwards, or the identity's.</summary>
+    public string Name { get; }
 
     /// <summary>The type the step leaves.</summary>
-    public string Leaves => Backwards ? Relation.To : Relation.From;
+    public string Leaves { get; }
 
     /// <summary>The type the step reaches.</summary>
-    public string Reaches => Backwards ? Relation.From : Relation.To;
+    public string Reaches { get; }
 }

@@ -1,3 +1,4 @@
+using Saem.Contracts;
 using Saem.Ontology;
 
 namespace Saem.Materialization;

@@ -18,6 +18,11 @@ namespace Saem.Query;
 /// the person's reads did not show (blocked), and whether it was built in full.
 /// </para>
 /// <para>
+/// A step that crosses an identity is taken the same way: the partitions say which entities of the other type their
+/// identity holds to be the same thing as the one reached, and each is read as the person. The hop says who held them
+/// one — the identity's rule or a person — and nothing of the grounds.
+/// </para>
+/// <para>
 /// A step whose candidates exceed <see cref="MaxCandidatesPerStep"/> is not read at all (<see cref="TooBroadException"/>):
 /// each candidate is a read as the person, so the limit bounds what one step costs.
 /// </para>
@@ -155,10 +160,10 @@ public sealed class LookupWalker
         for (var hop = 0; ; hop++)
         {
             var step = hop < plan.Steps.Count ? plan.Steps[hop] : null;
-            if (step is { Backwards: true })
+            if (step is { Backwards: true } or { Identity: not null })
             {
                 var reached = ontology.EntityTypes[step.Reaches];
-                var walked = await BackwardsAsync(open, states, sessions, relations, step, at, reached, frontier, hop + 1, Needed(plan, hop + 1), reports, cancellationToken).ConfigureAwait(false);
+                var walked = await ThroughPartitionsAsync(open, states, sessions, relations, step, at, reached, frontier, hop + 1, Needed(plan, hop + 1), reports, cancellationToken).ConfigureAwait(false);
                 if (walked is null)
                 {
                     return With(new Refused(new Refusal(RefusalReason.NoMaterializedPartition, hop + 1, step.Name, reached.System)));
@@ -201,7 +206,7 @@ public sealed class LookupWalker
             foreach (var (branch, row) in survivors)
             {
                 // An empty field names nothing to follow, which the answer cannot tell apart from a next entity the person may not see.
-                if (Text(row.Values[at.Fields[step.Relation.Via]]) is { } via)
+                if (Text(row.Values[at.Fields[step.Relation!.Via]]) is { } via)
                 {
                     // The field holds the next entity's key as the next type spells keys.
                     var nextKey = to.Normalize(via);
@@ -219,20 +224,22 @@ public sealed class LookupWalker
         }
     }
 
-    /// <summary>The fields a branch's row must hold at <paramref name="hop"/>: the asked ones at the end, the relation's field before a forward step, none before a backward one.</summary>
+    /// <summary>The fields a branch's row must hold at <paramref name="hop"/>: the asked ones at the end, the relation's field before a forward step, none before a step through the partitions.</summary>
     private static IReadOnlyList<string> Needed(LookupPlan plan, int hop) =>
         hop >= plan.Steps.Count ? plan.Read
-        : plan.Steps[hop].Backwards ? []
-        : [plan.Steps[hop].Relation.Via];
+        : plan.Steps[hop] is { Relation: { } relation, Backwards: false } ? [relation.Via]
+        : [];
 
     /// <summary>
-    /// A step walked backwards, for every branch: in each partition, the entities whose relation leads to the
-    /// branch's entity, each read as the person with the relation's field and what the next step needs — kept when
-    /// the source shows the row and the field still names that entity. An edge built before the source changed, or
-    /// one to a row this person may not see, adds nothing; its partition is then reported blocked, which says that
-    /// much and no more. Null when the person is in no partition.
+    /// A step taken through the partitions, for every branch. Walked backwards: in each partition, the entities whose
+    /// relation leads to the branch's entity, each read as the person with the relation's field and what the next step
+    /// needs — kept when the source shows the row and the field still names that entity. Across an identity: the entities
+    /// of the other type the partition holds to be the same thing, each read as the person with what the next step needs —
+    /// kept when the source shows the row. An edge or a member built before the source changed, or one naming a row this
+    /// person may not see, adds nothing; its partition is then reported blocked, which says that much and no more. Null
+    /// when the person is in no partition.
     /// </summary>
-    private async Task<IReadOnlyList<Branch>?> BackwardsAsync(
+    private async Task<IReadOnlyList<Branch>?> ThroughPartitionsAsync(
         Dictionary<string, ISourceSession> open,
         Dictionary<(string, string), SourceProjection?> states,
         ISourceSessions sessions,
@@ -258,7 +265,10 @@ public sealed class LookupWalker
         {
             foreach (var branch in frontier)
             {
-                var edges = await relations.LeadingToAsync(partition, step.Relation, branch.Key, MaxCandidatesPerStep - candidates, cancellationToken).ConfigureAwait(false);
+                var limit = MaxCandidatesPerStep - candidates;
+                var edges = step.Identity is { } identity
+                    ? await relations.SameAsAsync(partition, identity, leaves.Name, branch.Key, limit, cancellationToken).ConfigureAwait(false)
+                    : await relations.LeadingToAsync(partition, step.Relation!, branch.Key, limit, cancellationToken).ConfigureAwait(false);
                 candidates += edges.Keys.Count;
                 if (candidates > MaxCandidatesPerStep)
                 {
@@ -270,7 +280,7 @@ public sealed class LookupWalker
         }
 
         var next = new List<Branch>();
-        var columns = needed.Append(step.Relation.Via).Distinct(StringComparer.Ordinal).ToList();
+        var columns = step.Relation is { } walked ? needed.Append(walked.Via).Distinct(StringComparer.Ordinal).ToList() : needed;
         foreach (var (partition, branch, edges) in leading)
         {
             if (edges.Keys.Count == 0 && !edges.Incomplete)
@@ -287,14 +297,20 @@ public sealed class LookupWalker
             foreach (var key in edges.Keys)
             {
                 var row = await ReadAsync(open, sessions, from, key, columns, cancellationToken).ConfigureAwait(false);
-                // The field still names the branch's entity — as that entity's type spells keys.
-                if (row is null || Text(row.Values[from.Fields[step.Relation.Via]]) is not { } leadsTo || leaves.Normalize(leadsTo) != branch.Key)
+                // Walked backwards, the field still names the branch's entity — as that entity's type spells keys.
+                if (row is null || step.Relation is { } relation
+                    && (Text(row.Values[from.Fields[relation.Via]]) is not { } leadsTo || leaves.Normalize(leadsTo) != branch.Key))
                 {
                     blocked = true;
                     continue;
                 }
 
-                var back = new Hop(step.Name, new EntityKey(leaves.Name, branch.Key), new EntityKey(from.Name, row.Key)) { Partition = partition, PartitionAsOf = report.AsOf };
+                var back = new Hop(step.Name, new EntityKey(leaves.Name, branch.Key), new EntityKey(from.Name, row.Key))
+                {
+                    Partition = partition,
+                    PartitionAsOf = report.AsOf,
+                    Identity = step.Identity?.Decision,
+                };
                 next.Add(new Branch(from.Normalize(row.Key), [.. branch.Hops, back], row));
             }
 

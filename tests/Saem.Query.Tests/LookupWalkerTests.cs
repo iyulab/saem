@@ -25,6 +25,9 @@ public class LookupWalkerTests
         new EntityTypeDeclaration("Defect", "forms", "inspection_defects", "defect_no", new Dictionary<string, string> { ["part"] = "part" }, ["fb_doc_id", "fb_row"]),
         new RelationDeclaration("orders_item", "WorkOrder", "item", "Item", Inverse: "ordered_by"),
         new RelationDeclaration("supplied_by", "Item", "supplier", "Supplier"),
+        // The MES keeps its own materials; the identity holds which ERP item each is.
+        new EntityTypeDeclaration("Material", "mes", "materials", "mat_no", new Dictionary<string, string> { ["name"] = "mat_name" }),
+        new IdentityDeclaration("same_item", "Material", "Item", IdentityDecision.Automatic) { Match = [new FieldPair("name", "name")] },
     ];
 
     private static readonly DateTimeOffset ReadAt = new(2026, 10, 25, 2, 0, 0, TimeSpan.Zero);
@@ -47,6 +50,8 @@ public class LookupWalkerTests
         // A number-keyed table reads its key back as the integer's text, as a source's key::text does.
         ("mes", "parts", "7", new() { ["part_name"] = "Valve" }, ["alice"]),
         ("mes", "jobs", "J-1", new() { ["part_ref"] = "0007" }, ["alice"]),
+        ("mes", "materials", "M-1", new() { ["mat_name"] = "Bracket" }, ["alice", "bob"]),
+        ("mes", "materials", "M-2", new() { ["mat_name"] = "Bracket (old code)" }, ["alice"]),
     ];
 
     private static Task<LookupAnswer> Run(FakeSessions sessions, string start, string key, string[] path, string[] read) =>
@@ -589,6 +594,77 @@ public class LookupWalkerTests
             claims[0].Path);
     }
 
+    // g-plant's identities: I-100 is one thing with materials M-1 and M-2.
+    private static Partitions Things()
+    {
+        var plant = new Partitions { ["g-plant"] = [] };
+        plant.Things.Add(("g-plant", "same_item", [("Item", "I-100"), ("Material", "M-1"), ("Material", "M-2")]));
+        return plant;
+    }
+
+    private static Hop Same(string from, string fromKey, string to, string toKey) =>
+        new("same_item", new EntityKey(from, fromKey), new EntityKey(to, toKey)) { Partition = "g-plant", Identity = IdentityDecision.Automatic };
+
+    /// <summary>D-86 ①: crossing an identity answers each entity of the other type its partition holds the same, read as the person, the hop saying who held them one.</summary>
+    [Fact]
+    public async Task Crossing_an_identity_answers_each_entity_its_partition_holds_the_same_thing()
+    {
+        var sessions = new FakeSessions("alice");
+
+        var answer = await Back(sessions, Things(), "Item", "I-100", ["same_item"], ["name"]);
+
+        var claims = Assert.IsType<Answered>(answer).Claims;
+        Assert.Equal([("M-1", "Bracket"), ("M-2", "Bracket (old code)")], claims.Select(c => (c.Entity.Key, c.Value.GetString())));
+        Assert.Equal([Same("Item", "I-100", "Material", "M-1")], claims[0].Path);
+        Assert.Equal([new PartitionRead("g-plant", null, Blocked: false, Incomplete: false)], answer.Partitions);
+        // Each member read as the person; the entity crossed from is not read for the step.
+        Assert.Equal(["mes materials mat_no=M-1 [mat_name]", "mes materials mat_no=M-2 [mat_name]"], sessions.Reads);
+    }
+
+    /// <summary>D-86 ① · D-46: a member the person does not see is not answered; the partition says it was blocked, and no more.</summary>
+    [Fact]
+    public async Task A_member_the_person_does_not_see_is_not_answered_and_its_partition_is_blocked()
+    {
+        var answer = await Back(new FakeSessions("bob"), Things(), "Item", "I-100", ["same_item"], ["name"]);
+
+        Assert.Equal(["M-1"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Entity.Key));
+        Assert.True(Assert.Single(answer.Partitions!).Blocked);
+    }
+
+    /// <summary>The walk goes on from the entity an identity led to: a material's supplier is read through the ERP item it is.</summary>
+    [Fact]
+    public async Task The_walk_goes_on_from_the_entity_an_identity_led_to()
+    {
+        var answer = await Back(new FakeSessions("alice"), Things(), "Material", "M-1", ["same_item", "supplied_by"], ["name"]);
+
+        var claim = Assert.Single(Assert.IsType<Answered>(answer).Claims);
+        Assert.Equal("Hanbit Parts", claim.Value.GetString());
+        Assert.Equal(
+            [Same("Material", "M-1", "Item", "I-100"), new Hop("supplied_by", new EntityKey("Item", "I-100"), new EntityKey("Supplier", "S-1"))],
+            claim.Path);
+    }
+
+    /// <summary>D-84 ①: an identity step is bounded as a backward one is — more members than the limit and none is read.</summary>
+    [Fact]
+    public async Task An_identity_step_with_more_members_than_the_limit_reads_none()
+    {
+        var sessions = new FakeSessions("alice");
+        var narrow = new LookupWalker(new FixedCatalog(Ontology.Ontology.Create(Rig)), new FixedClock(ReadAt), maxCandidatesPerStep: 1);
+
+        var thrown = await Assert.ThrowsAsync<TooBroadException>(() => Back(sessions, Things(), "Item", "I-100", ["same_item"], ["name"], narrow));
+
+        Assert.Equal((1, "same_item"), (thrown.AtHop, thrown.Relation));
+        Assert.DoesNotContain(sessions.Reads, r => r.Contains("materials", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Crossing_an_identity_for_a_person_in_no_partition_is_refused_as_such()
+    {
+        var answer = await Run(new FakeSessions("alice"), "Item", "I-100", ["same_item"], ["name"]);
+
+        Assert.Equal(RefusalReason.NoMaterializedPartition, Assert.IsType<Refused>(answer).Refusal.Reason);
+    }
+
     /// <summary>Each group's edges as its pass found them: (relation, entity led to, entity it leaves).</summary>
     private sealed class Partitions : Dictionary<string, (string Relation, string To, string From)[]>, IMaterializedRelations
     {
@@ -599,6 +675,18 @@ public class LookupWalkerTests
         public List<string> AsOfAsked { get; } = [];
 
         public HashSet<string> Incomplete { get; } = [];
+
+        /// <summary>Each group's things, by identity: the entities it holds to be one.</summary>
+        public List<(string Partition, string Identity, (string Type, string Key)[] Members)> Things { get; } = [];
+
+        public ValueTask<PartitionEdges> SameAsAsync(string partition, IdentityDeclaration identity, string type, string key, int limit, CancellationToken cancellationToken = default)
+        {
+            var other = type == identity.First ? identity.Second : identity.First;
+            var thing = Things.FirstOrDefault(t => t.Partition == partition && t.Identity == identity.Name && t.Members.Contains((type, key)));
+            return ValueTask.FromResult(new PartitionEdges(
+                [.. (thing.Members ?? []).Where(m => m != (type, key) && m.Type == other).Select(m => m.Key)],
+                Incomplete.Contains(partition)));
+        }
 
         public ValueTask<PartitionEdges> LeadingToAsync(string partition, RelationDeclaration relation, string toKey, int limit, CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(new PartitionEdges(

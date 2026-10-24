@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Saem.Contracts;
 using Saem.Ontology;
 using Xunit;
 
@@ -146,6 +147,28 @@ public sealed class FormbaseIdentityStoreTests
         await Assert.ThrowsAsync<IdentityStoreException>(() =>
             Store(formbase, First).JudgeAsync(Plant(), new PersonJudgment(identity, first, second, Same: true, by, First), TestContext.Current.CancellationToken));
         Assert.Empty(formbase.Type("identity_grounds").Stream);
+    }
+
+    /// <summary>D-86: what an identity holds the same as one entity is the rest of its thing — a person-settled identity only once a person said so.</summary>
+    [Fact]
+    public async Task The_same_as_an_entity_is_the_rest_of_its_thing_and_nothing_before_it_is_one()
+    {
+        var formbase = new FakeFormbase();
+        var confirmed = Plant(IdentityDecision.Confirmed);
+        await Store(formbase, First).ReplaceAsync(Plant(), Of(Cluster("i/1", "m/1", "m/2"), Cluster("i/2", "m/3")), TestContext.Current.CancellationToken);
+
+        var ofItem = await Store(formbase, Second).SameAsAsync("same_item", "i/1", TestContext.Current.CancellationToken);
+        Assert.Equal(["m/1", "m/2"], ofItem.Members);
+        Assert.False(ofItem.Incomplete);
+        Assert.Equal(["i/1", "m/2"], (await Store(formbase, Second).SameAsAsync("same_item", "m/1", TestContext.Current.CancellationToken)).Members);
+        Assert.Empty((await Store(formbase, Second).SameAsAsync("same_item", "m/9", TestContext.Current.CancellationToken)).Members);
+
+        var settled = new FakeFormbase();
+        await Store(settled, First).ReplaceAsync(confirmed, Of(Cluster("i/1", "m/1")), TestContext.Current.CancellationToken);
+        Assert.Empty((await Store(settled, Second).SameAsAsync("same_item", "i/1", TestContext.Current.CancellationToken)).Members);
+        await Store(settled, First).JudgeAsync(confirmed, new PersonJudgment("same_item", "i/1", "m/1", Same: true, "p-7", First.AddHours(1)), TestContext.Current.CancellationToken);
+        await Store(settled, Second).ReplaceAsync(confirmed, Of(Cluster("i/1", "m/1")), TestContext.Current.CancellationToken);
+        Assert.Equal(["m/1"], (await Store(settled, Second).SameAsAsync("same_item", "i/1", TestContext.Current.CancellationToken)).Members);
     }
 
     [Fact]

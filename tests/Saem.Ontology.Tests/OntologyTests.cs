@@ -125,7 +125,7 @@ public class OntologyTests
         Assert.Equal(Item, plan.Start);
         var step = Assert.Single(plan.Steps);
         Assert.True(step.Backwards);
-        Assert.Equal(("orders_item", "ordered_by", "Item", "WorkOrder"), (step.Relation.Name, step.Name, step.Leaves, step.Reaches));
+        Assert.Equal(("orders_item", "ordered_by", "Item", "WorkOrder"), (step.Relation!.Name, step.Name, step.Leaves, step.Reaches));
         Assert.Equal(WorkOrder, plan.End);
         Assert.Equal("orders_item", ontology.Inverses["ordered_by"].Name);
     }

@@ -257,6 +257,37 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
             .SelectMany(identity => HeldOf(identity, heldCanonical, heldMembers))];
     }
 
+    /// <summary>
+    /// The IRIs of the entities <paramref name="identity"/> holds to be the same thing as the one named <paramref name="iri"/> —
+    /// the members of its canonical id, never that entity itself; none when the entity is in no thing. A member is filed only once its pair is settled as one (by the rule where the identity is
+    /// <c>automatic</c> and no person said otherwise, by a person where it is <c>confirmed</c>), so the members are what may
+    /// be said to be the same. A projection that skipped documents is read over the records that stand and reported, as the
+    /// edge store's walk is: a member missing from a skipped document can only leave one out.
+    /// </summary>
+    public async Task<SameAs> SameAsAsync(string identity, string iri, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(identity);
+        ArgumentException.ThrowIfNullOrEmpty(iri);
+        var skipped = 0;
+        var of = Filter(identity, "entity_iri", iri);
+        var own = await _forms.HeldAsync(MemberFormType, of, MemberFields, cancellationToken, readOn: count => skipped = count).ConfigureAwait(false);
+        if (own.Values.Select(m => m[2]).Distinct(StringComparer.Ordinal).ToList() is not [var canonicalId])
+        {
+            return own.Count == 0
+                ? new SameAs([], skipped)
+                : throw new IdentityStoreException($"'{iri}' is filed under more than one canonical id of '{identity}'; a pass files each entity under one.");
+        }
+
+        // The thing is read whole: its members are of both types and the caller keeps one, so a cut by count could leave out
+        // members the caller would have counted. A thing is as large as the entities one value or one link ties together.
+        var members = await _forms.HeldAsync(
+            MemberFormType, Filter(identity, "canonical_id", canonicalId), MemberFields, cancellationToken, readOn: count => skipped = count).ConfigureAwait(false);
+        return new SameAs([.. members.Values.Select(m => m[1]).Where(m => m != iri).Order(StringComparer.Ordinal)], skipped);
+    }
+
+    private static string Filter(string identity, string field, string value) =>
+        $"&filter={Uri.EscapeDataString("identity:" + identity)}&filter={Uri.EscapeDataString(field + ":" + value)}";
+
     private static List<CanonicalIdentity> HeldOf(string identity, Dictionary<string, string[]> canonical, Dictionary<string, string[]> members)
     {
         var byId = members.Values.Where(m => m[0] == identity).GroupBy(m => m[2], StringComparer.Ordinal)
@@ -302,6 +333,15 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
 /// <param name="Unchanged">Records the store already held as given, not sent again.</param>
 /// <param name="Retired">Held records the pass did not give, taken out.</param>
 public sealed record RecordWrite(int Written, int Unchanged, int Retired);
+
+/// <summary>What an identity holds to be the same thing as one entity.</summary>
+/// <param name="Members">The IRIs of the other entities in its thing.</param>
+/// <param name="SkippedDocuments">How many documents the projection skipped, so members may be missing; 0 when it holds them all.</param>
+public sealed record SameAs(IReadOnlyList<string> Members, int SkippedDocuments)
+{
+    /// <summary>Whether members may be missing.</summary>
+    public bool Incomplete => SkippedDocuments > 0;
+}
 
 /// <summary>What a pass did to the identity store.</summary>
 /// <param name="Canonical">The canonical ids.</param>

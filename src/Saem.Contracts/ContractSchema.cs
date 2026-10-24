@@ -79,7 +79,8 @@ public static class ContractSchema
                 "from": { "$ref": "#/$defs/entityKey" },
                 "to": { "$ref": "#/$defs/entityKey" },
                 "partition": { "type": "string" },
-                "partitionAsOf": { "type": "string", "format": "date-time" }
+                "partitionAsOf": { "type": "string", "format": "date-time" },
+                "identity": { "enum": ["automatic", "confirmed"] }
               }
             },
             "claim": {

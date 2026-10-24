@@ -159,18 +159,6 @@ public sealed record IdentityDeclaration(string Name, string First, string Secon
 /// <param name="Second">The field of <see cref="IdentityDeclaration.Second"/>.</param>
 public sealed record FieldPair(string First, string Second);
 
-/// <summary>Who settles a pair an identity finds. On the wire each travels by its camelCase name.</summary>
-public enum IdentityDecision
-{
-    /// <summary>The rule settles it: a pair it finds is one entity until a person says otherwise.</summary>
-    [JsonStringEnumMemberName("automatic")]
-    Automatic,
-
-    /// <summary>A person settles it: a pair the rule finds is a candidate until someone confirms it.</summary>
-    [JsonStringEnumMemberName("confirmed")]
-    Confirmed,
-}
-
 /// <summary>
 /// A grouping: a line, a fleet, a team — a thing that is nothing but its members. A group is the set of members
 /// whose field holds the same value, and that value is the group's key; the members are entities the sources

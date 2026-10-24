@@ -220,6 +220,14 @@ leaves the rule's thing, both of them. An identity a person settles (`confirmed`
 candidates only: a thing is issued an id once a person has judged a pair the same. Identities by a
 linkage rule and the groups a lookup can start from are not built yet.
 
+A path crosses an identity by its name, from either of its types to the other (or to the same type, for
+duplicates): the step asks the identities filed for the person's groups which entities are one thing with
+the one reached, then reads each as the person — the same way a relation is walked backwards (below),
+bounded the same, its partitions reported the same. Only a pair the identity settles as one is crossed: by
+its rule where it is `automatic` and no person said otherwise, by a person where it is `confirmed`. The hop
+names the identity and says who settled the pair (`identity`: `automatic` or `confirmed`), and nothing of
+the grounds. An identity's name is a step's name, so it may not be a relation's or an inverse's.
+
 A relation may also declare an `inverse` — its name walked backwards, from an entity to every entity
 that leads to it (`owl:inverseOf`). No single read finds every row that names an entity, so a backward
 step — anywhere in a path — asks the edges materialized for the person's groups (below) which

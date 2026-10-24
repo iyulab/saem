@@ -22,6 +22,16 @@ public interface IMaterializedRelations
     ValueTask<PartitionEdges> LeadingToAsync(string partition, RelationDeclaration relation, string toKey, int limit, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The keys of the entities of <paramref name="identity"/>'s other type — the one <paramref name="type"/> is not, or
+    /// the same type for duplicates within one — that <paramref name="partition"/> holds to be the same thing as the
+    /// entity of <paramref name="type"/> keyed <paramref name="key"/>, never that entity itself — all of them, or at
+    /// least <paramref name="limit"/> and one more when there are more. Only pairs the identity settles as one count — by its rule where it is
+    /// <c>automatic</c> and no person said otherwise, by a person where it is <c>confirmed</c>.
+    /// </summary>
+    /// <exception cref="MaterializedRelationsException">The partition could not be read.</exception>
+    ValueTask<PartitionEdges> SameAsAsync(string partition, IdentityDeclaration identity, string type, string key, int limit, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The time <paramref name="partition"/>'s edges are as of — when the pass that built them began reading
     /// the sources — or null when the partition does not say.
     /// </summary>
@@ -29,8 +39,8 @@ public interface IMaterializedRelations
     ValueTask<DateTimeOffset?> AsOfAsync(string partition, CancellationToken cancellationToken = default);
 }
 
-/// <summary>What a partition holds leading to one entity.</summary>
-/// <param name="Keys">The keys of the entities its edges lead from.</param>
+/// <summary>What a partition holds leading to one entity, or holds to be the same thing as it.</summary>
+/// <param name="Keys">The keys of the entities its edges lead from, or that its identity holds the same.</param>
 /// <param name="Incomplete">The partition was built without some of its source documents, so keys may be missing.</param>
 public sealed record PartitionEdges(IReadOnlyList<string> Keys, bool Incomplete);
 
@@ -49,6 +59,10 @@ public sealed class NoMaterializedRelations : IMaterializedRelations
 
     /// <inheritdoc />
     public ValueTask<PartitionEdges> LeadingToAsync(string partition, RelationDeclaration relation, string toKey, int limit, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult(new PartitionEdges([], Incomplete: false));
+
+    /// <inheritdoc />
+    public ValueTask<PartitionEdges> SameAsAsync(string partition, IdentityDeclaration identity, string type, string key, int limit, CancellationToken cancellationToken = default) =>
         ValueTask.FromResult(new PartitionEdges([], Incomplete: false));
 
     /// <inheritdoc />

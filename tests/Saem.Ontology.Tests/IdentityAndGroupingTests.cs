@@ -156,4 +156,52 @@ public sealed class IdentityAndGroupingTests
             Assert.Single(Refused(KeyedItem, Line with { Members = [new GroupMembership("Material", "since"), new GroupMembership("KeyedItem", "code")] })),
             StringComparison.Ordinal);
     }
+
+    /// <summary>D-86 ②: a path steps by name, so an identity cannot share one with a relation or an inverse — in either order of declaration.</summary>
+    [Fact]
+    public void An_identity_named_like_a_relation_or_an_inverse_is_refused()
+    {
+        var ordersItem = OntologyTests.OrdersItem with { Inverse = "ordered_by" };
+
+        Assert.Contains("Identity 'orders_item' has the name of a relation or an inverse", Assert.Single(Refused(ordersItem, Named("orders_item"))), StringComparison.Ordinal);
+        Assert.Contains("Identity 'ordered_by' has the name of a relation or an inverse", Assert.Single(Refused(ordersItem, Named("ordered_by"))), StringComparison.Ordinal);
+    }
+
+    /// <summary>D-86 ① ③: a path crosses an identity by its name from either of its types, to the other.</summary>
+    [Fact]
+    public void A_path_crosses_an_identity_from_either_type_to_the_other()
+    {
+        var ontology = Create(SameItem, OntologyTests.SuppliedBy);
+
+        var fromMaterial = Assert.Single(ontology.Plan(new LookupCall(new EntityKey("Material", "M-1"), ["same_item"], ["name"])).Steps);
+        var thenOn = ontology.Plan(new LookupCall(new EntityKey("Item", "I-100"), ["same_item"], ["note"]));
+        var across = ontology.Plan(new LookupCall(new EntityKey("Material", "M-1"), ["same_item", "supplied_by"], ["name"]));
+
+        Assert.Equal((SameItem, "same_item", "Material", "Item"), (fromMaterial.Identity, fromMaterial.Name, fromMaterial.Leaves, fromMaterial.Reaches));
+        Assert.Null(fromMaterial.Relation);
+        Assert.Equal(Material, thenOn.End);
+        Assert.Equal("Supplier", across.End.Name);
+    }
+
+    [Fact]
+    public void A_path_that_crosses_an_identity_from_neither_of_its_types_is_not_in_the_ontology_s_terms()
+    {
+        var ontology = Create(SameItem);
+
+        var problem = Assert.Single(Assert.Throws<UnknownTermException>(() =>
+            ontology.Plan(new LookupCall(new EntityKey("WorkOrder", "WO-1"), ["same_item"], ["quantity"]))).Problems);
+
+        Assert.Equal("Path step 1: 'same_item' joins 'Material' and 'Item', but the walk is at 'WorkOrder'.", problem);
+    }
+
+    /// <summary>An identity of duplicates within one type is crossed back to that type.</summary>
+    [Fact]
+    public void A_path_crosses_an_identity_of_one_type_back_to_that_type()
+    {
+        var duplicates = new IdentityDeclaration("same_material", "Material", "Material", IdentityDecision.Confirmed) { Match = [new FieldPair("erpCode", "erpCode")] };
+
+        var step = Assert.Single(Create(duplicates).Plan(new LookupCall(new EntityKey("Material", "M-1"), ["same_material"], ["note"])).Steps);
+
+        Assert.Equal(("Material", "Material"), (step.Leaves, step.Reaches));
+    }
 }

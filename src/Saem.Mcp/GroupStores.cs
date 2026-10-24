@@ -24,10 +24,11 @@ public interface IGroupStores
     IReadOnlyList<GroupStore> StoresOf(Person person);
 }
 
-/// <summary>One group's store of materialized edges.</summary>
+/// <summary>One group's store of materialized edges and identities.</summary>
 /// <param name="Group">The group, as the token's <c>groups</c> claim names it.</param>
 /// <param name="Edges">Its edges.</param>
-public sealed record GroupStore(string Group, FormbaseEdgeStore Edges);
+/// <param name="Identities">Its identities — kept in the same Formbase as its edges (saem D-81 ①).</param>
+public sealed record GroupStore(string Group, FormbaseEdgeStore Edges, FormbaseIdentityStore Identities);
 
 /// <summary>Where each group's materialized edges are kept, and how their entities are named.</summary>
 public sealed class MaterializationOptions
@@ -84,7 +85,7 @@ internal sealed class ConfiguredGroupStores : IGroupStores
                 http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", store.AccessKey);
             }
 
-            _stores.Add(group, new GroupStore(group, new FormbaseEdgeStore(http, store.Namespace)));
+            _stores.Add(group, new GroupStore(group, new FormbaseEdgeStore(http, store.Namespace), new FormbaseIdentityStore(http, store.Namespace)));
         }
     }
 
@@ -129,6 +130,35 @@ internal sealed partial class GroupRelations(IReadOnlyList<GroupStore> stores, E
 
         // An edge naming its entity under another base or type was not built by this deployment's pass.
         return new PartitionEdges([.. read.Edges.Select(e => iris.KeyOf(relation.From, e.From)).OfType<string>()], read.Incomplete);
+    }
+
+    public async ValueTask<PartitionEdges> SameAsAsync(
+        string partition,
+        IdentityDeclaration identity,
+        string type,
+        string key,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var store = stores.Single(s => s.Group == partition).Identities;
+        SameAs read;
+        try
+        {
+            read = await store.SameAsAsync(identity.Name, iris!.For(type, key), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is IdentityStoreException or HttpRequestException or TaskCanceledException { InnerException: TimeoutException })
+        {
+            throw MaterializedRelationsException.For(partition, e);
+        }
+
+        if (read.Incomplete)
+        {
+            LogSkipped(logger, partition, read.SkippedDocuments);
+        }
+
+        // The other type's members only — the same type's too, for duplicates within one.
+        var other = string.Equals(type, identity.First, StringComparison.Ordinal) ? identity.Second : identity.First;
+        return new PartitionEdges([.. read.Members.Select(m => iris.KeyOf(other, m)).OfType<string>()], read.Incomplete);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The materialized relations of the group '{Group}' are read in part: their projection skipped {Count} document(s), so a lookup walking them back may miss an answer. Rerun the group's materialization.")]

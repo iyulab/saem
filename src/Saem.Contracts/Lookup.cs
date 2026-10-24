@@ -329,8 +329,20 @@ public enum SourceProjection
     Unverified,
 }
 
-/// <summary>One relation followed: from one entity to the next.</summary>
-/// <param name="Relation">The relation, as the ontology declares it — or its inverse's name, when it was walked backwards.</param>
+/// <summary>Who settles a pair an identity finds. On the wire each travels by its camelCase name.</summary>
+public enum IdentityDecision
+{
+    /// <summary>The rule settles it: a pair it finds is one entity until a person says otherwise.</summary>
+    [JsonStringEnumMemberName("automatic")]
+    Automatic,
+
+    /// <summary>A person settles it: a pair the rule finds is a candidate until someone confirms it.</summary>
+    [JsonStringEnumMemberName("confirmed")]
+    Confirmed,
+}
+
+/// <summary>One relation followed: from one entity to the next — or an identity crossed, from an entity to one the identity says is the same thing.</summary>
+/// <param name="Relation">The relation, as the ontology declares it — its inverse's name, when it was walked backwards; or the identity's name, when one was crossed.</param>
 /// <param name="From">The entity the relation was followed from.</param>
 /// <param name="To">The entity it led to.</param>
 public sealed record Hop(string Relation, EntityKey From, EntityKey To)
@@ -352,6 +364,14 @@ public sealed record Hop(string Relation, EntityKey From, EntityKey To)
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTimeOffset? PartitionAsOf { get; init; }
+
+    /// <summary>
+    /// When the hop crossed an identity, who said the two are one thing: its rule (<see cref="IdentityDecision.Automatic"/> —
+    /// and no person has said otherwise) or a person (<see cref="IdentityDecision.Confirmed"/>); null when the hop followed a
+    /// relation. The grounds the pair was judged on are not stated.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IdentityDecision? Identity { get; init; }
 }
 
 /// <summary>

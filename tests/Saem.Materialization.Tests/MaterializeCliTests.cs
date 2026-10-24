@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Saem.Materialization.Cli;
+using Saem.Contracts;
 using Saem.Ontology;
 using Saem.Query;
 using Xunit;
