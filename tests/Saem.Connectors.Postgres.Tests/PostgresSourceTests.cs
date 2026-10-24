@@ -53,6 +53,16 @@ public class PostgresSourceTests
         Assert.Equal("""SELECT "wo_no"::text FROM "work_orders" ORDER BY 1""", PostgresSourceSession.SelectAll("work_orders", "wo_no", []));
     }
 
+    /// <summary>SD-08: a pass narrowed to changed rows asks the latest change in the source's spelling, and compares by it at the source.</summary>
+    [Fact]
+    public void A_pass_over_changed_rows_asks_the_latest_change_and_reads_from_it_in_key_order()
+    {
+        Assert.Equal("SELECT max(\"updated_at\")::text FROM \"mes\".\"work_orders\"", PostgresSourceSession.SelectLatest("mes.work_orders", "updated_at"));
+        Assert.Equal(
+            """SELECT "wo_no"::text, "item_code" FROM "mes"."work_orders" WHERE "updated_at" >= @since ORDER BY 1""",
+            PostgresSourceSession.SelectChanged("mes.work_orders", "wo_no", ["item_code"], "updated_at"));
+    }
+
     [Fact]
     public void Every_name_is_quoted_as_an_identifier_even_a_hostile_one()
     {

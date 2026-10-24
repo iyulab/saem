@@ -105,6 +105,22 @@ public sealed class DeclarationCheckTests
     }
 
     /// <summary>Sessions over fixed tables, keyed by <c>system/table</c>; a table not given, or the failing one, cannot be read.</summary>
+    /// <summary>SD-08: a row with no change time is one a pass narrowed to changed rows never reads — said, citing it.</summary>
+    [Fact]
+    public async Task Rows_with_no_change_time_are_reported_since_only_a_whole_pass_reads_them()
+    {
+        var hinted = Ontology.Ontology.Create([new EntityTypeDeclaration("WorkOrder", "mes", "work_orders", "wo_no", new Dictionary<string, string> { ["item"] = "item_code" }) { ChangedAt = "updated_at" }]);
+        var sessions = new Tables(new()
+        {
+            ["mes/work_orders"] = [Row("WO-1", ("item_code", "100"), ("updated_at", "2026-10-25 01:00:00+00")), Row("WO-2", ("item_code", "7"), ("updated_at", null))],
+        });
+
+        var finding = Assert.Single((await new DeclarationCheck(hinted).RunAsync(sessions, TestContext.Current.CancellationToken)).Violations);
+
+        Assert.Equal(("noChangeTime", 1), (finding.Kind, finding.Count));
+        Assert.Equal(["WO-2"], finding.Records);
+    }
+
     /// <summary>
     /// SD-12 simulate ②: a change checked against the same sources before it is put in force. Declaring the item key as
     /// text, not as the number it spells, leaves a work order's «0100» naming no item — worse, and said so by count.

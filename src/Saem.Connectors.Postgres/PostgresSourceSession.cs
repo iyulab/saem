@@ -10,7 +10,7 @@ namespace Saem.Connectors.Postgres;
 /// is rolled back when the session ends. A write cannot happen here even if a grant would allow it —
 /// the transaction refuses it at the source.
 /// </summary>
-internal sealed class PostgresSourceSession : ISourceSession
+internal sealed class PostgresSourceSession : ISourceSession, IChangedRows
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly NpgsqlConnection _connection;
@@ -123,6 +123,34 @@ internal sealed class PostgresSourceSession : ISourceSession
         }
     }
 
+    /// <inheritdoc />
+    public async ValueTask<string?> LatestChangeAsync(string table, string column, CancellationToken cancellationToken = default)
+    {
+        await using var command = new NpgsqlCommand(SelectLatest(table, column), _connection, _transaction);
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+    }
+
+    /// <inheritdoc />
+    public async IAsyncEnumerable<SourceRow> ScanChangedAsync(
+        string table,
+        string keyColumn,
+        IReadOnlyList<string> columns,
+        string column,
+        string since,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        ArgumentNullException.ThrowIfNull(since);
+
+        await using var command = new NpgsqlCommand(SelectChanged(table, keyColumn, columns, column), _connection, _transaction);
+        // Sent untyped, so the source reads the text as the column's own type — the spelling max(column)::text gave.
+        command.Parameters.Add(new NpgsqlParameter("since", NpgsqlTypes.NpgsqlDbType.Unknown) { Value = since });
+        await foreach (var row in RowsAsync(command, columns, cancellationToken).ConfigureAwait(false))
+        {
+            yield return row;
+        }
+    }
+
     private static async IAsyncEnumerable<SourceRow> RowsAsync(
         NpgsqlCommand command, IReadOnlyList<string> columns, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -169,6 +197,17 @@ internal sealed class PostgresSourceSession : ISourceSession
     {
         var select = string.Join(", ", columns.Select(Identifier));
         return $"SELECT {Identifier(keyColumn)}::text{(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} ORDER BY 1";
+    }
+
+    /// <summary><c>SELECT max(column)::text FROM table</c> — the latest change the session sees, as the source spells it.</summary>
+    internal static string SelectLatest(string table, string column) =>
+        $"SELECT max({Identifier(column)})::text FROM {QualifiedTable(table)}";
+
+    /// <summary><c>SELECT key::text, columns… FROM table WHERE column &gt;= @since ORDER BY 1</c> — the rows changed at or after a latest change.</summary>
+    internal static string SelectChanged(string table, string keyColumn, IReadOnlyList<string> columns, string column)
+    {
+        var select = string.Join(", ", columns.Select(Identifier));
+        return $"SELECT {Identifier(keyColumn)}::text{(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} WHERE {Identifier(column)} >= @since ORDER BY 1";
     }
 
     /// <summary>A table name, optionally <c>schema.table</c>, each part quoted.</summary>

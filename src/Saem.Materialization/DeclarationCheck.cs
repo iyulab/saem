@@ -38,10 +38,11 @@ public sealed class DeclarationCheck(Ontology.Ontology ontology)
             foreach (var type in ontology.EntityTypes.Values.OrderBy(t => t.Name, StringComparer.Ordinal))
             {
                 var leaving = ontology.Relations.Values.Where(r => r.From == type.Name).OrderBy(r => r.Name, StringComparer.Ordinal).ToList();
-                var columns = type.Fields.Values.Concat(type.Record ?? []).Distinct(StringComparer.Ordinal).ToList();
+                var columns = type.Fields.Values.Concat(type.Record ?? []).Concat(type.ChangedAt is { } changedAt ? [changedAt] : []).Distinct(StringComparer.Ordinal).ToList();
                 var seen = new HashSet<string>(StringComparer.Ordinal);
                 var duplicate = new List<string>();
                 var emptyRecord = new List<string>();
+                var unchanged = new List<string>();
                 var notInteger = new List<string>();
                 int rows = 0, emptyKeys = 0;
                 foreach (var relation in leaving)
@@ -79,6 +80,11 @@ public sealed class DeclarationCheck(Ontology.Ontology ontology)
                         if (type.Record is { } record && record.Any(c => string.IsNullOrEmpty(Text(row.Values[c]))))
                         {
                             emptyRecord.Add(row.Key);
+                        }
+
+                        if (type.ChangedAt is { } changed && string.IsNullOrEmpty(Text(row.Values[changed])))
+                        {
+                            unchanged.Add(row.Key);
                         }
 
                         foreach (var relation in leaving)
@@ -119,6 +125,7 @@ public sealed class DeclarationCheck(Ontology.Ontology ontology)
                 }
 
                 AddIf(findings, type.Name, "emptyRecord", $"rows leave a record column ({string.Join(", ", type.Record ?? [])}) empty — an answer from them cites no record", emptyRecord);
+                AddIf(findings, type.Name, "noChangeTime", $"rows leave '{type.ChangedAt}' empty — a pass reading only changed rows never reads them; only a whole pass does", unchanged);
                 AddIf(findings, type.Name, "notInteger", $"keys of '{type.Key}' spell no integer, though the type declares keyKind number", notInteger);
                 findings.Add(new CheckFinding(type.Name, null, "read", $"{rows} row(s) read", rows, []));
             }

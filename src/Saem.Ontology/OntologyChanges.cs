@@ -86,6 +86,12 @@ public static class OntologyChanges
             add(ChangeKind.Breaking, $"compares its keys as {Kind(now.KeyKind.GetValueOrDefault())} instead of {Kind(was.KeyKind.GetValueOrDefault())}");
         }
 
+        // Which rows a pass reads is not what a lookup answers: the hint only narrows the reading.
+        if (was.ChangedAt != now.ChangedAt)
+        {
+            add(ChangeKind.Additive, now.ChangedAt is null ? "is read whole by every pass" : $"tells its changed rows by {now.ChangedAt}");
+        }
+
         if (!(was.Record ?? []).SequenceEqual(now.Record ?? []))
         {
             add(ChangeKind.Breaking, $"cites its records by {Record(now)} instead of {Record(was)}");

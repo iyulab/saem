@@ -32,6 +32,16 @@ public class MySqlSourceTests
             MySqlSourceSession.SelectAll("erp.items", "item_code", ["item_name"]));
     }
 
+    /// <summary>SD-08: a pass narrowed to changed rows asks the latest change in the source's spelling, and compares by it at the source.</summary>
+    [Fact]
+    public void A_pass_over_changed_rows_asks_the_latest_change_and_reads_from_it_in_key_order()
+    {
+        Assert.Equal("SELECT CAST(max(`updated_at`) AS CHAR) FROM `erp`.`items`", MySqlSourceSession.SelectLatest("erp.items", "updated_at"));
+        Assert.Equal(
+            "SELECT CAST(`item_code` AS CHAR), `item_name` FROM `erp`.`items` WHERE `updated_at` >= @since ORDER BY 1",
+            MySqlSourceSession.SelectChanged("erp.items", "item_code", ["item_name"], "updated_at"));
+    }
+
     [Fact]
     public void A_read_selects_the_key_as_text_and_the_asked_columns_by_key()
     {

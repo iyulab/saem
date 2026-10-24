@@ -80,6 +80,19 @@ public sealed class FileOntologyCatalogTests : IDisposable
         Assert.DoesNotContain("kinds", written, StringComparison.Ordinal);
     }
 
+    /// <summary>SD-08: the column a source sets when a row changes is read from the file by name; an empty one is refused.</summary>
+    [Fact]
+    public async Task The_column_a_row_changes_by_is_read_from_the_file_and_an_empty_one_refused()
+    {
+        await File.WriteAllTextAsync(_path, """
+            [ { "kind": "entityType", "name": "Part", "system": "mes", "table": "parts", "key": "part_no", "fields": { "name": "part_name" }, "changedAt": "updated_at" } ]
+            """, TestContext.Current.CancellationToken);
+
+        Assert.Equal("updated_at", (await new FileOntologyCatalog(_path).GetAsync(TestContext.Current.CancellationToken)).EntityTypes["Part"].ChangedAt);
+        Assert.Contains("declares an empty column for when its rows change",
+            Assert.Single(Assert.Throws<OntologyDeclarationException>(() => Ontology.Create([OntologyTests.Item with { ChangedAt = " " }])).Problems), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task An_edit_to_the_file_is_seen_by_the_next_read()
     {

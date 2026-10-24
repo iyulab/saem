@@ -10,7 +10,7 @@ namespace Saem.Connectors.MySql;
 /// rolled back when the session ends. A write cannot happen here even if a grant would allow it — the
 /// transaction refuses it at the source.
 /// </summary>
-internal sealed class MySqlSourceSession : ISourceSession
+internal sealed class MySqlSourceSession : ISourceSession, IChangedRows
 {
     private readonly MySqlConnection _connection;
 
@@ -99,6 +99,34 @@ internal sealed class MySqlSourceSession : ISourceSession
         }
     }
 
+    /// <inheritdoc />
+    public async ValueTask<string?> LatestChangeAsync(string table, string column, CancellationToken cancellationToken = default)
+    {
+        await using var command = new MySqlCommand(SelectLatest(table, column), _connection);
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+    }
+
+    /// <inheritdoc />
+    public async IAsyncEnumerable<SourceRow> ScanChangedAsync(
+        string table,
+        string keyColumn,
+        IReadOnlyList<string> columns,
+        string column,
+        string since,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        ArgumentNullException.ThrowIfNull(since);
+
+        // The text is compared as the column's own type: MySQL converts a string to a temporal or numeric operand.
+        await using var command = new MySqlCommand(SelectChanged(table, keyColumn, columns, column), _connection);
+        command.Parameters.AddWithValue("@since", since);
+        await foreach (var row in RowsAsync(command, columns, cancellationToken).ConfigureAwait(false))
+        {
+            yield return row;
+        }
+    }
+
     private static async IAsyncEnumerable<SourceRow> RowsAsync(
         MySqlCommand command, IReadOnlyList<string> columns, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -145,6 +173,17 @@ internal sealed class MySqlSourceSession : ISourceSession
     {
         var select = string.Join(", ", columns.Select(Identifier));
         return $"SELECT CAST({Identifier(keyColumn)} AS CHAR){(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} ORDER BY 1";
+    }
+
+    /// <summary><c>SELECT CAST(max(column) AS CHAR) FROM table</c> — the latest change the session sees, as the source spells it.</summary>
+    internal static string SelectLatest(string table, string column) =>
+        $"SELECT CAST(max({Identifier(column)}) AS CHAR) FROM {QualifiedTable(table)}";
+
+    /// <summary><c>SELECT CAST(key AS CHAR), columns… FROM table WHERE column &gt;= @since ORDER BY 1</c> — the rows changed at or after a latest change.</summary>
+    internal static string SelectChanged(string table, string keyColumn, IReadOnlyList<string> columns, string column)
+    {
+        var select = string.Join(", ", columns.Select(Identifier));
+        return $"SELECT CAST({Identifier(keyColumn)} AS CHAR){(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} WHERE {Identifier(column)} >= @since ORDER BY 1";
     }
 
     /// <summary>A table name, optionally <c>database.table</c>, each part quoted.</summary>

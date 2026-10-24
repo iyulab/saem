@@ -71,6 +71,14 @@ public sealed record EntityTypeDeclaration(
     public IReadOnlyDictionary<string, FieldKind>? Kinds { get; init; }
 
     /// <summary>
+    /// The column the source sets when a row changes — an <c>updated_at</c> it keeps itself. Declared, a pass may read
+    /// only the rows changed since the last one instead of the whole table; omitted, every pass reads it whole. It says
+    /// nothing a lookup answers: no claim cites it, and a pass that reads it never trusts it to see a row deleted.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChangedAt { get; init; }
+
+    /// <summary>
     /// The one spelling of <paramref name="key"/> every comparison of this type's keys uses: a number key is
     /// compared as the integer it spells, so <c>0001</c>, <c>+1</c> and <c>1</c> name one entity; a text key is
     /// itself. A number key that spells no integer is left as written — it names no entity a source holds.

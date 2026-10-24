@@ -21,6 +21,18 @@ public sealed class OntologyChangesTests
     private static IReadOnlyList<string> Changes(params Declaration[] after) =>
         [.. OntologyChanges.Between(Before, Ontology.Create(after)).Select(c => $"{c.Kind} {c.Declaration}: {c.Change}")];
 
+    /// <summary>SD-08: which rows a pass reads is no vocabulary — declaring, moving or dropping the change column only adds.</summary>
+    [Fact]
+    public void Declaring_or_dropping_the_column_rows_change_by_does_not_break()
+    {
+        var hinted = OntologyTests.WorkOrder with { ChangedAt = "updated_at" };
+        var rest = new Declaration[] { OntologyTests.Item, OntologyTests.Supplier, OntologyTests.OrdersItem with { Inverse = "ordered_by" }, OntologyTests.SuppliedBy };
+
+        Assert.Equal(["Additive entityType WorkOrder: tells its changed rows by updated_at"], Changes([hinted, .. rest]));
+        Assert.Equal(["Additive entityType WorkOrder: is read whole by every pass"],
+            [.. OntologyChanges.Between(Ontology.Create([hinted, .. rest]), Before).Select(c => $"{c.Kind} {c.Declaration}: {c.Change}")]);
+    }
+
     [Fact]
     public void The_same_declarations_in_another_order_are_no_change()
     {

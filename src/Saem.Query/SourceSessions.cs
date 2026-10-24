@@ -60,6 +60,34 @@ public interface ISourceSession : IAsyncDisposable
 }
 
 /// <summary>
+/// A session that can narrow a pass over a table to the rows changed since the last one, by a column the source sets
+/// when a row changes (an entity type's <c>changedAt</c>). The value it is compared by is the source's own, spelled as
+/// the source spells it, and compared by the source — never by saem's clock, so a source whose clock differs from
+/// saem's is read the same. A session that is not one is read whole every pass.
+/// </summary>
+public interface IChangedRows
+{
+    /// <summary>
+    /// The latest value of <paramref name="column"/> among the rows of <paramref name="table"/> the session may see, as
+    /// the source spells it in text; null when it sees no row, or none with a value.
+    /// </summary>
+    ValueTask<string?> LatestChangeAsync(string table, string column, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// As <see cref="ISourceSession.ScanAsync"/>, the rows whose <paramref name="column"/> is at or after
+    /// <paramref name="since"/> — a value <see cref="LatestChangeAsync"/> gave. At, not after: a row changed at that very
+    /// value by a later write is read again rather than missed. A row whose column is empty is never among them.
+    /// </summary>
+    IAsyncEnumerable<SourceRow> ScanChangedAsync(
+        string table,
+        string keyColumn,
+        IReadOnlyList<string> columns,
+        string column,
+        string since,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Which source tables are projections of documents kept elsewhere — a form's records, projected by the
 /// service that keeps the forms — and whether each is behind its documents. Asked once per table per lookup;
 /// the answer is about the table, not about any person's rows.
