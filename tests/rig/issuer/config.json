@@ -36,6 +36,16 @@
           }
         },
         {
+          "requestParam": "client_id",
+          "match": "agent-for-alice",
+          "claims": {
+            "sub": "alice",
+            "act": { "sub": "agent-7" },
+            "scope": "${scope}",
+            "aud": ["${audience}"]
+          }
+        },
+        {
           "requestParam": "grant_type",
           "match": "client_credentials",
           "claims": {

@@ -24,6 +24,8 @@ public sealed class McpFormsLiveTests : IAsyncLifetime
     private static readonly string MasterSecret = Environment.GetEnvironmentVariable("SAEM_RIG_FORMS_MASTER_SECRET")
         ?? throw new InvalidOperationException("SAEM_RIG_FORMS_MASTER_SECRET is the forms source's master secret (tests/rig/compose.morphdb.yaml).");
 
+    private static readonly string[] ReadResult = ["result"];
+
     private readonly string _table = $"inspection_{Guid.NewGuid():N}"[..24];
     private Guid _project;
     private TestServer _server = null!;
@@ -117,6 +119,50 @@ public sealed class McpFormsLiveTests : IAsyncLifetime
         Assert.DoesNotContain(Canary, forBob.StructuredContent!.Value.GetRawText(), StringComparison.Ordinal);
         // Neither the answer nor a token is logged.
         Assert.DoesNotContain(_server.Logs.Lines, l => l.Contains(Canary, StringComparison.Ordinal) || l.Contains("eyJ", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// An agent acting for alice holds a token naming her as its subject and itself in <c>act</c>. saem
+    /// answers as alice, says an agent asked, and the token it exchanges for MorphDB keeps the <c>act</c> —
+    /// so MorphDB's own audit trail tells the agent's read from alice's.
+    /// </summary>
+    [Fact]
+    public async Task An_agents_read_for_a_person_is_the_agents_in_the_sources_audit_trail()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var agent = await _server.ClientAsync(await TokenAsync("agent-for-alice", ct), ct);
+
+        var answer = (await agent.CallToolAsync("lookup", new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = "Inspection", ["key"] = "doc-1" },
+            ["path"] = Array.Empty<string>(),
+            ["read"] = ReadResult,
+        }, cancellationToken: ct)).StructuredContent!.Value;
+
+        Assert.Equal(Canary, Assert.Single(answer.GetProperty("claims").EnumerateArray()).GetProperty("value").GetString());
+        Assert.Equal(("alice", "agent-7"), (
+            answer.GetProperty("answeredFor").GetProperty("subject").GetString(),
+            answer.GetProperty("answeredFor").GetProperty("actedBy").GetString()));
+
+        using var master = Master();
+        for (var attempt = 0; ; attempt++)
+        {
+            var page = await master.GetFromJsonAsync<JsonElement>($"api/projects/{_project}/audit/logs?actorId=alice", ct);
+            var read = page.GetProperty("items").EnumerateArray().FirstOrDefault(e => e.GetProperty("httpMethod").GetString() == "GET");
+            if (read.ValueKind == JsonValueKind.Object)
+            {
+                if (!read.TryGetProperty("actedBy", out var actedBy))
+                {
+                    Assert.Skip("This MorphDB records no actedBy (before the release that adds it); the rig's image is SAEM_RIG_MORPHDB_IMAGE.");
+                }
+
+                Assert.Equal("agent-7", actedBy.GetString());
+                return;
+            }
+
+            Assert.True(attempt < 50, "MorphDB's audit row for alice's read did not arrive.");
+            await Task.Delay(200, ct);
+        }
     }
 
     private static async Task<string> TokenAsync(string person, CancellationToken ct)
