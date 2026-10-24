@@ -237,6 +237,10 @@ one), and the review lists every retried attempt. Secrets come from the environm
 never from the command line. This is direct authoring: the draft is a reviewed edit of the catalog
 file, not a changeset — nothing is simulated or applied against the sources.
 
+An answer says whose view it is (`answeredFor`: the person it was run as, and the agent that asked for
+them, if one did) — a refusal included, since what one person may not see is not what nobody may — so it
+is not taken for anyone else's once passed on.
+
 Each source an answer cites says when saem read it (`readAt`): every source is read at the moment the
 lookup is asked, as the person, so that is the time the value is as of — an agent holding the answer
 knows how old the fact is. A relation walked backwards is found through edges built ahead of time, and

@@ -121,6 +121,8 @@ internal sealed partial class LookupTool
             return Error("A source failed while the lookup ran, so it was not answered. This is a failure, not a refusal: nothing is known about what the source holds.");
         }
 
+        // The answer is this person's view: said in it, so it is not taken for anyone else's once passed on.
+        answer = answer with { AnsweredFor = new Viewer(person.Subject, person.Actor) };
         var json = JsonSerializer.SerializeToElement(answer, ContractJson.Default.LookupAnswer);
         return new CallToolResult
         {

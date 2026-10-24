@@ -23,6 +23,19 @@ public class LookupAnswerJsonTests
     private static LookupAnswer? Read(string json) => JsonSerializer.Deserialize(json, ContractJson.Default.LookupAnswer);
 
     [Fact]
+    public void Whose_view_an_answer_is_reads_back_and_is_left_out_when_unknown()
+    {
+        var refused = new Refused(new Refusal(RefusalReason.NoVisibleResult, 0, null, "erp")) { AnsweredFor = new Viewer("bob", "agent-7") };
+
+        var read = Assert.IsType<Refused>(Read(Write(refused)));
+
+        Assert.Equal(new Viewer("bob", "agent-7"), read.AnsweredFor);
+        Assert.Contains("\"answeredFor\":{\"subject\":\"bob\",\"actedBy\":\"agent-7\"}", Write(refused), StringComparison.Ordinal);
+        Assert.DoesNotContain("actedBy", Write(refused with { AnsweredFor = new Viewer("bob", null) }), StringComparison.Ordinal);
+        Assert.DoesNotContain("answeredFor", Write(refused with { AnsweredFor = null }), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void An_answer_names_its_case_and_reads_back_as_the_same_facts()
     {
         var claim = new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [new Hop("supplied_by", Order, Supplier)]);

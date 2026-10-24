@@ -33,6 +33,24 @@ public abstract record LookupAnswer
     private protected LookupAnswer()
     {
     }
+
+    /// <summary>
+    /// Whose view the answer is: every source was read as this person, so what it states — and where it
+    /// refuses — holds for them and not for whoever the answer is passed on to. Set by the surface that
+    /// knows who called; null where none does.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Viewer? AnsweredFor { get; init; }
+}
+
+/// <summary>The person a lookup was run as, and who asked on their behalf.</summary>
+/// <param name="Subject">The person — the <c>sub</c> of the token the lookup was called with.</param>
+/// <param name="ActedBy">The agent that called for them (the token's <c>act</c>), or null when they called directly.</param>
+public sealed record Viewer(string Subject, string? ActedBy)
+{
+    /// <inheritdoc cref="Viewer" path="/param[@name='ActedBy']"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ActedBy { get; init; } = ActedBy;
 }
 
 /// <summary>A lookup that found something: at least one fact.</summary>

@@ -153,6 +153,24 @@ public sealed class LookupToolTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task An_answer_says_whose_view_it_is_and_who_asked_for_them()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var direct = await _server.ClientAsync(TestServer.Token("alice"), ct);
+        await using var agent = await _server.ClientAsync(TestServer.Token("bob", actor: "agent-7"), ct);
+
+        var own = (await direct.CallToolAsync("lookup", Call("WorkOrder", "WO-3", [], ["note"]), cancellationToken: ct)).StructuredContent!.Value;
+        var forBob = (await agent.CallToolAsync("lookup", Call("WorkOrder", "WO-3", [], ["note"]), cancellationToken: ct)).StructuredContent!.Value;
+
+        Assert.Equal("alice", own.GetProperty("answeredFor").GetProperty("subject").GetString());
+        Assert.False(own.GetProperty("answeredFor").TryGetProperty("actedBy", out _), "alice asked herself");
+        // A refusal is a view too: what bob may not see is not what nobody may.
+        Assert.Equal("refused", forBob.GetProperty("kind").GetString());
+        Assert.Equal("bob", forBob.GetProperty("answeredFor").GetProperty("subject").GetString());
+        Assert.Equal("agent-7", forBob.GetProperty("answeredFor").GetProperty("actedBy").GetString());
+    }
+
+    [Fact]
     public async Task A_call_outside_the_vocabulary_is_a_tool_error_not_a_refusal()
     {
         var ct = TestContext.Current.CancellationToken;
