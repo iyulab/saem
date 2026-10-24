@@ -33,7 +33,7 @@ services:
 
   forms:
     # The first release that accepts tokens; SAEM_RIG_MORPHDB_IMAGE runs another (a local build, say).
-    image: ${SAEM_RIG_MORPHDB_IMAGE:-ghcr.io/iyulab/morphdb:0.32.0}
+    image: ${SAEM_RIG_MORPHDB_IMAGE:-ghcr.io/iyulab/morphdb:0.33.0}
     environment:
       ConnectionStrings__MorphDB: Host=forms-db;Port=5432;Database=forms;Username=morph;Password=rig-morph-local-only
       Security__MasterSecret: rig-forms-master-local-only
