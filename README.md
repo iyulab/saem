@@ -9,14 +9,17 @@ as a wellspring of knowledge
 > answers and widgets built and deployed on saem itself. It is designed so that every query runs as
 > the person being acted for, and every fact it returns carries its source.
 
-**Status: early implementation — nothing is published.** What runs: a read-only connector that
-feeds ontology authoring, a lookup walk that reads each hop through a session opened as the person
-it is for, PostgreSQL and MySQL sources those sessions log in to, and an MCP server whose one lookup tool runs
-as the person a request's bearer token names (all below). Logins to the sources are passwords for
-now, not the person's token — so most of this README,
-the permission principle included, describes what saem is meant to be rather than what it does.
-The architecture and ADRs are still under active revalidation. What comes next is under
-[Roadmap](#roadmap).
+**Status: early implementation — nothing is published.** What runs: connectors that read
+PostgreSQL, MySQL, MorphDB and Formbase sources; an authoring pass (`saem-author`) that drafts the
+ontology's declarations from Eyu's proposals for a person to review; a lookup walk that reads each hop
+through a session opened as the person it is for; an MCP server whose one lookup tool runs as the
+person a request's bearer token names; and a first materialization pass (`saem-materialize`) that
+keeps each group's relation edges in that group's own store (all below). A MorphDB source is read with
+the person's own token, exchanged for one meant for it; the relational sources still log in with a
+password per person, until their drivers can present a token. All of it runs on synthetic fixtures,
+not yet on a real organization's systems — so much of this README, the permission principle
+included, still describes what saem is meant to be rather than what it has shown. The architecture
+and ADRs are still under active revalidation. What comes next is under [Roadmap](#roadmap).
 
 ---
 
@@ -415,27 +418,32 @@ docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml down 
 
 Order, not dates.
 
-**Next: query-time delegation**, ahead of further connectors. Two independent relational sources
-that enforce their own row-level rules, two users whose visibility differs, one question that
-crosses both systems — and two different answers, each fact citing only records that user can
-read, each lookup shown in the log to have run as that user.
+**Done on the rig: query-time delegation.** Two independent relational sources that enforce their
+own row-level rules, two users whose visibility differs, one question that crosses both systems — and
+two different answers, each fact citing only records that user can read, each lookup shown in the log
+to have run as that user. It runs over PostgreSQL and MySQL with per-person password logins, and over
+a MorphDB source with the person's own token — exchanged for one meant for the source, which checks it
+and applies its row-level security as that person. The relational sources take the token once their
+drivers can present one.
 
-Where it stands: that slice runs on the rig over PostgreSQL and MySQL with per-person password
-logins, and over a MorphDB source with the person's own token — exchanged for one meant for the
-source, which checks it and applies its row-level security as that person. On that source a form
-document accepted by Formbase and projected into MorphDB is answered through the MCP server with the
-document's own id as the record its source names — and in one run, the ontology that answer is asked
-in is the draft an authoring pass made from the forms, unedited, the relation followed included. The
-relational sources take the token once their drivers can present one.
+**Done on the rig: one chain from a form to an answer.** A form document accepted by Formbase and
+projected into MorphDB is answered through the MCP server with the document's own id as the record its
+source names — and in one run, the ontology that answer is asked in is the draft an authoring pass made
+from the forms, unedited, the relation followed included.
 
-What that slice will not show is part of the plan. It runs on synthetic fixtures, so it says
-nothing about whether a given legacy system can be queried as its end users at all. Across the two
-relational systems the relations are declared by hand, not proposed by Eyu. And it leaves materialization
-out — the "edges by group" half of the permission principle, and the question of how to show a
-path whose middle hop the user may not read, stay open.
+**Started: materialization by group.** Each group's edges are read through that group's own account and
+kept in that group's own store; a person reads only the partitions of the groups their token names, a
+relation walked backwards answers from them, and a person in no such group is refused. Paths longer
+than one backward hop, embeddings, and how to show a path whose middle hop the user may not read stay
+open.
 
-What follows is decided by what that slice measures, starting with the cost the delegation model
-already carries on paper: one connection pool per user.
+What these slices do not show is part of the plan. They run on synthetic fixtures, so they say nothing
+about whether a given legacy system can be queried as its end users at all. Across the two relational
+systems the relations are declared by hand, not proposed by Eyu.
+
+**Next: a real organization's systems.** Whether people who work across those systems need it, and
+whether a lookup answered as each of them is fast enough, are measured there, not on the rig — starting
+with the cost the delegation model already carries on paper: one connection pool per user.
 
 ## Consumption modes
 
