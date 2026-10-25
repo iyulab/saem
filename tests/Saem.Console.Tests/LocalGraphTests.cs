@@ -46,7 +46,8 @@ public sealed class LocalGraphTests
         string? sent = null;
         var lookups = new McpConsoleLookups(
             new HttpClient(issuer),
-            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", TokenEndpoint = "http://issuer.test/token", ClientId = "saem-console", ClientSecret = "s3cret" }),
+            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", TokenEndpoint = "http://issuer.test/token" }),
+            Options.Create(new ConsoleIdentityOptions { ClientId = "saem-console", ClientSecret = "s3cret" }),
             (_, token, _, _) =>
             {
                 sent = token;
@@ -72,7 +73,8 @@ public sealed class LocalGraphTests
         var issuer = new ExchangingIssuer();
         var lookups = new McpConsoleLookups(
             new HttpClient(issuer),
-            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", TokenEndpoint = "http://issuer.test/token", ClientId = "saem-console", PresentActor = false }),
+            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", TokenEndpoint = "http://issuer.test/token", PresentActor = false }),
+            Options.Create(new ConsoleIdentityOptions { ClientId = "saem-console" }),
             (_, _, _, _) => Task.FromResult(JsonSerializer.SerializeToElement(new { kind = "answered" })));
 
         await lookups.LookupAsync("console-token-of-alice", Call, TestContext.Current.CancellationToken);
@@ -87,7 +89,8 @@ public sealed class LocalGraphTests
         var called = false;
         var lookups = new McpConsoleLookups(
             new HttpClient(new ExchangingIssuer(refuse: true)),
-            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", TokenEndpoint = "http://issuer.test/token", ClientId = "saem-console" }),
+            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", TokenEndpoint = "http://issuer.test/token" }),
+            Options.Create(new ConsoleIdentityOptions { ClientId = "saem-console" }),
             (_, _, _, _) =>
             {
                 called = true;

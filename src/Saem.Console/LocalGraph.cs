@@ -8,7 +8,7 @@ namespace Saem.Console;
 
 /// <summary>
 /// How the console asks the MCP server as the person looking (saem D-89 ①): the server's address, the audience its
-/// tokens must name, and the issuer's token-exchange endpoint with the console's own client credentials.
+/// tokens must name, and the issuer's token-exchange endpoint.
 /// </summary>
 public sealed class ConsoleLookupOptions
 {
@@ -18,14 +18,8 @@ public sealed class ConsoleLookupOptions
     /// <summary>The audience the MCP server accepts; the person's token is exchanged for one naming it.</summary>
     public string McpAudience { get; set; } = "saem";
 
-    /// <summary>The issuer's token endpoint (RFC 8693 token exchange).</summary>
+    /// <summary>The issuer's token endpoint (RFC 8693 token exchange), where the console authenticates as its client (<see cref="ConsoleIdentityOptions"/>).</summary>
     public string TokenEndpoint { get; set; } = "";
-
-    /// <summary>The console's client id at the issuer.</summary>
-    public string ClientId { get; set; } = "";
-
-    /// <summary>The console's client secret at the issuer.</summary>
-    public string ClientSecret { get; set; } = "";
 
     /// <summary>
     /// Whether the console presents itself as the actor in the exchange (RFC 8693 delegation: its own client-credentials
@@ -49,7 +43,7 @@ public interface IConsoleLookups
 /// console as the actor, and the server's one tool is called with it. The console reads no source itself: what the person sees is what the server
 /// answers that person, partition reports and refusals included.
 /// </summary>
-internal sealed class McpConsoleLookups(HttpClient http, IOptions<ConsoleLookupOptions> options, Func<Uri, string, JsonElement, CancellationToken, Task<JsonElement>>? call = null)
+internal sealed class McpConsoleLookups(HttpClient http, IOptions<ConsoleLookupOptions> options, IOptions<ConsoleIdentityOptions> identity, Func<Uri, string, JsonElement, CancellationToken, Task<JsonElement>>? call = null)
     : IConsoleLookups
 {
     private const string GrantType = "urn:ietf:params:oauth:grant-type:token-exchange";
@@ -87,9 +81,10 @@ internal sealed class McpConsoleLookups(HttpClient http, IOptions<ConsoleLookupO
 
     private async Task<string> TokenAsync(ConsoleLookupOptions settings, Dictionary<string, string> form, CancellationToken cancellationToken)
     {
+        var client = identity.Value;
         using var request = new HttpRequestMessage(HttpMethod.Post, settings.TokenEndpoint) { Content = new FormUrlEncodedContent(form) };
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(
-            Encoding.UTF8.GetBytes($"{Uri.EscapeDataString(settings.ClientId)}:{Uri.EscapeDataString(settings.ClientSecret)}")));
+            Encoding.UTF8.GetBytes($"{Uri.EscapeDataString(client.ClientId)}:{Uri.EscapeDataString(client.ClientSecret)}")));
 
         using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);

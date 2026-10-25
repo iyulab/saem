@@ -1,13 +1,19 @@
+using System.Globalization;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.Extensions.Options;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Extensions.Options;
 using Saem.Ontology;
 
 namespace Saem.Console;
 
-/// <summary>The issuer the console trusts and the audience a token must name to be accepted here.</summary>
+/// <summary>
+/// The issuer the console trusts, the audience a token must name to be accepted here, and the console's own client at
+/// that issuer — the confidential client that signs people in and exchanges their tokens.
+/// </summary>
 public sealed class ConsoleIdentityOptions
 {
     /// <summary>The issuer, as its tokens' <c>iss</c> names it; its discovery document is read from here.</summary>
@@ -16,7 +22,19 @@ public sealed class ConsoleIdentityOptions
     /// <summary>The console's own audience — not the MCP server's: a token meant for one is never accepted by the other.</summary>
     public string Audience { get; set; } = "";
 
-    /// <summary>Whether the issuer must be reached over HTTPS. Off only for a local development issuer.</summary>
+    /// <summary>The console's client id at the issuer.</summary>
+    public string ClientId { get; set; } = "";
+
+    /// <summary>The console's client secret at the issuer.</summary>
+    public string ClientSecret { get; set; } = "";
+
+    /// <summary>The scopes asked for at sign-in besides <c>openid</c>.</summary>
+    public List<string> Scopes { get; set; } = [];
+
+    /// <summary>
+    /// Whether the issuer must be reached over HTTPS — and the console's session cookie sent over HTTPS only. Off only
+    /// for a local development issuer and console.
+    /// </summary>
     public bool RequireHttpsMetadata { get; set; } = true;
 }
 
@@ -47,8 +65,25 @@ public static class ConsoleRoles
 }
 
 /// <summary>
-/// Wires the console: bearer tokens from the configured issuer, for the console's own audience, and the person's roles
-/// from the groups the token names. Configuration lives under <c>Saem:Console</c>: <c>Ontology</c> (the catalog file),
+/// How a request reaches the console (saem `c838-01`, backend-for-frontend): a browser holds a session cookie and never
+/// a token — the console signs the person in with the authorization code flow as a confidential client and keeps their
+/// tokens in the session — while a program presents a bearer token for the console's audience.
+/// </summary>
+public static class ConsoleAuthentication
+{
+    /// <summary>The scheme every endpoint authenticates with: the bearer scheme when a bearer token is presented, else the session.</summary>
+    public const string Scheme = "saem-console";
+
+    /// <summary>
+    /// The header a browser's state-changing request carries. A cross-origin page cannot add it without a preflight the
+    /// console never approves, so a forged form post or fetch from another site is refused (CSRF).
+    /// </summary>
+    public const string RequestHeader = "X-Saem-Console";
+}
+
+/// <summary>
+/// Wires the console: a browser session signed in at the configured issuer or a bearer token for the console's own
+/// audience, and the person's roles from the groups the token names. Configuration lives under <c>Saem:Console</c>: <c>Ontology</c> (the catalog file),
 /// <c>Identity</c> (<see cref="ConsoleIdentityOptions"/>) and <c>Roles</c> (<see cref="ConsoleRoleOptions"/>). Nothing here names a source
 /// or a store: the console reads neither (saem D-89).
 /// </summary>
@@ -60,7 +95,9 @@ public static class SaemConsole
         var console = configuration.GetSection("Saem:Console");
         services.AddOptions<ConsoleIdentityOptions>()
             .Bind(console.GetSection("Identity"))
-            .Validate(i => !string.IsNullOrEmpty(i.Authority) && !string.IsNullOrEmpty(i.Audience), "Saem:Console:Identity names the trusted issuer (Authority) and the console's audience (Audience).")
+            .Validate(
+                i => !string.IsNullOrEmpty(i.Authority) && !string.IsNullOrEmpty(i.Audience) && !string.IsNullOrEmpty(i.ClientId),
+                "Saem:Console:Identity names the trusted issuer (Authority), the console's audience (Audience) and its client there (ClientId, ClientSecret).")
             .ValidateOnStart();
         services.AddOptions<ConsoleCatalogOptions>()
             .Bind(console)
@@ -74,7 +111,58 @@ public static class SaemConsole
             .Validate(r => r.Builders.Count > 0, "Saem:Console:Roles:Builders names at least one group; a console no one may use is a mistake, not a lock.")
             .ValidateOnStart();
 
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+        services.AddAuthentication(options =>
+            {
+                options.DefaultScheme = ConsoleAuthentication.Scheme;
+                options.DefaultChallengeScheme = ConsoleAuthentication.Scheme;
+            })
+            .AddPolicyScheme(ConsoleAuthentication.Scheme, null, policy => policy.ForwardDefaultSelector = http =>
+                PresentedBearer(http.Request) is not null ? JwtBearerDefaults.AuthenticationScheme : CookieAuthenticationDefaults.AuthenticationScheme)
+            .AddCookie()
+            .AddOpenIdConnect()
+            .AddJwtBearer();
+        services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
+            .Configure<IOptions<ConsoleIdentityOptions>>((cookie, identity) =>
+            {
+                // A session cookie as the IETF browser-based apps BCP has a BFF's: Secure, HttpOnly, SameSite=Strict, path /.
+                var secure = identity.Value.RequireHttpsMetadata;
+                cookie.Cookie.Name = secure ? "__Host-saem-console" : "saem-console";
+                cookie.Cookie.HttpOnly = true;
+                cookie.Cookie.SameSite = SameSiteMode.Strict;
+                cookie.Cookie.SecurePolicy = secure ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+                cookie.Cookie.Path = "/";
+                cookie.Events.OnRedirectToLogin = context => Status(context.Response, StatusCodes.Status401Unauthorized);
+                cookie.Events.OnRedirectToAccessDenied = context => Status(context.Response, StatusCodes.Status403Forbidden);
+                cookie.Events.OnValidatePrincipal = EndWithTheToken;
+            });
+        services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme)
+            .Configure<IOptions<ConsoleIdentityOptions>>((oidc, identity) =>
+            {
+                var id = identity.Value;
+                oidc.Authority = id.Authority;
+                oidc.ClientId = id.ClientId;
+                oidc.ClientSecret = id.ClientSecret;
+                oidc.RequireHttpsMetadata = id.RequireHttpsMetadata;
+                oidc.ResponseType = "code";
+                oidc.UsePkce = true;
+                // The code comes back on a top-level GET, so the handler's correlation and nonce cookies need only Lax.
+                oidc.ResponseMode = "query";
+                oidc.CorrelationCookie.SameSite = SameSiteMode.Lax;
+                oidc.NonceCookie.SameSite = SameSiteMode.Lax;
+                oidc.CorrelationCookie.SecurePolicy = oidc.NonceCookie.SecurePolicy = id.RequireHttpsMetadata ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+                oidc.SaveTokens = true;
+                oidc.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                oidc.MapInboundClaims = false;
+                oidc.GetClaimsFromUserInfoEndpoint = false;
+                oidc.TokenValidationParameters.NameClaimType = "sub";
+                oidc.TokenValidationParameters.RoleClaimType = ClaimTypes.Role;
+                oidc.Scope.Clear();
+                oidc.Scope.Add("openid");
+                foreach (var scope in id.Scopes)
+                {
+                    oidc.Scope.Add(scope);
+                }
+            });
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
             .Configure<IOptions<ConsoleIdentityOptions>>((jwt, identity) =>
             {
@@ -94,12 +182,64 @@ public static class SaemConsole
         return services;
     }
 
-    /// <summary>Maps the console's API under <c>/api</c>.</summary>
+    /// <summary>The bearer token the request presents, or <see langword="null"/> when it presents none.</summary>
+    internal static string? PresentedBearer(HttpRequest request) =>
+        request.Headers.Authorization.ToString() is { } header && header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+            ? header["Bearer ".Length..].Trim()
+            : null;
+
+    /// <summary>The token the person reached the console with: the presented bearer token, or the one their session keeps.</summary>
+    internal static async Task<string?> PersonsTokenAsync(HttpContext http) =>
+        PresentedBearer(http.Request) ?? await http.GetTokenAsync(CookieAuthenticationDefaults.AuthenticationScheme, "access_token");
+
+    private static Task Status(HttpResponse response, int status)
+    {
+        response.StatusCode = status;
+        return Task.CompletedTask;
+    }
+
+    // The session lasts as long as the token it keeps: once the access token has expired the console could no longer ask
+    // anything as the person, so the session ends and the browser signs in again.
+    private static async Task EndWithTheToken(CookieValidatePrincipalContext context)
+    {
+        if (context.Properties.GetTokenValue("expires_at") is { } at
+            && DateTimeOffset.TryParse(at, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var expires)
+            && expires <= DateTimeOffset.UtcNow)
+        {
+            context.RejectPrincipal();
+            await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        }
+    }
+
+    /// <summary>Maps the console's sign-in and sign-out under <c>/login</c> and <c>/logout</c>, and its API under <c>/api</c>.</summary>
     public static WebApplication MapSaemConsole(this WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
         app.UseAuthentication();
+        app.Use(async (http, next) =>
+        {
+            // A browser's state-changing request must carry the console's header (CSRF); a program's bearer request needs none.
+            if (!HttpMethods.IsGet(http.Request.Method) && !HttpMethods.IsHead(http.Request.Method) && !HttpMethods.IsOptions(http.Request.Method)
+                && PresentedBearer(http.Request) is null && !http.Request.Headers.ContainsKey(ConsoleAuthentication.RequestHeader))
+            {
+                http.Response.StatusCode = StatusCodes.Status400BadRequest;
+                return;
+            }
+
+            await next(http);
+        });
         app.UseAuthorization();
+
+        // Sign-in sends the browser to the issuer and back (authorization code flow with PKCE); only a local return
+        // address is followed, so the console is never an open redirect.
+        app.MapGet("/login", (string? returnUrl) => Results.Challenge(
+            new AuthenticationProperties { RedirectUri = returnUrl is { Length: > 0 } && Uri.IsWellFormedUriString(returnUrl, UriKind.Relative) && returnUrl.StartsWith('/') && !returnUrl.StartsWith("//", StringComparison.Ordinal) ? returnUrl : "/" },
+            [OpenIdConnectDefaults.AuthenticationScheme]));
+        app.MapPost("/logout", async (HttpContext http) =>
+        {
+            await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return Results.NoContent();
+        });
 
         var api = app.MapGroup("/api").RequireAuthorization(ConsoleRoles.AnyRole);
         CatalogApi.Map(api);
@@ -108,9 +248,7 @@ public static class SaemConsole
         // the MCP server gives it to that person — the console adds nothing and reads no source (saem D-89 ①).
         api.MapPost("/graph/local", async (HttpContext http, IConsoleLookups lookups, JsonElement call, CancellationToken ct) =>
         {
-            var presented = http.Request.Headers.Authorization.ToString() is { } header && header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
-                ? header["Bearer ".Length..].Trim()
-                : "";
+            var presented = await PersonsTokenAsync(http) ?? "";
             try
             {
                 return Results.Json(await lookups.LookupAsync(presented, call, ct));

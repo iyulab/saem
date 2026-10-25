@@ -567,14 +567,20 @@ docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml down 
 ### Administration console
 
 `Saem.Console` is the process the people who keep the ontology work in — a management API now, the
-web UI that calls it next. It accepts a bearer token from the issuer saem trusts, for the console's own
-audience (a token meant for the MCP server is refused), and gives the caller the roles the token's
-groups hold: `Saem:Console:Roles` maps groups to `builder` and `auditor`; a role claim the token carries
+web UI that calls it next. A browser signs in through the console itself (`GET /login`): the console is
+a confidential client at the issuer saem trusts, runs the authorization code flow with PKCE, and keeps the
+person's tokens in its session — the browser holds only a session cookie (`Secure`, `HttpOnly`,
+`SameSite=Strict`), never a token, as the backend-for-frontend pattern of the IETF browser-based apps BCP
+has it. The session ends when the access token it keeps expires; `POST /logout` ends it sooner. A
+browser's state-changing request must carry the `X-Saem-Console` header, which a page on another origin
+cannot add without a preflight the console never approves (CSRF). A program may instead present a bearer
+token for the console's own audience (a token meant for the MCP server is refused). Either way the caller
+gets the roles their token's groups hold: `Saem:Console:Roles` maps groups to `builder` and `auditor`; a role claim the token carries
 itself counts for nothing. `GET /api/me` says who the caller is; `GET /api/catalog` is the catalog in
 force in its own file shape, and `GET /api/catalog/graph` its declaration graph — entity types and
 groupings as nodes (with the system each stands on, and how many edges touch it), relations, identities
 and memberships as edges. `POST /api/graph/local` takes the lookup tool's arguments and asks the MCP
-server as the person looking: the console's token is exchanged at the issuer for one meant for the server
+server as the person looking: the person's token is exchanged at the issuer for one meant for the server
 (`Saem:Console:Lookup`), with the console named as the actor (RFC 8693 delegation — its own
 client-credentials token as `actor_token`, so the answer's `answeredFor.actedBy` and the server's audit
 record say the person asked through the console; `PresentActor: false` for an issuer that refuses actor
@@ -582,7 +588,8 @@ tokens), and the answer comes back as the server gives it to that person.
 
 The console holds no credential to any source and no key to any group's store: what a person may read it
 asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` (the catalog file),
-`Saem:Console:Identity` (issuer and audience), `Saem:Console:Roles`, `Saem:Console:Lookup`.
+`Saem:Console:Identity` (issuer, audience, the console's client id and secret, sign-in scopes),
+`Saem:Console:Roles`, `Saem:Console:Lookup` (the MCP server, its audience, the issuer's token endpoint).
 
 ## Roadmap
 

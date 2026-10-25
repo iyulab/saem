@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
     <!-- The MCP client the console asks the server's lookup with — the package the server itself is built on. -->
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
   </ItemGroup>

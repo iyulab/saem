@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -46,6 +47,9 @@ internal sealed class ConsoleServer : IAsyncDisposable
             ["Saem:Console:Identity:Authority"] = liveIssuer ?? Issuer,
             ["Saem:Console:Identity:RequireHttpsMetadata"] = liveIssuer is null ? "true" : "false",
             ["Saem:Console:Identity:Audience"] = Audience,
+            ["Saem:Console:Identity:ClientId"] = "saem-console",
+            ["Saem:Console:Identity:ClientSecret"] = "rig-local-only",
+            ["Saem:Console:Identity:Scopes:0"] = "saem-rig",
             ["Saem:Console:Roles:Auditors:0"] = "privacy-office",
             ["Saem:Console:Ontology"] = ontologyFile,
         });
@@ -63,6 +67,12 @@ internal sealed class ConsoleServer : IAsyncDisposable
                 configuration.SigningKeys.Add(Key);
                 jwt.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration);
             });
+            builder.Services.PostConfigure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, oidc =>
+            {
+                var configuration = new OpenIdConnectConfiguration { Issuer = Issuer, AuthorizationEndpoint = Issuer + "/authorize", TokenEndpoint = Issuer + "/token" };
+                configuration.SigningKeys.Add(Key);
+                oidc.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration);
+            });
         }
 
         var app = builder.Build();
@@ -71,9 +81,9 @@ internal sealed class ConsoleServer : IAsyncDisposable
         return new ConsoleServer(app) { OntologyFile = ontologyFile };
     }
 
-    public HttpClient Client(string? token = null)
+    public HttpClient Client(string? token = null, HttpMessageHandler? handler = null)
     {
-        var client = new HttpClient { BaseAddress = Address };
+        var client = handler is null ? new HttpClient { BaseAddress = Address } : new HttpClient(handler) { BaseAddress = Address };
         if (token is not null)
         {
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);

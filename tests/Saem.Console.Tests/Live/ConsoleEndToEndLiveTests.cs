@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
@@ -78,8 +79,6 @@ public sealed class ConsoleEndToEndLiveTests : IAsyncLifetime
             {
                 lookup.McpEndpoint = mcpEndpoint;
                 lookup.TokenEndpoint = Issuer + "/token";
-                lookup.ClientId = "saem-console";
-                lookup.ClientSecret = "rig-local-only";
             }));
     }
 
@@ -111,6 +110,49 @@ public sealed class ConsoleEndToEndLiveTests : IAsyncLifetime
 
         Assert.Equal("refused", refused.GetProperty("kind").GetString());
         Assert.DoesNotContain(Canary, refused.GetRawText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_browser_signs_in_through_the_console_holds_only_a_session_and_its_lookups_are_asked_as_the_person()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var cookies = new CookieContainer();
+        using var browser = _console.Client(handler: new HttpClientHandler { CookieContainer = cookies });
+
+        // The rig's issuer signs pat in without a login page; the browser follows it back to the console and on to /api/me.
+        var me = await (await browser.GetAsync("login?returnUrl=/api/me", ct)).Content.ReadFromJsonAsync<Caller>(ct);
+        Assert.Equal("pat", me!.Subject);
+        Assert.Equal([ConsoleRoles.Builder], me.Roles);
+        var held = cookies.GetCookies(_console.Address).Where(c => !c.Expired).ToList();
+        Assert.All(held, c => Assert.True(c.HttpOnly));
+        Assert.Contains(held, c => c.Name.StartsWith("saem-console", StringComparison.Ordinal));
+
+        using var unmarked = await browser.PostAsJsonAsync("api/graph/local", Call, ct);
+        using var marked = new HttpRequestMessage(HttpMethod.Post, "api/graph/local") { Content = JsonContent.Create(Call), Headers = { { ConsoleAuthentication.RequestHeader, "1" } } };
+        using var asked = await browser.SendAsync(marked, ct);
+        var answered = await asked.Content.ReadFromJsonAsync<JsonElement>(ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, unmarked.StatusCode);
+        asked.EnsureSuccessStatusCode();
+        Assert.Equal(Canary, Assert.Single(answered.GetProperty("claims").EnumerateArray()).GetProperty("value").GetString());
+        Assert.Equal("pat", answered.GetProperty("answeredFor").GetProperty("subject").GetString());
+        Assert.Equal("saem-console", answered.GetProperty("answeredFor").GetProperty("actedBy").GetString());
+
+        using var logout = new HttpRequestMessage(HttpMethod.Post, "logout") { Headers = { { ConsoleAuthentication.RequestHeader, "1" } } };
+        Assert.Equal(HttpStatusCode.NoContent, (await browser.SendAsync(logout, ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("api/me", ct)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Sign_in_returns_only_to_an_address_on_the_console()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var browser = _console.Client(handler: new HttpClientHandler { CookieContainer = new CookieContainer() });
+
+        using var landed = await browser.GetAsync("login?returnUrl=//elsewhere.example/steal", ct);
+
+        Assert.Equal(_console.Address.Authority, landed.RequestMessage!.RequestUri!.Authority);
+        Assert.Equal("/", landed.RequestMessage.RequestUri.AbsolutePath);
     }
 
     private static async Task<string> TokenAsync(string person, CancellationToken ct)
