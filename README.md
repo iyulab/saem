@@ -464,6 +464,8 @@ there and the executor records it, so a judgment is filed as theirs, but the exe
 people; whoever holds a secret may ask in anyone's name. The console is told where each executor
 listens by `Saem:Console:Executors:<group>:Address` and `…:Secret`, and shows a builder what the executor
 printed — except for a `check`, whose lines and report it shows without the records they cite.
+A builder reads the pairs a person is yet to judge on the console's Judgments screen — IRIs and scores, no
+record — and files each as the same thing or two; the group's things change on its next pass.
 
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Answer, type Catalog, type Job, type JobKind } from "./api";
-import { asks, fitIdentities, fitSays, isRunning, runningJob, summary, took, violations } from "./jobs";
+import { asks, checkReport, fitIdentities, fitSays, isRunning, runningJob, summary, took, violations } from "./jobs";
 
 const POLL_MS = 2000;
 
@@ -189,6 +189,7 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
 
 function JobDetail({ job }: { job: Job }) {
   const broken = violations(job);
+  const report = checkReport(job);
   return (
     <aside className="detail" aria-label="Job">
       <h2>{summary(job)}</h2>
@@ -199,9 +200,9 @@ function JobDetail({ job }: { job: Job }) {
         <pre className="output">{job.output || "(nothing printed yet)"}</pre>
       )}
       {job.outputTruncated && <p className="muted">The executor kept the first part of what the job printed.</p>}
-      {job.report && (
+      {report && (
         <>
-          <p>{job.report.holds ? "Every declaration holds." : `${broken.length} finding(s) say a declaration does not hold:`}</p>
+          <p>{report.holds ? "Every declaration holds." : `${broken.length} finding(s) say a declaration does not hold:`}</p>
           <ul>
             {broken.map((f) => (
               <li key={`${f.type}.${f.relation}:${f.kind}`}>

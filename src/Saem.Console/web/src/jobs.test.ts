@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Catalog, Job } from "./api";
-import { fitIdentities, runningJob, summary, took, violations } from "./jobs";
+import { awaiting, fitIdentities, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
 
 const job = (more: Partial<Job>): Job => ({
   id: "0123456789abcdef0123456789abcdef",
@@ -60,5 +60,26 @@ describe("a group's jobs", () => {
       ],
     };
     expect(fitIdentities(catalog)).toEqual(["same_supplier"]);
+  });
+});
+
+describe("the pairs a person is yet to judge", () => {
+  const pair = (first: string, second: string, score = 1) => ({ identity: "same_order", first, second, rule: "match", score });
+  const listing = (pairs: ReturnType<typeof pair>[], more: Partial<Job> = {}) => job({ kind: "candidates", report: { candidates: pairs }, ...more });
+
+  it("takes the newest finished listing, not one that failed or another kind of job", () => {
+    const newest = listing([pair("a", "b")], { id: "n" });
+    expect(latestCandidates([job({ kind: "judge" }), listing([pair("x", "y")], { state: "failed" }), newest, listing([pair("c", "d")])])?.job.id).toBe("n");
+    expect(latestCandidates([job({}), job({ kind: "check" })])).toBeNull();
+  });
+
+  it("keeps a pair as one key whichever way round it is read", () => {
+    expect(pairKey(pair("b", "a"))).toBe(pairKey(pair("a", "b")));
+    expect(pairKey({ ...pair("a", "b"), identity: "other" })).not.toBe(pairKey(pair("a", "b")));
+  });
+
+  it("leaves out the pairs judged since the listing", () => {
+    const pairs = [pair("a", "b", 9), pair("a", "c", 4)];
+    expect(awaiting(pairs, new Set([pairKey(pair("b", "a"))])).map((c) => c.second)).toEqual(["c"]);
   });
 });

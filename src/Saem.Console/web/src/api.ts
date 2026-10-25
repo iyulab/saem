@@ -63,7 +63,10 @@ export type LookupStart = EntityKey | { type: string; where: { field: string; va
 
 export type LookupCall = { start: LookupStart; path: string[]; read: string[] };
 
-export type JobKind = "verify" | "check" | "pass" | "changed-pass" | "fit" | "judge";
+export type JobKind = "verify" | "check" | "candidates" | "pass" | "changed-pass" | "fit" | "judge";
+
+/** A pair an identity's rule found and no person has judged: the entities by their IRIs and the rule's score — no value of any record. */
+export type PairCandidate = { identity: string; first: string; second: string; rule: string; score: number };
 
 /** One job of a group's executor, as the console gives it: a check's lines are withheld and its report has no records. */
 export type Job = {
@@ -78,7 +81,7 @@ export type Job = {
   outputWithheld?: boolean;
   startedAt: string;
   finishedAt: string | null;
-  report: CheckReport | null;
+  report: CheckReport | { candidates: PairCandidate[] } | null;
 };
 
 /** What the console answered: the value, or why there is none — signed out, no console role, or a problem it named. */
@@ -118,7 +121,7 @@ export const api = {
   logout: () => ask<void>("/logout", change()),
   executors: () => ask<Array<{ group: string }>>("/api/executors"),
   jobs: (group: string) => ask<Job[]>(`/api/executors/${encodeURIComponent(group)}/jobs`),
-  startJob: (group: string, kind: JobKind, args?: { identity: string }) =>
+  startJob: (group: string, kind: JobKind, args?: { identity: string; first?: string; second?: string; same?: boolean }) =>
     ask<Job>(`/api/executors/${encodeURIComponent(group)}/jobs`, change(args ? { kind, arguments: args } : { kind })),
   cancelJob: (group: string, id: string) => ask<void>(`/api/executors/${encodeURIComponent(group)}/jobs/${id}/cancel`, change()),
   lookup: (call: LookupCall) => ask<LookupAnswer>("/api/graph/local", change(call)),

@@ -1,4 +1,4 @@
-import type { Catalog, Job, JobKind } from "./api";
+import type { Catalog, CheckReport, Job, JobKind, PairCandidate } from "./api";
 
 /** What a builder may ask a group's executor for from the screen, with what each does to the group's store. */
 export const asks: ReadonlyArray<{ kind: JobKind; title: string; writes: boolean; says: string }> = [
@@ -29,8 +29,33 @@ export function summary(job: Job): string {
 /** The job running now, if any — an executor does one at a time, so a request while one runs is refused. */
 export const runningJob = (jobs: readonly Job[]): Job | undefined => jobs.find(isRunning);
 
+/** A check's report, when the job is a check that filed one. */
+export const checkReport = (job: Job): CheckReport | null => (job.kind === "check" && job.report !== null && "findings" in job.report ? job.report : null);
+
 /** The findings of a check's report that say a declaration does not hold. */
-export const violations = (job: Job) => job.report?.findings.filter((f) => f.violation) ?? [];
+export const violations = (job: Job) => checkReport(job)?.findings.filter((f) => f.violation) ?? [];
+
+/** The pairs a finished candidates job listed, or null when the job is another kind, did not finish or listed nothing it could read. */
+export const candidatesOf = (job: Job): PairCandidate[] | null =>
+  job.kind === "candidates" && job.state === "succeeded" && job.report !== null && "candidates" in job.report ? job.report.candidates : null;
+
+/** The newest candidates list an executor still remembers — its jobs come newest first — and the job that made it. */
+export function latestCandidates(jobs: readonly Job[]): { job: Job; pairs: PairCandidate[] } | null {
+  for (const job of jobs) {
+    const pairs = candidatesOf(job);
+    if (pairs !== null) {
+      return { job, pairs };
+    }
+  }
+  return null;
+}
+
+/** The pair as one key, whichever way round it is read. */
+export const pairKey = (c: Pick<PairCandidate, "identity" | "first" | "second">) =>
+  `${c.identity} ${c.first < c.second ? `${c.first} ${c.second}` : `${c.second} ${c.first}`}`;
+
+/** What a person is yet to judge: the listed pairs less the ones judged since the list was made. */
+export const awaiting = (pairs: readonly PairCandidate[], judged: ReadonlySet<string>): PairCandidate[] => pairs.filter((c) => !judged.has(pairKey(c)));
 
 /** What a fit does, and what it writes. */
 export const fitSays = "Fit the identity's linkage rule to the group's records and keep the fit in its store, for its passes to score with.";
