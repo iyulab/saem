@@ -45,13 +45,18 @@ public sealed class MorphDbSourceLiveTests : IAsyncLifetime
                 new { name = "fb_doc_id", type = "text", nullable = false },
                 new { name = "inspector", type = "text", nullable = false },
                 new { name = "result", type = "text", nullable = false },
+                new { name = "changed_at", type = "datetime", nullable = true },
             },
         }, ct)).EnsureSuccessStatusCode();
 
-        foreach (var (doc, inspector, result) in new[] { ("doc-1", "alice", "pass"), ("doc-2", "bob", "fail") })
+        // Change times in two offsets: doc-1's text sorts after doc-3's, though it is the earlier time.
+        foreach (var (doc, inspector, result, changed) in new[]
+        {
+            ("doc-1", "alice", "pass", "2026-10-25T09:00:00+09:00"), ("doc-2", "bob", "fail", "2026-10-25T02:00:00Z"), ("doc-3", "alice", "hold", "2026-10-25T01:00:00Z"),
+        })
         {
             (await master.PostAsJsonAsync($"api/data/{_table}",
-                new Dictionary<string, string> { ["fb_doc_id"] = doc, ["inspector"] = inspector, ["result"] = result }, ct))
+                new Dictionary<string, string> { ["fb_doc_id"] = doc, ["inspector"] = inspector, ["result"] = result, ["changed_at"] = changed }, ct))
                 .EnsureSuccessStatusCode();
         }
 
@@ -128,6 +133,29 @@ public sealed class MorphDbSourceLiveTests : IAsyncLifetime
 
         Assert.Empty(await ReadAsAsync("bob", "doc-1"));
         Assert.Equal("fail", Assert.Single(await ReadAsAsync("bob", "doc-2")).Values["result"].GetString());
+    }
+
+    /// <summary>
+    /// SD-08 on the source: the latest change is the person's own latest — row-level security applies to it as to a read —
+    /// and the rows at or after it are compared by the column's type, not its text.
+    /// </summary>
+    [Fact]
+    public async Task The_rows_changed_at_or_after_a_latest_change_are_the_persons_own_compared_as_times()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var alice = await new MorphDbSource(_http, _project).As(c => TokenForMorphDbAsync("alice", c))(ct);
+        var changes = Assert.IsAssignableFrom<IChangedRows>(alice);
+
+        var latest = await changes.LatestChangeAsync(_table, "changed_at", ct);
+        var rows = new List<string>();
+        await foreach (var row in changes.ScanChangedAsync(_table, "fb_doc_id", ["result"], "changed_at", "2026-10-25T00:30:00Z", ct))
+        {
+            rows.Add(row.Key);
+        }
+
+        Assert.NotNull(latest);
+        Assert.Equal(DateTimeOffset.Parse("2026-10-25T01:00:00Z", System.Globalization.CultureInfo.InvariantCulture), DateTimeOffset.Parse(latest, System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(["doc-3"], rows);
     }
 
     [Fact]
