@@ -60,6 +60,25 @@ public sealed class LocalGraphTests
         Assert.Equal("saem", issuer.Form["audience"]);
         Assert.Equal("urn:ietf:params:oauth:grant-type:token-exchange", issuer.Form["grant_type"]);
         Assert.Equal("Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes("saem-console:s3cret")), issuer.Authorization);
+        // The console names itself as the actor: its own client-credentials token, asked for first (RFC 8693 delegation).
+        Assert.Equal(["client_credentials", "urn:ietf:params:oauth:grant-type:token-exchange"], issuer.Grants);
+        Assert.Equal("token-for-saem", issuer.Form["actor_token"]);
+        Assert.Equal("urn:ietf:params:oauth:token-type:access_token", issuer.Form["actor_token_type"]);
+    }
+
+    [Fact]
+    public async Task Without_presenting_an_actor_the_exchange_is_the_only_request_and_names_none()
+    {
+        var issuer = new ExchangingIssuer();
+        var lookups = new McpConsoleLookups(
+            new HttpClient(issuer),
+            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", TokenEndpoint = "http://issuer.test/token", ClientId = "saem-console", PresentActor = false }),
+            (_, _, _, _) => Task.FromResult(JsonSerializer.SerializeToElement(new { kind = "answered" })));
+
+        await lookups.LookupAsync("console-token-of-alice", Call, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["urn:ietf:params:oauth:grant-type:token-exchange"], issuer.Grants);
+        Assert.False(issuer.Form.ContainsKey("actor_token"));
     }
 
     [Fact]
@@ -103,6 +122,8 @@ public sealed class LocalGraphTests
 
         public string? Authorization { get; private set; }
 
+        public List<string> Grants { get; } = [];
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Authorization = request.Headers.Authorization?.ToString();
@@ -111,6 +132,8 @@ public sealed class LocalGraphTests
                 var at = pair.IndexOf('=', StringComparison.Ordinal);
                 Form[Uri.UnescapeDataString(pair[..at])] = Uri.UnescapeDataString(pair[(at + 1)..].Replace('+', ' '));
             }
+
+            Grants.Add(Form["grant_type"]);
 
             return refuse
                 ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("""{"error":"unauthorized_client"}""") }

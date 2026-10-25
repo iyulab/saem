@@ -55,6 +55,14 @@
           }
         },
         {
+          "requestParam": "actor_token_type",
+          "match": "urn:ietf:params:oauth:token-type:access_token",
+          "claims": {
+            "aud": ["${audience}"],
+            "act": { "sub": "${clientId}" }
+          }
+        },
+        {
           "requestParam": "grant_type",
           "match": "urn:ietf:params:oauth:grant-type:token-exchange",
           "claims": {

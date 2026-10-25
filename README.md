@@ -575,7 +575,10 @@ force in its own file shape, and `GET /api/catalog/graph` its declaration graph 
 groupings as nodes (with the system each stands on, and how many edges touch it), relations, identities
 and memberships as edges. `POST /api/graph/local` takes the lookup tool's arguments and asks the MCP
 server as the person looking: the console's token is exchanged at the issuer for one meant for the server
-(`Saem:Console:Lookup`), and the answer comes back as the server gives it to that person.
+(`Saem:Console:Lookup`), with the console named as the actor (RFC 8693 delegation — its own
+client-credentials token as `actor_token`, so the answer's `answeredFor.actedBy` and the server's audit
+record say the person asked through the console; `PresentActor: false` for an issuer that refuses actor
+tokens), and the answer comes back as the server gives it to that person.
 
 The console holds no credential to any source and no key to any group's store: what a person may read it
 asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` (the catalog file),
