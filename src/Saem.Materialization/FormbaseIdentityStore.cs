@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Saem.Contracts;
 
 namespace Saem.Materialization;
 
@@ -265,6 +266,28 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
         await _forms.ProjectAsync(GroundFormType, "Projecting the grounds", cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// The pairs a person is yet to judge: for each identity a person settles ("confirmed"), the pairs its rule found that
+    /// no one has judged, the best scored first. Only IRIs and scores — a ground holds no value any record holds.
+    /// </summary>
+    public async Task<IReadOnlyList<PairCandidate>> CandidatesAsync(Ontology.Ontology ontology, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ontology);
+
+        await _forms.DeclareAsync(GroundFormType, "saem_identity_grounds", GroundFields, cancellationToken).ConfigureAwait(false);
+        var held = await _forms.HeldAsync(GroundFormType, "", GroundFields, cancellationToken).ConfigureAwait(false);
+        var judged = held.Values.Where(g => g[3] == PersonRule).Select(g => (g[0], IdentityJudgments.Pair(g[1], g[2]))).ToHashSet();
+        return [.. held.Values
+            .Where(g => g[3] != PersonRule
+                && ontology.Identities.TryGetValue(g[0], out var identity) && identity.Decision == IdentityDecision.Confirmed
+                && !judged.Contains((g[0], IdentityJudgments.Pair(g[1], g[2]))))
+            .Select(g => new PairCandidate(g[0], g[1], g[2], g[3], double.Parse(g[4], CultureInfo.InvariantCulture)))
+            .OrderBy(c => c.Identity, StringComparer.Ordinal)
+            .ThenByDescending(c => c.Score)
+            .ThenBy(c => c.First, StringComparer.Ordinal)
+            .ThenBy(c => c.Second, StringComparer.Ordinal)];
+    }
+
     private static List<PersonJudgment> Judgments(Ontology.Ontology ontology, Dictionary<string, string[]> grounds) =>
         [.. grounds.Values
             .Where(g => g[3] == PersonRule && ontology.Identities.ContainsKey(g[0]))
@@ -435,6 +458,14 @@ public sealed record SameAs(IReadOnlyList<string> Members, int SkippedDocuments)
     /// <summary>Whether members may be missing.</summary>
     public bool Incomplete => SkippedDocuments > 0;
 }
+
+/// <summary>A pair an identity's rule found that no person has judged yet.</summary>
+/// <param name="Identity">The identity.</param>
+/// <param name="First">One entity's IRI.</param>
+/// <param name="Second">The other's.</param>
+/// <param name="Rule">How the pair was found.</param>
+/// <param name="Score">How well the rule scored it (1 for equal values).</param>
+public sealed record PairCandidate(string Identity, string First, string Second, string Rule, double Score);
 
 /// <summary>What a pass did to the identity store.</summary>
 /// <param name="Canonical">The canonical ids.</param>

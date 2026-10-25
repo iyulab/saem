@@ -118,6 +118,27 @@ public sealed class FormbaseIdentityStoreTests
     }
 
     [Fact]
+    public async Task The_candidates_are_the_rules_pairs_of_a_person_settled_identity_that_no_one_has_judged_best_scored_first()
+    {
+        var formbase = new FakeFormbase();
+        var confirmed = Plant(IdentityDecision.Confirmed);
+        var scored = Cluster("i/1", "m/1", "m/2") with
+        {
+            Grounds = [new IdentityGround("i/1", "m/1", "names", 9.125), new IdentityGround("m/1", "m/2", "names", 4.5), new IdentityGround("i/1", "m/2", "names", 6)],
+        };
+        await Store(formbase, First).ReplaceAsync(confirmed, Of(scored), TestContext.Current.CancellationToken);
+        await Store(formbase, First).JudgeAsync(confirmed, new PersonJudgment("same_item", "m/2", "i/1", false, "p-1", First), TestContext.Current.CancellationToken);
+
+        var candidates = await Store(formbase, Second).CandidatesAsync(confirmed, TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [new PairCandidate("same_item", "i/1", "m/1", "names", 9.125), new PairCandidate("same_item", "m/1", "m/2", "names", 4.5)],
+            candidates);
+        // An identity the rule settles has nothing waiting on a person.
+        Assert.Empty(await Store(formbase, Second).CandidatesAsync(Plant(), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task A_fit_is_kept_as_rates_only_and_read_back_as_it_was_and_only_for_an_identity_by_a_rule()
     {
         var formbase = new FakeFormbase();

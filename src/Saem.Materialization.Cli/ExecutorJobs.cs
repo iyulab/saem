@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Saem.Ontology;
 using Saem.Query;
 
@@ -103,6 +104,15 @@ internal static class ExecutorJobs
                 return new JobOutcome(true);
             },
 
+            // The pairs people have yet to judge, read from the store: IRIs and scores, no value any record holds.
+            ["candidates"] = async (_, output, cancellationToken) =>
+            {
+                using var group = await open(cancellationToken).ConfigureAwait(false);
+                var pairs = await new FormbaseIdentityStore(group.Store, run.StoreNamespace).CandidatesAsync(group.Ontology, cancellationToken).ConfigureAwait(false);
+                await output.WriteLineAsync($"group {run.Group}: {pairs.Count} pair(s) await a person's judgment.").ConfigureAwait(false);
+                return new JobOutcome(true, JsonSerializer.Serialize(new { candidates = pairs }, CandidateJson));
+            },
+
             // The declarations against the sources, read as the group's account; the findings come back as the report too.
             ["check"] = async (_, output, cancellationToken) =>
             {
@@ -113,6 +123,8 @@ internal static class ExecutorJobs
             },
         };
     }
+
+    private static readonly JsonSerializerOptions CandidateJson = new(JsonSerializerDefaults.Web);
 
     private static string Required(string? value, string name) =>
         value is { Length: > 0 } ? value : throw new MaterializeUsageException($"{name} is required for this kind of job.");

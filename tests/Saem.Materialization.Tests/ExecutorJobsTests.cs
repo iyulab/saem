@@ -111,6 +111,35 @@ public sealed class ExecutorJobsTests : IDisposable
         Assert.Equal("same_order: wo/2 and wo/1 judged two things by p-3; the next pass takes it in.", output.ToString().Trim());
     }
 
+    [Fact]
+    public async Task The_candidates_are_listed_as_the_report_with_only_iris_and_scores()
+    {
+        var people = Ontology.Ontology.Create(
+        [
+            .. Plant.EntityTypes.Values,
+            new IdentityDeclaration("same_order", "WorkOrder", "WorkOrder", IdentityDecision.Confirmed) { Match = [new FieldPair("item", "item")] },
+        ]);
+        var kinds = ExecutorJobs.For(Run, _ => Task.FromResult(new GroupContext(
+            people, new Dictionary<string, SourceOpener>(), new HttpClient(_formbase, disposeHandler: false) { BaseAddress = _formbase.Client.BaseAddress })));
+        var store = new FormbaseIdentityStore(new HttpClient(_formbase, disposeHandler: false) { BaseAddress = _formbase.Client.BaseAddress });
+        async IAsyncEnumerable<IdentityCluster> Found()
+        {
+            yield return new IdentityCluster("same_order", ["wo/1", "wo/2"]) { Grounds = [new IdentityGround("wo/1", "wo/2", "match", 1)] };
+            await Task.CompletedTask;
+        }
+
+        await store.ReplaceAsync(people, Found(), TestContext.Current.CancellationToken);
+        var output = new StringWriter();
+
+        var outcome = await kinds["candidates"](new JobCall("person-1", new JobArguments()), output, TestContext.Current.CancellationToken);
+
+        Assert.True(outcome.Succeeded);
+        Assert.Equal("group g-plant: 1 pair(s) await a person's judgment.", output.ToString().Trim());
+        using var report = JsonDocument.Parse(outcome.Report!);
+        var pair = Assert.Single(report.RootElement.GetProperty("candidates").EnumerateArray());
+        Assert.Equal(("same_order", "wo/1", "wo/2", 1.0), (pair.GetProperty("identity").GetString(), pair.GetProperty("first").GetString(), pair.GetProperty("second").GetString(), pair.GetProperty("score").GetDouble()));
+    }
+
     [Theory]
     [InlineData(null, "wo/1", "wo/2", true, "identity is required")]
     [InlineData("same_order", null, "wo/2", true, "first is required")]

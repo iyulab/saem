@@ -69,7 +69,7 @@ public sealed class ServeOptionsTests
 
         var kinds = ExecutorJobs.ForFiles(run, _ => null);
 
-        Assert.Equal(["changed-pass", "check", "fit", "judge", "pass", "verify"], kinds.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(["candidates", "changed-pass", "check", "fit", "judge", "pass", "verify"], kinds.Keys.Order(StringComparer.Ordinal));
     }
 
     private static Func<string, string?> Environment(string? secret = null, string? next = null) => name => name switch

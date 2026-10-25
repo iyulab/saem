@@ -36,6 +36,8 @@ internal sealed record ServeOptions(MaterializeOptions Run, Uri Listen, IReadOnl
                                          another job runs. The kinds are the commands of a run:
                                            verify        what a pass would give now against the store, writing nothing
                                            check         the declarations against the sources (the report comes back too)
+                                           candidates    the pairs of a person-settled identity no one has judged yet (IRIs and
+                                                         scores; the list comes back as the report)
                                            pass          the edges, then what the identities find, written to the store
                                            changed-pass  the same, reading only the rows changed since the last pass
                                            fit           an identity's linkage rule fitted, the fit kept
