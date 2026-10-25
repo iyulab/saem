@@ -45,9 +45,8 @@ public sealed class LocalGraphTests
         var issuer = new ExchangingIssuer();
         string? sent = null;
         var lookups = new McpConsoleLookups(
-            new HttpClient(issuer),
-            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", TokenEndpoint = "http://issuer.test/token" }),
-            Options.Create(new ConsoleIdentityOptions { ClientId = "saem-console", ClientSecret = "s3cret" }),
+            TestIssuer.For(issuer, clientSecret: "s3cret"),
+            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp" }),
             (_, token, _, _) =>
             {
                 sent = token;
@@ -72,9 +71,8 @@ public sealed class LocalGraphTests
     {
         var issuer = new ExchangingIssuer();
         var lookups = new McpConsoleLookups(
-            new HttpClient(issuer),
-            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", TokenEndpoint = "http://issuer.test/token", PresentActor = false }),
-            Options.Create(new ConsoleIdentityOptions { ClientId = "saem-console" }),
+            TestIssuer.For(issuer),
+            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", PresentActor = false }),
             (_, _, _, _) => Task.FromResult(JsonSerializer.SerializeToElement(new { kind = "answered" })));
 
         await lookups.LookupAsync("console-token-of-alice", Call, TestContext.Current.CancellationToken);
@@ -88,9 +86,8 @@ public sealed class LocalGraphTests
     {
         var called = false;
         var lookups = new McpConsoleLookups(
-            new HttpClient(new ExchangingIssuer(refuse: true)),
-            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp", TokenEndpoint = "http://issuer.test/token" }),
-            Options.Create(new ConsoleIdentityOptions { ClientId = "saem-console" }),
+            TestIssuer.For(new ExchangingIssuer(refuse: true)),
+            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp" }),
             (_, _, _, _) =>
             {
                 called = true;

@@ -1,13 +1,9 @@
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.Extensions.Options;
 
 namespace Saem.Console;
 
@@ -22,7 +18,7 @@ namespace Saem.Console;
 /// share sessions only as far as their cookies' keys, not their renewals.
 /// </para>
 /// </summary>
-internal sealed class SessionTokens(IHttpClientFactory clients, IOptionsMonitor<OpenIdConnectOptions> oidc, IOptions<ConsoleIdentityOptions> identity, TimeProvider time)
+internal sealed class SessionTokens(ConsoleIssuer issuer, TimeProvider time)
 {
     /// <summary>How long before the access token expires it is renewed.</summary>
     internal static readonly TimeSpan Ahead = TimeSpan.FromMinutes(1);
@@ -80,34 +76,15 @@ internal sealed class SessionTokens(IHttpClientFactory clients, IOptionsMonitor<
 
     private async Task<Renewed?> RequestAsync(string refreshToken, CancellationToken cancellationToken)
     {
-        var options = oidc.Get(OpenIdConnectDefaults.AuthenticationScheme);
-        var configuration = await options.ConfigurationManager!.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-        var client = identity.Value;
-        using var request = new HttpRequestMessage(HttpMethod.Post, configuration.TokenEndpoint)
+        try
         {
-            Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["grant_type"] = "refresh_token", ["refresh_token"] = refreshToken }),
-        };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(
-            Encoding.UTF8.GetBytes($"{Uri.EscapeDataString(client.ClientId)}:{Uri.EscapeDataString(client.ClientSecret)}")));
-        using var http = clients.CreateClient(nameof(SessionTokens));
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+            var issued = await issuer.TokenAsync(new Dictionary<string, string> { ["grant_type"] = "refresh_token", ["refresh_token"] = refreshToken }, cancellationToken).ConfigureAwait(false);
+            return new Renewed(issued.AccessToken, issued.RefreshToken, time.GetUtcNow() + (issued.Lifetime ?? Ahead));
+        }
+        catch (IssuerRefusedException)
         {
             return null;
         }
-
-        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
-        var token = body.RootElement;
-        if (!token.TryGetProperty("access_token", out var access) || access.GetString() is not { Length: > 0 } accessToken)
-        {
-            return null;
-        }
-
-        var lifetime = token.TryGetProperty("expires_in", out var seconds) && seconds.TryGetInt32(out var s) ? TimeSpan.FromSeconds(s) : Ahead;
-        return new Renewed(
-            accessToken,
-            token.TryGetProperty("refresh_token", out var rotated) ? rotated.GetString() : null,
-            time.GetUtcNow() + lifetime);
     }
 
     private sealed record Renewed(string AccessToken, string? RefreshToken, DateTimeOffset ExpiresAt);

@@ -1,5 +1,3 @@
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Client;
@@ -8,7 +6,8 @@ namespace Saem.Console;
 
 /// <summary>
 /// How the console asks the MCP server as the person looking (saem D-89 ①): the server's address, the audience its
-/// tokens must name, and the issuer's token-exchange endpoint.
+/// tokens must name, and whether the console names itself the actor. The exchange goes to the issuer's token endpoint
+/// (<see cref="ConsoleIssuer"/>).
 /// </summary>
 public sealed class ConsoleLookupOptions
 {
@@ -17,9 +16,6 @@ public sealed class ConsoleLookupOptions
 
     /// <summary>The audience the MCP server accepts; the person's token is exchanged for one naming it.</summary>
     public string McpAudience { get; set; } = "saem";
-
-    /// <summary>The issuer's token endpoint (RFC 8693 token exchange), where the console authenticates as its client (<see cref="ConsoleIdentityOptions"/>).</summary>
-    public string TokenEndpoint { get; set; } = "";
 
     /// <summary>
     /// Whether the console presents itself as the actor in the exchange (RFC 8693 delegation: its own client-credentials
@@ -43,7 +39,7 @@ public interface IConsoleLookups
 /// console as the actor, and the server's one tool is called with it. The console reads no source itself: what the person sees is what the server
 /// answers that person, partition reports and refusals included.
 /// </summary>
-internal sealed class McpConsoleLookups(HttpClient http, IOptions<ConsoleLookupOptions> options, IOptions<ConsoleIdentityOptions> identity, Func<Uri, string, JsonElement, CancellationToken, Task<JsonElement>>? call = null)
+internal sealed class McpConsoleLookups(ConsoleIssuer issuer, IOptions<ConsoleLookupOptions> options, Func<Uri, string, JsonElement, CancellationToken, Task<JsonElement>>? call = null)
     : IConsoleLookups
 {
     private const string GrantType = "urn:ietf:params:oauth:grant-type:token-exchange";
@@ -55,12 +51,23 @@ internal sealed class McpConsoleLookups(HttpClient http, IOptions<ConsoleLookupO
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(presentedToken);
         var settings = options.Value;
-        var actor = settings.PresentActor ? await TokenAsync(settings, new() { ["grant_type"] = "client_credentials" }, cancellationToken).ConfigureAwait(false) : null;
-        var exchanged = await ExchangeAsync(settings, presentedToken, actor, cancellationToken).ConfigureAwait(false);
+        string exchanged;
+        try
+        {
+            var actor = settings.PresentActor
+                ? (await issuer.TokenAsync(new Dictionary<string, string> { ["grant_type"] = "client_credentials" }, cancellationToken).ConfigureAwait(false)).AccessToken
+                : null;
+            exchanged = (await issuer.TokenAsync(Exchange(settings, presentedToken, actor), cancellationToken).ConfigureAwait(false)).AccessToken;
+        }
+        catch (IssuerRefusedException e)
+        {
+            throw new LookupUnavailableException(e.Message, e);
+        }
+
         return await _call(new Uri(settings.McpEndpoint), exchanged, arguments, cancellationToken).ConfigureAwait(false);
     }
 
-    private Task<string> ExchangeAsync(ConsoleLookupOptions settings, string presentedToken, string? actor, CancellationToken cancellationToken)
+    private static Dictionary<string, string> Exchange(ConsoleLookupOptions settings, string presentedToken, string? actor)
     {
         var form = new Dictionary<string, string>
         {
@@ -76,28 +83,7 @@ internal sealed class McpConsoleLookups(HttpClient http, IOptions<ConsoleLookupO
             form["actor_token_type"] = AccessTokenType;
         }
 
-        return TokenAsync(settings, form, cancellationToken);
-    }
-
-    private async Task<string> TokenAsync(ConsoleLookupOptions settings, Dictionary<string, string> form, CancellationToken cancellationToken)
-    {
-        var client = identity.Value;
-        using var request = new HttpRequestMessage(HttpMethod.Post, settings.TokenEndpoint) { Content = new FormUrlEncodedContent(form) };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(
-            Encoding.UTF8.GetBytes($"{Uri.EscapeDataString(client.ClientId)}:{Uri.EscapeDataString(client.ClientSecret)}")));
-
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            // The issuer's error names the reason (invalid_grant, unauthorized_client …) and no secret.
-            throw new LookupUnavailableException($"The issuer refused the console's {form["grant_type"]} request ({(int)response.StatusCode}): {body}");
-        }
-
-        using var token = JsonDocument.Parse(body);
-        return token.RootElement.TryGetProperty("access_token", out var value) && value.GetString() is { Length: > 0 } issued
-            ? issued
-            : throw new LookupUnavailableException("The issuer answered without an access token.");
+        return form;
     }
 
     private static async Task<JsonElement> CallToolAsync(Uri endpoint, string token, JsonElement call, CancellationToken cancellationToken)

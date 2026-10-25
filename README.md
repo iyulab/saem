@@ -600,7 +600,7 @@ along; `npm test` runs its tests, and `npm run dev` serves it against a console 
 The console holds no credential to any source and no key to any group's store: what a person may read it
 asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` (the catalog file),
 `Saem:Console:Identity` (issuer, audience, the console's client id and secret, sign-in scopes),
-`Saem:Console:Roles`, `Saem:Console:Lookup` (the MCP server, its audience, the issuer's token endpoint),
+`Saem:Console:Roles`, `Saem:Console:Lookup` (the MCP server, its audience, `PresentActor`),
 `Saem:Console:CheckReport` (the last `saem-materialize check --report` file, optional).
 
 `GET /api/overview` says what is waiting at a glance: the catalog in force, how many declarations of each

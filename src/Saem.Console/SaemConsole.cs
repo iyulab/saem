@@ -107,7 +107,9 @@ public static class SaemConsole
         services.AddSingleton<IOntologyCatalog>(provider => new FileOntologyCatalog(provider.GetRequiredService<IOptions<ConsoleCatalogOptions>>().Value.Ontology));
         services.Configure<ConsoleLookupOptions>(console.GetSection("Lookup"));
         services.Configure<ConsoleCheckOptions>(console);
-        services.AddHttpClient<IConsoleLookups, McpConsoleLookups>();
+        services.AddHttpClient(nameof(ConsoleIssuer));
+        services.AddSingleton<ConsoleIssuer>();
+        services.AddSingleton<IConsoleLookups, McpConsoleLookups>();
         services.AddOptions<ConsoleRoleOptions>()
             .Bind(console.GetSection("Roles"))
             .Validate(r => r.Builders.Count > 0, "Saem:Console:Roles:Builders names at least one group; a console no one may use is a mistake, not a lock.")
@@ -137,7 +139,6 @@ public static class SaemConsole
                 cookie.Events.OnRedirectToAccessDenied = context => Status(context.Response, StatusCodes.Status403Forbidden);
             });
         services.TryAddSingleton(TimeProvider.System);
-        services.AddHttpClient(nameof(SessionTokens));
         services.AddSingleton<SessionTokens>();
         services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
             .Configure<SessionTokens>((cookie, tokens) => cookie.Events.OnValidatePrincipal = tokens.ValidateAsync);

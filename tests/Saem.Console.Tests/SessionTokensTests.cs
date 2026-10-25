@@ -2,12 +2,8 @@ using System.Net;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Xunit;
 
 namespace Saem.Console.Tests;
@@ -75,14 +71,7 @@ public sealed class SessionTokensTests
         Assert.Null(without.Principal);
     }
 
-    private static SessionTokens Tokens(Issuer issuer)
-    {
-        var oidc = new OpenIdConnectOptions
-        {
-            ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(new OpenIdConnectConfiguration { TokenEndpoint = "https://issuer.test/token" }),
-        };
-        return new SessionTokens(new Clients(issuer), new Monitor(oidc), Options.Create(new ConsoleIdentityOptions { ClientId = "saem-console", ClientSecret = "s" }), new FixedTime(Now));
-    }
+    private static SessionTokens Tokens(Issuer issuer) => new(TestIssuer.For(issuer, clientSecret: "s"), new FixedTime(Now));
 
     private static CookieValidatePrincipalContext Context(TimeSpan expiresIn, string? refreshToken = "refresh-1")
     {
@@ -125,20 +114,6 @@ public sealed class SessionTokensTests
                 ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("""{"error":"invalid_grant"}""") }
                 : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"access_token":"access-2","refresh_token":"refresh-2","expires_in":300,"token_type":"Bearer"}""") };
         }
-    }
-
-    private sealed class Clients(HttpMessageHandler handler) : IHttpClientFactory
-    {
-        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
-    }
-
-    private sealed class Monitor(OpenIdConnectOptions options) : IOptionsMonitor<OpenIdConnectOptions>
-    {
-        public OpenIdConnectOptions CurrentValue => options;
-
-        public OpenIdConnectOptions Get(string? name) => options;
-
-        public IDisposable? OnChange(Action<OpenIdConnectOptions, string?> listener) => null;
     }
 
     private sealed class FixedTime(DateTimeOffset now) : TimeProvider

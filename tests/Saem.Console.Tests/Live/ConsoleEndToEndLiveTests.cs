@@ -78,7 +78,6 @@ public sealed class ConsoleEndToEndLiveTests : IAsyncLifetime
             services.Configure<ConsoleLookupOptions>(lookup =>
             {
                 lookup.McpEndpoint = mcpEndpoint;
-                lookup.TokenEndpoint = Issuer + "/token";
             }));
     }
 
