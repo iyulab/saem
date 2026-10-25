@@ -31,7 +31,7 @@ if (args is ["serve", .. var serveArgs])
     try
     {
         var serve = ServeOptions.Parse(serveArgs, Environment.GetEnvironmentVariable);
-        await using var executor = ExecutorHost.Build(serve.Listen, serve.Secrets, ExecutorJobs.For(serve.Run, Environment.GetEnvironmentVariable));
+        await using var executor = ExecutorHost.Build(serve.Listen, serve.Secrets, ExecutorJobs.ForFiles(serve.Run, Environment.GetEnvironmentVariable));
         await executor.StartAsync(cancellation.Token);
         await executor.WaitForShutdownAsync(cancellation.Token);
         return 0;

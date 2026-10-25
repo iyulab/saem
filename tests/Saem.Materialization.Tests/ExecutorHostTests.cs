@@ -26,21 +26,21 @@ public sealed class ExecutorHostTests : IAsyncLifetime
     {
         var kinds = new Dictionary<string, JobWork>(StringComparer.Ordinal)
         {
-            ["echo"] = async (output, _) =>
+            ["echo"] = async (_, output, _) =>
             {
                 await output.WriteLineAsync("first line");
                 await output.WriteLineAsync("second line");
                 return new JobOutcome(true, """{"findings":[]}""");
             },
-            ["wait"] = async (output, cancellationToken) =>
+            ["wait"] = async (_, output, cancellationToken) =>
             {
                 await output.WriteLineAsync("waiting");
                 await _release.Task.WaitAsync(cancellationToken);
                 return new JobOutcome(true);
             },
-            ["refuse"] = (output, _) => Task.FromResult(new JobOutcome(false)),
-            ["misuse"] = (_, _) => throw new MaterializeUsageException("--sources is required."),
-            ["crash"] = (_, _) => throw new ArithmeticException("a detail the caller is not told"),
+            ["refuse"] = (_, _, _) => Task.FromResult(new JobOutcome(false)),
+            ["misuse"] = (_, _, _) => throw new MaterializeUsageException("--sources is required."),
+            ["crash"] = (_, _, _) => throw new ArithmeticException("a detail the caller is not told"),
         };
         _app = ExecutorHost.Build(new Uri("http://127.0.0.1:0"), [Secret, Next], kinds);
         await _app.StartAsync(TestContext.Current.CancellationToken);
@@ -82,7 +82,7 @@ public sealed class ExecutorHostTests : IAsyncLifetime
     [Fact]
     public async Task A_job_runs_and_says_what_it_printed_how_it_ended_and_who_asked()
     {
-        var accepted = await Post("echo", "person-1");
+        var accepted = await Post("echo", "person-1", identity: "same-person");
         Assert.Equal(HttpStatusCode.Accepted, accepted.Status);
 
         var job = await Finished(accepted.Id);
@@ -91,6 +91,7 @@ public sealed class ExecutorHostTests : IAsyncLifetime
         Assert.Equal(0, job.GetProperty("exitCode").GetInt32());
         Assert.Equal("first line\nsecond line\n", job.GetProperty("output").GetString()!.ReplaceLineEndings("\n"));
         Assert.Equal("person-1", job.GetProperty("requestedBy").GetString());
+        Assert.Equal("same-person", job.GetProperty("identity").GetString());
         Assert.Equal("echo", job.GetProperty("kind").GetString());
         Assert.Equal("""{"findings":[]}""", job.GetProperty("report").GetString());
         Assert.NotEqual(JsonValueKind.Null, job.GetProperty("finishedAt").ValueKind);
@@ -189,7 +190,7 @@ public sealed class ExecutorHostTests : IAsyncLifetime
     public async Task What_a_job_prints_is_kept_up_to_a_limit_and_says_it_was_cut()
     {
         var store = new JobStore(TimeProvider.System, NullLogger.Instance, keep: 2, outputLimit: 10);
-        Assert.True(store.TryStart("echo", "p", async (output, _) =>
+        Assert.True(store.TryStart("echo", "p", new JobArguments(), async (_, output, _) =>
         {
             await output.WriteAsync("0123456789abcdef");
             return new JobOutcome(true);
@@ -209,7 +210,7 @@ public sealed class ExecutorHostTests : IAsyncLifetime
         var ids = new List<string>();
         for (var i = 0; i < 3; i++)
         {
-            Assert.True(store.TryStart("echo", "p", (_, _) => Task.FromResult(new JobOutcome(true)), CancellationToken.None, out var job));
+            Assert.True(store.TryStart("echo", "p", new JobArguments(), (_, _, _) => Task.FromResult(new JobOutcome(true)), CancellationToken.None, out var job));
             ids.Add(job.Id);
             await store.DrainAsync(TimeSpan.FromSeconds(10));
         }
@@ -218,9 +219,9 @@ public sealed class ExecutorHostTests : IAsyncLifetime
         Assert.NotNull(store.Get(ids[2]));
     }
 
-    private async Task<(HttpStatusCode Status, string Id, JsonElement Body)> Post(string kind, string requestedBy)
+    private async Task<(HttpStatusCode Status, string Id, JsonElement Body)> Post(string kind, string requestedBy, string? identity = null)
     {
-        using var response = await _http.PostAsJsonAsync("jobs", new { kind, requestedBy }, TestContext.Current.CancellationToken);
+        using var response = await _http.PostAsJsonAsync("jobs", new { kind, requestedBy, identity }, TestContext.Current.CancellationToken);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
         var id = body.TryGetProperty("id", out var own) ? own.GetString()! : "";
         return (response.StatusCode, id, body);

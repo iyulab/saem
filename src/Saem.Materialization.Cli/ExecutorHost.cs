@@ -73,7 +73,7 @@ internal static class ExecutorHost
                 return Results.BadRequest(new { error = $"requestedBy names who asked, in up to {MaxRequestedByLength} characters." });
             }
 
-            if (!store.TryStart(kind, requestedBy, work, stopped, out var job))
+            if (!store.TryStart(kind, requestedBy, new JobArguments(request.Identity), work, stopped, out var job))
             {
                 return Results.Json(new { error = "Another job is running.", running = job }, statusCode: StatusCodes.Status409Conflict);
             }
@@ -112,5 +112,5 @@ internal static class ExecutorHost
         return matches;
     }
 
-    private sealed record JobRequest(string? Kind, string? RequestedBy);
+    private sealed record JobRequest(string? Kind, string? RequestedBy, string? Identity);
 }

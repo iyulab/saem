@@ -10,14 +10,19 @@ namespace Saem.Materialization.Cli;
 /// <summary>What a job did: whether it held, and the report it filed as JSON when it files one.</summary>
 internal sealed record JobOutcome(bool Succeeded, string? Report = null);
 
+/// <summary>What a request adds to the kind of job it names; only some kinds take any.</summary>
+/// <param name="Identity">The declared identity a fit is for.</param>
+internal sealed record JobArguments(string? Identity = null);
+
 /// <summary>The work of one kind of job, writing the lines the one-shot command prints to <paramref name="output"/>.</summary>
-internal delegate Task<JobOutcome> JobWork(TextWriter output, CancellationToken cancellationToken);
+internal delegate Task<JobOutcome> JobWork(JobArguments arguments, TextWriter output, CancellationToken cancellationToken);
 
 /// <summary>One job as a caller sees it.</summary>
 internal sealed record JobView(
     string Id,
     string Kind,
     string RequestedBy,
+    string? Identity,
     string State,
     int? ExitCode,
     string Output,
@@ -40,7 +45,7 @@ internal sealed partial class JobStore(TimeProvider time, ILogger logger, int ke
     /// Starts <paramref name="work"/> unless a job is running, in which case that job is returned instead.
     /// </summary>
     /// <returns><see langword="true"/> when the job was started.</returns>
-    public bool TryStart(string kind, string requestedBy, JobWork work, CancellationToken stopping, out JobView job)
+    public bool TryStart(string kind, string requestedBy, JobArguments arguments, JobWork work, CancellationToken stopping, out JobView job)
     {
         Job started;
         lock (_gate)
@@ -51,7 +56,7 @@ internal sealed partial class JobStore(TimeProvider time, ILogger logger, int ke
                 return false;
             }
 
-            started = new Job(Guid.NewGuid().ToString("N"), kind, requestedBy, time.GetUtcNow(), outputLimit, CancellationTokenSource.CreateLinkedTokenSource(stopping));
+            started = new Job(Guid.NewGuid().ToString("N"), kind, requestedBy, arguments, time.GetUtcNow(), outputLimit, CancellationTokenSource.CreateLinkedTokenSource(stopping));
             _jobs.Add(started);
             while (_jobs.Count > keep)
             {
@@ -130,7 +135,7 @@ internal sealed partial class JobStore(TimeProvider time, ILogger logger, int ke
         string? report = null;
         try
         {
-            var outcome = await work(job.Writer, job.Cancellation.Token).ConfigureAwait(false);
+            var outcome = await work(job.Arguments, job.Writer, job.Cancellation.Token).ConfigureAwait(false);
             (state, exitCode, report) = outcome.Succeeded ? ("succeeded", 0, outcome.Report) : ("failed", 1, outcome.Report);
         }
         catch (OperationCanceledException) when (job.Cancellation.IsCancellationRequested)
@@ -165,7 +170,7 @@ internal sealed partial class JobStore(TimeProvider time, ILogger logger, int ke
         job.Done.SetResult();
     }
 
-    private sealed class Job(string id, string kind, string requestedBy, DateTimeOffset startedAt, int outputLimit, CancellationTokenSource cancellation)
+    private sealed class Job(string id, string kind, string requestedBy, JobArguments arguments, DateTimeOffset startedAt, int outputLimit, CancellationTokenSource cancellation)
     {
         private readonly StringBuilder _output = new();
         private bool _truncated;
@@ -177,6 +182,8 @@ internal sealed partial class JobStore(TimeProvider time, ILogger logger, int ke
         public string Id { get; } = id;
 
         public string Kind { get; } = kind;
+
+        public JobArguments Arguments { get; } = arguments;
 
         public string State { get; private set; } = "running";
 
@@ -201,7 +208,7 @@ internal sealed partial class JobStore(TimeProvider time, ILogger logger, int ke
         {
             lock (_output)
             {
-                return new JobView(Id, Kind, requestedBy, State, _exitCode, _output.ToString(), _truncated, startedAt, _finishedAt, _report);
+                return new JobView(Id, Kind, requestedBy, Arguments.Identity, State, _exitCode, _output.ToString(), _truncated, startedAt, _finishedAt, _report);
             }
         }
 

@@ -63,13 +63,13 @@ public sealed class ServeOptionsTests
     }
 
     [Fact]
-    public void The_kinds_a_request_may_name_are_the_read_only_commands()
+    public void The_kinds_a_request_may_name_are_the_commands_of_a_group()
     {
         var run = MaterializeOptions.Parse(Pass, _ => null);
 
-        var kinds = ExecutorJobs.For(run, _ => null);
+        var kinds = ExecutorJobs.ForFiles(run, _ => null);
 
-        Assert.Equal(["check", "verify"], kinds.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(["changed-pass", "check", "fit", "pass", "verify"], kinds.Keys.Order(StringComparer.Ordinal));
     }
 
     private static Func<string, string?> Environment(string? secret = null, string? next = null) => name => name switch

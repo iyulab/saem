@@ -32,8 +32,13 @@ internal sealed record ServeOptions(MaterializeOptions Run, Uri Listen, IReadOnl
                                          first and drop it.
 
         One executor serves one group: it holds that group's secrets and no other's. It runs one job at a time.
-          POST   /jobs                   {"kind": "verify" | "check", "requestedBy": "<who asked>"} -> 202, the job; 409
-                                         while another job runs.
+          POST   /jobs                   {"kind": "<kind>", "requestedBy": "<who asked>"} -> 202, the job; 409 while
+                                         another job runs. The kinds are the commands of a run:
+                                           verify        what a pass would give now against the store, writing nothing
+                                           check         the declarations against the sources (the report comes back too)
+                                           pass          the edges, then what the identities find, written to the store
+                                           changed-pass  the same, reading only the rows changed since the last pass
+                                           fit           an identity's linkage rule fitted, the fit kept — add "identity": "<name>"
           GET    /jobs                   The most recent jobs.
           GET    /jobs/{id}              One job: its state, exit code and the lines the command prints.
           POST   /jobs/{id}/cancel       Stops a running job.
