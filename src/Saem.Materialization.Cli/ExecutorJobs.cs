@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Text;
 using Saem.Ontology;
 using Saem.Query;
@@ -80,14 +79,28 @@ internal static class ExecutorJobs
             ["changed-pass"] = (_, output, cancellationToken) => PassAsync(changedOnly: true, output, cancellationToken),
 
             // An identity's linkage rule fitted to the group's records, the fit kept in the store.
-            ["fit"] = async (arguments, output, cancellationToken) =>
+            ["fit"] = async (call, output, cancellationToken) =>
             {
-                var identity = arguments.Identity is { Length: > 0 } name ? name : throw new MaterializeUsageException("identity is required for a fit.");
+                var identity = Required(call.Arguments.Identity, "identity");
                 using var group = await open(cancellationToken).ConfigureAwait(false);
                 var kept = await FitRun.RunAsync(
                     group.Ontology, identity, group.Openers, run.Group, iris,
                     new FormbaseIdentityStore(group.Store, run.StoreNamespace), DateTimeOffset.UtcNow, output, cancellationToken).ConfigureAwait(false);
                 return new JobOutcome(kept);
+            },
+
+            // A person's judgment of a pair an identity is about, filed in the store; the requester is the person.
+            ["judge"] = async (call, output, cancellationToken) =>
+            {
+                var arguments = call.Arguments;
+                var judgment = new JudgeOptions(
+                    run.CatalogPath, run.Store, run.StoreNamespace, run.StoreToken,
+                    Required(arguments.Identity, "identity"), Required(arguments.First, "first"), Required(arguments.Second, "second"),
+                    arguments.Same ?? throw new MaterializeUsageException("same is required for a judgment: true when the pair is one thing, false when it is two."),
+                    call.RequestedBy);
+                using var group = await open(cancellationToken).ConfigureAwait(false);
+                await JudgeRun.RunAsync(group.Ontology, judgment, new FormbaseIdentityStore(group.Store, run.StoreNamespace), DateTimeOffset.UtcNow, output, cancellationToken).ConfigureAwait(false);
+                return new JobOutcome(true);
             },
 
             // The declarations against the sources, read as the group's account; the findings come back as the report too.
@@ -101,14 +114,8 @@ internal static class ExecutorJobs
         };
     }
 
-    private static HttpClient StoreClient(MaterializeOptions run)
-    {
-        var client = new HttpClient { BaseAddress = run.Store };
-        if (run.StoreToken is { } token)
-        {
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        }
+    private static string Required(string? value, string name) =>
+        value is { Length: > 0 } ? value : throw new MaterializeUsageException($"{name} is required for this kind of job.");
 
-        return client;
-    }
+    private static HttpClient StoreClient(MaterializeOptions run) => GroupStore.Client(run.Store, run.StoreToken);
 }

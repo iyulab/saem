@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using Microsoft.Extensions.Hosting;
 using Saem.Connectors.MorphDb;
 using Saem.Connectors.Postgres;
@@ -91,11 +90,7 @@ if (args is ["judge", .. var judgeArgs])
     {
         var judge = JudgeRun.Parse(judgeArgs, Environment.GetEnvironmentVariable);
         var declared = await new FileOntologyCatalog(judge.CatalogPath).GetAsync(cancellation.Token);
-        using var judgeStore = new HttpClient { BaseAddress = judge.Store };
-        if (judge.StoreToken is { } judgeToken)
-        {
-            judgeStore.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", judgeToken);
-        }
+        using var judgeStore = GroupStore.Client(judge.Store, judge.StoreToken);
 
         await JudgeRun.RunAsync(declared, judge, new FormbaseIdentityStore(judgeStore, judge.StoreNamespace), DateTimeOffset.UtcNow, Console.Out, cancellation.Token);
         return 0;
@@ -126,11 +121,7 @@ if (args is ["fit", .. var fitArgs])
         var (identity, fitOptions) = FitRun.Parse(fitArgs, Environment.GetEnvironmentVariable);
         var declared = await new FileOntologyCatalog(fitOptions.CatalogPath).GetAsync(cancellation.Token);
         using var fitSources = GroupSources.Load(await File.ReadAllTextAsync(fitOptions.SourcesPath, cancellation.Token), Environment.GetEnvironmentVariable);
-        using var fitStore = new HttpClient { BaseAddress = fitOptions.Store };
-        if (fitOptions.StoreToken is { } fitToken)
-        {
-            fitStore.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fitToken);
-        }
+        using var fitStore = GroupStore.Client(fitOptions.Store, fitOptions.StoreToken);
 
         return await FitRun.RunAsync(
             declared, identity, fitSources.Openers, fitOptions.Group, new EntityIris(fitOptions.BaseIri),
@@ -167,11 +158,7 @@ try
     var options = MaterializeOptions.Parse(verify ? args[1..] : args, Environment.GetEnvironmentVariable);
     var ontology = await new FileOntologyCatalog(options.CatalogPath).GetAsync(cancellation.Token);
     using var sources = GroupSources.Load(await File.ReadAllTextAsync(options.SourcesPath, cancellation.Token), Environment.GetEnvironmentVariable);
-    using var store = new HttpClient { BaseAddress = options.Store };
-    if (options.StoreToken is { } token)
-    {
-        store.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-    }
+    using var store = GroupStore.Client(options.Store, options.StoreToken);
 
     var edgeStore = new FormbaseEdgeStore(store, options.StoreNamespace);
     var identityStore = new FormbaseIdentityStore(store, options.StoreNamespace);

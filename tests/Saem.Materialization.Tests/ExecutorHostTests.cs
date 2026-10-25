@@ -91,7 +91,7 @@ public sealed class ExecutorHostTests : IAsyncLifetime
         Assert.Equal(0, job.GetProperty("exitCode").GetInt32());
         Assert.Equal("first line\nsecond line\n", job.GetProperty("output").GetString()!.ReplaceLineEndings("\n"));
         Assert.Equal("person-1", job.GetProperty("requestedBy").GetString());
-        Assert.Equal("same-person", job.GetProperty("identity").GetString());
+        Assert.Equal("same-person", job.GetProperty("arguments").GetProperty("identity").GetString());
         Assert.Equal("echo", job.GetProperty("kind").GetString());
         Assert.Equal("""{"findings":[]}""", job.GetProperty("report").GetString());
         Assert.NotEqual(JsonValueKind.Null, job.GetProperty("finishedAt").ValueKind);
@@ -221,7 +221,7 @@ public sealed class ExecutorHostTests : IAsyncLifetime
 
     private async Task<(HttpStatusCode Status, string Id, JsonElement Body)> Post(string kind, string requestedBy, string? identity = null)
     {
-        using var response = await _http.PostAsJsonAsync("jobs", new { kind, requestedBy, identity }, TestContext.Current.CancellationToken);
+        using var response = await _http.PostAsJsonAsync("jobs", new { kind, requestedBy, arguments = new { identity } }, TestContext.Current.CancellationToken);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
         var id = body.TryGetProperty("id", out var own) ? own.GetString()! : "";
         return (response.StatusCode, id, body);

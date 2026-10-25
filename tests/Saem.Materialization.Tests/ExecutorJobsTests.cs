@@ -38,10 +38,10 @@ public sealed class ExecutorJobsTests : IDisposable
         new Dictionary<string, SourceOpener> { ["mes"] = ct => _sessions.OpenAsync("mes", ct), ["erp"] = ct => _sessions.OpenAsync("erp", ct) },
         new HttpClient(_formbase, disposeHandler: false) { BaseAddress = _formbase.Client.BaseAddress })));
 
-    private async Task<(JobOutcome Outcome, string Output)> RunAsync(string kind, JobArguments? arguments = null)
+    private async Task<(JobOutcome Outcome, string Output)> RunAsync(string kind, JobArguments? arguments = null, string requestedBy = "person-1")
     {
         var output = new StringWriter();
-        var outcome = await Kinds()[kind](arguments ?? new JobArguments(), output, TestContext.Current.CancellationToken);
+        var outcome = await Kinds()[kind](new JobCall(requestedBy, arguments ?? new JobArguments()), output, TestContext.Current.CancellationToken);
         return (outcome, output.ToString());
     }
 
@@ -88,6 +88,39 @@ public sealed class ExecutorJobsTests : IDisposable
         Assert.Contains("WorkOrder [read]", output);
         using var report = JsonDocument.Parse(outcome.Report!);
         Assert.Equal(JsonValueKind.Object, report.RootElement.ValueKind);
+    }
+
+    [Fact]
+    public async Task A_judgment_is_filed_as_the_requesters_ground()
+    {
+        var duplicates = Ontology.Ontology.Create(
+        [
+            .. Plant.EntityTypes.Values,
+            new IdentityDeclaration("same_order", "WorkOrder", "WorkOrder", IdentityDecision.Automatic) { Match = [new FieldPair("item", "item")] },
+        ]);
+        var kinds = ExecutorJobs.For(Run, _ => Task.FromResult(new GroupContext(
+            duplicates, new Dictionary<string, SourceOpener>(), new HttpClient(_formbase, disposeHandler: false) { BaseAddress = _formbase.Client.BaseAddress })));
+        var output = new StringWriter();
+
+        var outcome = await kinds["judge"](
+            new JobCall("p-3", new JobArguments("same_order", "wo/2", "wo/1", Same: false)), output, TestContext.Current.CancellationToken);
+
+        Assert.True(outcome.Succeeded);
+        var ground = Assert.Single(_formbase.Type("identity_grounds").Rows);
+        Assert.Equal(("0", "p-3"), ((string?)ground.Body!["score"], (string?)ground.Body["judged_by"]));
+        Assert.Equal("same_order: wo/2 and wo/1 judged two things by p-3; the next pass takes it in.", output.ToString().Trim());
+    }
+
+    [Theory]
+    [InlineData(null, "wo/1", "wo/2", true, "identity is required")]
+    [InlineData("same_order", null, "wo/2", true, "first is required")]
+    [InlineData("same_order", "wo/1", null, true, "second is required")]
+    [InlineData("same_order", "wo/1", "wo/2", null, "same is required")]
+    public async Task A_judgment_that_names_no_pair_or_no_verdict_is_refused(string? identity, string? first, string? second, bool? same, string message)
+    {
+        var refused = await Assert.ThrowsAsync<MaterializeUsageException>(() => RunAsync("judge", new JobArguments(identity, first, second, same)));
+
+        Assert.Contains(message, refused.Message);
     }
 
     [Fact]

@@ -11,18 +11,24 @@ namespace Saem.Materialization.Cli;
 internal sealed record JobOutcome(bool Succeeded, string? Report = null);
 
 /// <summary>What a request adds to the kind of job it names; only some kinds take any.</summary>
-/// <param name="Identity">The declared identity a fit is for.</param>
-internal sealed record JobArguments(string? Identity = null);
+/// <param name="Identity">The declared identity a fit or a judgment is for.</param>
+/// <param name="First">One entity of the pair judged, by the IRI the store names it by.</param>
+/// <param name="Second">The other.</param>
+/// <param name="Same">Whether the pair is judged one thing (<see langword="true"/>) or two.</param>
+internal sealed record JobArguments(string? Identity = null, string? First = null, string? Second = null, bool? Same = null);
+
+/// <summary>A request for work: who asked, and what they added to the kind.</summary>
+internal sealed record JobCall(string RequestedBy, JobArguments Arguments);
 
 /// <summary>The work of one kind of job, writing the lines the one-shot command prints to <paramref name="output"/>.</summary>
-internal delegate Task<JobOutcome> JobWork(JobArguments arguments, TextWriter output, CancellationToken cancellationToken);
+internal delegate Task<JobOutcome> JobWork(JobCall call, TextWriter output, CancellationToken cancellationToken);
 
 /// <summary>One job as a caller sees it.</summary>
 internal sealed record JobView(
     string Id,
     string Kind,
     string RequestedBy,
-    string? Identity,
+    JobArguments Arguments,
     string State,
     int? ExitCode,
     string Output,
@@ -135,7 +141,7 @@ internal sealed partial class JobStore(TimeProvider time, ILogger logger, int ke
         string? report = null;
         try
         {
-            var outcome = await work(job.Arguments, job.Writer, job.Cancellation.Token).ConfigureAwait(false);
+            var outcome = await work(new JobCall(job.RequestedBy, job.Arguments), job.Writer, job.Cancellation.Token).ConfigureAwait(false);
             (state, exitCode, report) = outcome.Succeeded ? ("succeeded", 0, outcome.Report) : ("failed", 1, outcome.Report);
         }
         catch (OperationCanceledException) when (job.Cancellation.IsCancellationRequested)
@@ -183,6 +189,8 @@ internal sealed partial class JobStore(TimeProvider time, ILogger logger, int ke
 
         public string Kind { get; } = kind;
 
+        public string RequestedBy { get; } = requestedBy;
+
         public JobArguments Arguments { get; } = arguments;
 
         public string State { get; private set; } = "running";
@@ -208,7 +216,7 @@ internal sealed partial class JobStore(TimeProvider time, ILogger logger, int ke
         {
             lock (_output)
             {
-                return new JobView(Id, Kind, requestedBy, Arguments.Identity, State, _exitCode, _output.ToString(), _truncated, startedAt, _finishedAt, _report);
+                return new JobView(Id, Kind, RequestedBy, Arguments, State, _exitCode, _output.ToString(), _truncated, startedAt, _finishedAt, _report);
             }
         }
 

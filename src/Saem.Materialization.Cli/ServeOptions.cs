@@ -38,7 +38,10 @@ internal sealed record ServeOptions(MaterializeOptions Run, Uri Listen, IReadOnl
                                            check         the declarations against the sources (the report comes back too)
                                            pass          the edges, then what the identities find, written to the store
                                            changed-pass  the same, reading only the rows changed since the last pass
-                                           fit           an identity's linkage rule fitted, the fit kept — add "identity": "<name>"
+                                           fit           an identity's linkage rule fitted, the fit kept
+                                           judge         a person's judgment of a pair, filed as theirs (requestedBy is who judged)
+                                         "arguments" carries what a kind takes: {"identity": "<name>"} for fit, and for judge
+                                         {"identity": "<name>", "first": "<iri>", "second": "<iri>", "same": true | false}.
           GET    /jobs                   The most recent jobs.
           GET    /jobs/{id}              One job: its state, exit code and the lines the command prints.
           POST   /jobs/{id}/cancel       Stops a running job.
