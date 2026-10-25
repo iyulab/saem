@@ -218,8 +218,19 @@ again: `saem-materialize judge --identity <name> --first <iri> --second <iri> --
 <id>` files it in the group's store as a ground of its own (an opaque person id, never a name), and the
 next pass takes it — a pair judged the same is one thing whatever the rule says, a pair judged different
 leaves the rule's thing, both of them. An identity a person settles (`confirmed`) has the rule's pairs as
-candidates only: a thing is issued an id once a person has judged a pair the same. Identities by a
-linkage rule and the groups a lookup can start from are not built yet.
+candidates only: a thing is issued an id once a person has judged a pair the same.
+
+An identity by a `linkage` rule scores pairs instead of requiring equal values. The rule is a declaration
+of its own — the pairs of fields compared, each by a method (`exact`, `jaroWinkler`, `tokenJaccard`,
+`mongeElkan`) and the similarities at which its values agree, and optional match and non-match
+thresholds — and is part of the ontology's version. `saem-materialize fit --identity <name>` fits the
+rule's agreement rates (Fellegi–Sunter) to everything the group's account reads and keeps them in the
+group's store — rates only, no record value; every pass scores with that fit, so a pair scores the same
+from pass to pass, and leaves the identity out, saying so, while no fit is kept or the rule has changed
+since. Between two types, two rows of one type are never paired. A rule-settled identity's things are what
+its match pairs join; for one a person settles, every pair scored a match or undecided is a candidate for
+that person. Every pair of the two types is compared, so a type of many thousands of rows is slow to
+score. The groups a lookup can start from are not built yet.
 
 A path crosses an identity by its name, from either of its types to the other (or to the same type, for
 duplicates): the step asks the identities filed for the person's groups which entities are one thing with
@@ -574,8 +585,9 @@ from the forms, unedited, the relation followed included.
 are read through that group's own account and kept in that group's own store; a person reads only the
 partitions of the groups their token names, a relation walked backwards or an identity crossed —
 anywhere in a path — answers from them, and a person in no such group is refused. A pass may read only
-the rows changed since the last one. Identities by a linkage rule, embeddings, and how to show a path
-whose middle hop the user may not read stay open.
+the rows changed since the last one. An identity by a linkage rule is fitted once to what the group reads
+and scored with that fit on every pass, across a PostgreSQL and a MySQL source on the rig. Embeddings, and
+how to show a path whose middle hop the user may not read, stay open.
 
 What these slices do not show is part of the plan. They run on synthetic fixtures, so they say nothing
 about whether a given legacy system can be queried as its end users at all. Across the two relational
