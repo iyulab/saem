@@ -23,6 +23,8 @@ public sealed class ExecutorJobsTests : IDisposable
         new RelationDeclaration("orders_item", "WorkOrder", "item", "Item"),
     ]);
 
+    private static readonly EntityIris Iris = new(new Uri("https://example.org/ontology/"));
+
     private readonly FakeFormbase _formbase = new();
 
     public void Dispose() => _formbase.Dispose();
@@ -124,7 +126,10 @@ public sealed class ExecutorJobsTests : IDisposable
         var store = new FormbaseIdentityStore(new HttpClient(_formbase, disposeHandler: false) { BaseAddress = _formbase.Client.BaseAddress });
         async IAsyncEnumerable<IdentityCluster> Found()
         {
-            yield return new IdentityCluster("same_order", ["wo/1", "wo/2"]) { Grounds = [new IdentityGround("wo/1", "wo/2", "match", 1)] };
+            yield return new IdentityCluster("same_order", [Iris.For("WorkOrder", "WO 1"), Iris.For("WorkOrder", "WO/2")])
+            {
+                Grounds = [new IdentityGround(Iris.For("WorkOrder", "WO 1"), Iris.For("WorkOrder", "WO/2"), "match", 1)],
+            };
             await Task.CompletedTask;
         }
 
@@ -137,7 +142,12 @@ public sealed class ExecutorJobsTests : IDisposable
         Assert.Equal("group g-plant: 1 pair(s) await a person's judgment.", output.ToString().Trim());
         using var report = JsonDocument.Parse(outcome.Report!);
         var pair = Assert.Single(report.RootElement.GetProperty("candidates").EnumerateArray());
-        Assert.Equal(("same_order", "wo/1", "wo/2", 1.0), (pair.GetProperty("identity").GetString(), pair.GetProperty("first").GetString(), pair.GetProperty("second").GetString(), pair.GetProperty("score").GetDouble()));
+        Assert.Equal(
+            ("same_order", Iris.For("WorkOrder", "WO 1"), Iris.For("WorkOrder", "WO/2"), 1.0),
+            (pair.GetProperty("identity").GetString(), pair.GetProperty("first").GetString(), pair.GetProperty("second").GetString(), pair.GetProperty("score").GetDouble()));
+        // Each entity comes with its type and key, as the IRI was minted from them — the reader does not take the IRI apart.
+        Assert.Equal(("WorkOrder", "WO 1"), (pair.GetProperty("firstEntity").GetProperty("type").GetString(), pair.GetProperty("firstEntity").GetProperty("key").GetString()));
+        Assert.Equal("WO/2", pair.GetProperty("secondEntity").GetProperty("key").GetString());
     }
 
     [Theory]

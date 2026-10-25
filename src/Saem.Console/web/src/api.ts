@@ -66,7 +66,16 @@ export type LookupCall = { start: LookupStart; path: string[]; read: string[] };
 export type JobKind = "verify" | "check" | "candidates" | "pass" | "changed-pass" | "fit" | "judge";
 
 /** A pair an identity's rule found and no person has judged: the entities by their IRIs and the rule's score — no value of any record. */
-export type PairCandidate = { identity: string; first: string; second: string; rule: string; score: number };
+export type PairCandidate = {
+  identity: string;
+  first: string;
+  second: string;
+  /** Each entity by its type and key, or null when its IRI is under no declared type of the identity. */
+  firstEntity: EntityKey | null;
+  secondEntity: EntityKey | null;
+  rule: string;
+  score: number;
+};
 
 /** One job of a group's executor, as the console gives it: a check's lines are withheld and its report has no records. */
 export type Job = {

@@ -110,7 +110,7 @@ internal static class ExecutorJobs
                 using var group = await open(cancellationToken).ConfigureAwait(false);
                 var pairs = await new FormbaseIdentityStore(group.Store, run.StoreNamespace).CandidatesAsync(group.Ontology, cancellationToken).ConfigureAwait(false);
                 await output.WriteLineAsync($"group {run.Group}: {pairs.Count} pair(s) await a person's judgment.").ConfigureAwait(false);
-                return new JobOutcome(true, JsonSerializer.Serialize(new { candidates = pairs }, CandidateJson));
+                return new JobOutcome(true, JsonSerializer.Serialize(new { candidates = pairs.Select(pair => Candidate(group.Ontology, iris, pair)) }, CandidateJson));
             },
 
             // The declarations against the sources, read as the group's account; the findings come back as the report too.
@@ -122,6 +122,16 @@ internal static class ExecutorJobs
                 return new JobOutcome(holds, Encoding.UTF8.GetString(report.ToArray()));
             },
         };
+    }
+
+    /// <summary>A pair as the report gives it: the IRIs, and each entity by its type and key too, so a reader need not take an IRI apart.</summary>
+    private static object Candidate(Ontology.Ontology ontology, EntityIris iris, PairCandidate pair)
+    {
+        var identity = ontology.Identities[pair.Identity];
+        object? Entity(string iri) => new[] { identity.First, identity.Second }.Distinct(StringComparer.Ordinal)
+            .Select(type => iris.KeyOf(type, iri) is { } key ? new { type, key } : null)
+            .FirstOrDefault(found => found is not null);
+        return new { pair.Identity, pair.First, pair.Second, pair.Rule, pair.Score, FirstEntity = Entity(pair.First), SecondEntity = Entity(pair.Second) };
     }
 
     private static readonly JsonSerializerOptions CandidateJson = new(JsonSerializerDefaults.Web);

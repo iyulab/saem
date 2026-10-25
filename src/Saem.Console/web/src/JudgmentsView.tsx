@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Answer, type EntityKey, type Job } from "./api";
-import { awaiting, entityOf, latestCandidates, pairKey, runningJob } from "./jobs";
+import { awaiting, latestCandidates, pairKey, runningJob } from "./jobs";
 
 const POLL_MS = 2000;
 
@@ -147,8 +147,8 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
                   {left.map((c) => (
                     <tr key={pairKey(c)}>
                       <td>{c.identity}</td>
-                      <td><Entity iri={c.first} onOpen={onOpenLocal} /></td>
-                      <td><Entity iri={c.second} onOpen={onOpenLocal} /></td>
+                      <td><Entity iri={c.first} entity={c.firstEntity} onOpen={onOpenLocal} /></td>
+                      <td><Entity iri={c.second} entity={c.secondEntity} onOpen={onOpenLocal} /></td>
                       <td className="muted">{c.score}</td>
                       <td>
                         <button className="button" disabled={running !== undefined} onClick={() => judge(c, true)}>
@@ -171,8 +171,7 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
 }
 
 /** An entity by its IRI, with a way to see what the person judging can read of it: the local graph walks it as them. */
-function Entity({ iri, onOpen }: { iri: string; onOpen: (entity: EntityKey) => void }) {
-  const entity = entityOf(iri);
+function Entity({ iri, entity, onOpen }: { iri: string; entity: EntityKey | null; onOpen: (entity: EntityKey) => void }) {
   return (
     <>
       <code>{iri}</code>
