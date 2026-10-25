@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    The console started in-process on a loopback port, with tokens signed by a key the test holds. Live/ runs it
+    against the rig's issuer — see tests/rig/compose.password-login.yaml — excluded unless IncludeRigLiveTests=true.
+  -->
+  <ItemGroup Condition="'$(IncludeRigLiveTests)' != 'true'">
+    <Compile Remove="Live/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Saem.Console\Saem.Console.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+</Project>

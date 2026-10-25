@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    The administration console (saem D-88 · D-89): a management API, and later the web UI that calls it, for the
+    people who keep the ontology — builders and auditors, as the customer's identity provider names their groups.
+    It holds no credential to any source and no key to any group's store: what a person may read of the sources it
+    asks the MCP server for, as that person, and what a group's store holds it asks that group's runner for.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\Saem.Ontology\Saem.Ontology.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Saem.Console.Tests" />
+  </ItemGroup>
+
+</Project>

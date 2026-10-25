@@ -3,6 +3,7 @@
     <Project Path="src/Saem.Authoring/Saem.Authoring.csproj" />
     <Project Path="src/Saem.Authoring.Cli/Saem.Authoring.Cli.csproj" />
     <Project Path="src/Saem.Connectors.Formbase/Saem.Connectors.Formbase.csproj" />
+    <Project Path="src/Saem.Console/Saem.Console.csproj" />
     <Project Path="src/Saem.Connectors.MorphDb/Saem.Connectors.MorphDb.csproj" />
     <Project Path="src/Saem.Connectors.MySql/Saem.Connectors.MySql.csproj" />
     <Project Path="src/Saem.Connectors.Postgres/Saem.Connectors.Postgres.csproj" />
@@ -16,6 +17,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Saem.Authoring.Tests/Saem.Authoring.Tests.csproj" />
     <Project Path="tests/Saem.Connectors.Formbase.Tests/Saem.Connectors.Formbase.Tests.csproj" />
+    <Project Path="tests/Saem.Console.Tests/Saem.Console.Tests.csproj" />
     <Project Path="tests/Saem.Connectors.MorphDb.Tests/Saem.Connectors.MorphDb.Tests.csproj" />
     <Project Path="tests/Saem.Connectors.MySql.Tests/Saem.Connectors.MySql.Tests.csproj" />
     <Project Path="tests/Saem.Connectors.Postgres.Tests/Saem.Connectors.Postgres.Tests.csproj" />

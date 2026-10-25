@@ -1,0 +1,89 @@
+using System.Net.Http.Headers;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Microsoft.IdentityModel.Tokens;
+
+namespace Saem.Console.Tests;
+
+/// <summary>The console on a loopback port, trusting a test issuer whose signing key the test holds.</summary>
+internal sealed class ConsoleServer : IAsyncDisposable
+{
+    internal const string Issuer = "https://issuer.test/rig";
+    internal const string Audience = "saem-console";
+
+    private static readonly SymmetricSecurityKey Key = new(Encoding.UTF8.GetBytes("a-test-only-signing-key-of-at-least-256-bits!!"));
+
+    private readonly WebApplication _app;
+
+    private ConsoleServer(WebApplication app) => _app = app;
+
+    public Uri Address => new(_app.Urls.First() + "/");
+
+    /// <summary>
+    /// The console with the identity and roles settings only — no source and no store is configured, so whatever it
+    /// serves it serves without either (saem D-89).
+    /// </summary>
+    public static async Task<ConsoleServer> StartAsync(string? builders = "ontology-builders", string? liveIssuer = null)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Logging.ClearProviders();
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Saem:Console:Identity:Authority"] = liveIssuer ?? Issuer,
+            ["Saem:Console:Identity:RequireHttpsMetadata"] = liveIssuer is null ? "true" : "false",
+            ["Saem:Console:Identity:Audience"] = Audience,
+            ["Saem:Console:Roles:Auditors:0"] = "privacy-office",
+        });
+        if (builders is not null)
+        {
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Saem:Console:Roles:Builders:0"] = builders });
+        }
+        builder.Services.AddSaemConsole(builder.Configuration);
+        if (liveIssuer is null)
+        {
+            builder.Services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, jwt =>
+            {
+                var configuration = new OpenIdConnectConfiguration { Issuer = Issuer };
+                configuration.SigningKeys.Add(Key);
+                jwt.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration);
+            });
+        }
+
+        var app = builder.Build();
+        app.MapSaemConsole();
+        await app.StartAsync();
+        return new ConsoleServer(app);
+    }
+
+    public HttpClient Client(string? token = null)
+    {
+        var client = new HttpClient { BaseAddress = Address };
+        if (token is not null)
+        {
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        return client;
+    }
+
+    public static string Token(string subject, string[]? groups = null, string audience = Audience) =>
+        new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = Issuer,
+            Audience = audience,
+            Claims = new Dictionary<string, object> { ["sub"] = subject, ["groups"] = groups ?? [] },
+            Expires = DateTime.UtcNow.AddMinutes(5),
+            SigningCredentials = new SigningCredentials(Key, SecurityAlgorithms.HmacSha256),
+        });
+
+    public async ValueTask DisposeAsync() => await _app.DisposeAsync();
+}
