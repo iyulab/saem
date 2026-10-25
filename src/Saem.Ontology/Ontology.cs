@@ -321,11 +321,18 @@ public sealed class Ontology
         }
 
         var before = problems.Count;
+        var pairs = new HashSet<(string, string)>();
         foreach (var compared in linkage.Compare)
         {
             if (compared is null || Blank(compared.First, compared.Second))
             {
                 problems.Add($"Linkage rule '{linkage.Name}' compares an empty field.");
+                continue;
+            }
+
+            if (!pairs.Add((compared.First, compared.Second)))
+            {
+                problems.Add($"Linkage rule '{linkage.Name}' compares '{compared.First}' with '{compared.Second}' more than once.");
                 continue;
             }
 

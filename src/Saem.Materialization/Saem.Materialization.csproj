@@ -10,6 +10,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Saem.Query\Saem.Query.csproj" />
+    <!-- Eyu's Fellegi–Sunter linkage scores the identities that name a linkage rule (saem D-87). No model is called:
+         linkage is arithmetic over the compared fields, and this is the materialization side, never a lookup's path. -->
+    <PackageReference Include="Eyu.Core" />
   </ItemGroup>
 
 </Project>

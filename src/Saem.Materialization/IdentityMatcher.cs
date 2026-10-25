@@ -16,12 +16,29 @@ namespace Saem.Materialization;
 /// <param name="Members">The members' IRIs, in ordinal order.</param>
 public sealed record IdentityCluster(string Identity, IReadOnlyList<string> Members)
 {
+    /// <summary>
+    /// The pairs the cluster was found by, each with the rule that judged it and its score. Omitted for a cluster of equal
+    /// values, where every pair is equal: its grounds pair the first member with each other one, by <c>match</c>, scored 1.
+    /// </summary>
+    public IReadOnlyList<IdentityGround>? Grounds { get; init; }
+
+    /// <summary>The grounds the cluster stands on — those given, or those of equal values.</summary>
+    public IReadOnlyList<IdentityGround> GroundsOrEqual() =>
+        Grounds ?? [.. Members.Skip(1).Select(other => new IdentityGround(Members[0], other, FormbaseIdentityStore.MatchRule, 1))];
+
     /// <summary>Equal when of one identity with the same members in the same order.</summary>
     public bool Equals(IdentityCluster? other) => other is not null && Identity == other.Identity && Members.SequenceEqual(other.Members);
 
     /// <inheritdoc />
     public override int GetHashCode() => HashCode.Combine(Identity, Members.Count);
 }
+
+/// <summary>One pair a rule judged: the two entities' IRIs in ordinal order, the rule, and its score.</summary>
+/// <param name="First">The smaller IRI.</param>
+/// <param name="Second">The larger.</param>
+/// <param name="Rule">The rule that judged the pair — <c>match</c> for equal values, else the linkage rule's name.</param>
+/// <param name="Score">The rule's score: 1 for equal values, a log-likelihood ratio for a linkage rule.</param>
+public sealed record IdentityGround(string First, string Second, string Rule, double Score);
 
 /// <summary>
 /// Finds what each identity that declares a field match says is one thing, from what the sessions let their holder

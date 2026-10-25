@@ -100,6 +100,24 @@ public sealed class FormbaseIdentityStoreTests
     }
 
     [Fact]
+    public async Task A_scored_cluster_files_the_pairs_it_was_scored_on_under_its_rule_with_their_scores()
+    {
+        var formbase = new FakeFormbase();
+        var scored = Cluster("i/1", "m/1", "m/2") with
+        {
+            Grounds = [new IdentityGround("i/1", "m/1", "names", 9.125), new IdentityGround("m/1", "m/2", "names", 4.5)],
+        };
+
+        await Store(formbase, First).ReplaceAsync(Plant(), Of(scored), TestContext.Current.CancellationToken);
+
+        // The pairs are the ones the rule scored — not each member with the first — and the score reads back the same.
+        Assert.Equal(
+            ["same_item i/1 m/1 names 9.125 rule", "same_item m/1 m/2 names 4.5 rule"],
+            formbase.Type("identity_grounds").Rows.Select(r => string.Join(' ', JudgedFields.Select(f => (string?)r.Body![f]))));
+        Assert.True((await Store(formbase, Second).CompareAsync(Plant(), Of(scored), TestContext.Current.CancellationToken)).Agrees);
+    }
+
+    [Fact]
     public async Task A_person_settled_identity_files_its_pairs_as_grounds_and_issues_no_id()
     {
         var formbase = new FakeFormbase();

@@ -109,12 +109,12 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
 
             foreach (var cluster in given)
             {
-                // A ground per member after the first, each pairing it with the first: the cluster is one by equal values,
-                // so every pair is, and these name each member once.
-                foreach (var other in cluster.Members.Skip(1))
+                // A cluster of equal values pairs its first member with each other one — every pair is equal, and these name
+                // each member once; a scored one carries the pairs that were scored.
+                foreach (var pair in cluster.GroundsOrEqual())
                 {
-                    var key = $"{identity.Name} {cluster.Members[0]} {other}";
-                    string[] ground = [identity.Name, cluster.Members[0], other, MatchRule, "1", RuleJudge, generation];
+                    var key = $"{identity.Name} {pair.First} {pair.Second}";
+                    string[] ground = [identity.Name, pair.First, pair.Second, pair.Rule, Score(pair.Score), RuleJudge, generation];
 
                     // A ground judged the same way before keeps the pass that first judged it.
                     grounds[key] = heldGrounds.TryGetValue(key, out var before) && before.AsSpan(0, 6).SequenceEqual(ground.AsSpan(0, 6)) ? before : ground;
@@ -193,7 +193,7 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
         var extra = heldThings.Count(h => !givenThings.Contains(h.Key) && !h.Members.Any(m => givenMember.Contains(h.Identity + " " + m)));
 
         var givenGrounds = found.Where(c => ontology.Identities.ContainsKey(c.Identity))
-            .SelectMany(c => c.Members.Skip(1).Select(other => $"{c.Identity} {c.Members[0]} {other}"))
+            .SelectMany(c => c.GroundsOrEqual().Select(pair => $"{c.Identity} {pair.First} {pair.Second}"))
             .Concat(heldGrounds.Where(g => g.Value[3] == PersonRule && ontology.Identities.ContainsKey(g.Value[0])).Select(g => g.Key))
             .ToHashSet(StringComparer.Ordinal);
         var groundsMissing = givenGrounds.Count(k => !heldGrounds.ContainsKey(k));
@@ -284,6 +284,9 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
             MemberFormType, Filter(identity, "canonical_id", canonicalId), MemberFields, cancellationToken, readOn: count => skipped = count).ConfigureAwait(false);
         return new SameAs([.. members.Values.Select(m => m[1]).Where(m => m != iri).Order(StringComparer.Ordinal)], skipped);
     }
+
+    /// <summary>A score as the grounds hold it: the shortest text that reads back as the same number.</summary>
+    private static string Score(double score) => score.ToString("R", CultureInfo.InvariantCulture);
 
     private static string Filter(string identity, string field, string value) =>
         $"&filter={Uri.EscapeDataString("identity:" + identity)}&filter={Uri.EscapeDataString(field + ":" + value)}";
