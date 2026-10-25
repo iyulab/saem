@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Saem.Ontology;
 
@@ -134,8 +135,12 @@ public static class SaemConsole
                 cookie.Cookie.Path = "/";
                 cookie.Events.OnRedirectToLogin = context => Status(context.Response, StatusCodes.Status401Unauthorized);
                 cookie.Events.OnRedirectToAccessDenied = context => Status(context.Response, StatusCodes.Status403Forbidden);
-                cookie.Events.OnValidatePrincipal = EndWithTheToken;
             });
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddHttpClient(nameof(SessionTokens));
+        services.AddSingleton<SessionTokens>();
+        services.AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
+            .Configure<SessionTokens>((cookie, tokens) => cookie.Events.OnValidatePrincipal = tokens.ValidateAsync);
         services.AddOptions<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme)
             .Configure<IOptions<ConsoleIdentityOptions>>((oidc, identity) =>
             {
@@ -197,19 +202,6 @@ public static class SaemConsole
     {
         response.StatusCode = status;
         return Task.CompletedTask;
-    }
-
-    // The session lasts as long as the token it keeps: once the access token has expired the console could no longer ask
-    // anything as the person, so the session ends and the browser signs in again.
-    private static async Task EndWithTheToken(CookieValidatePrincipalContext context)
-    {
-        if (context.Properties.GetTokenValue("expires_at") is { } at
-            && DateTimeOffset.TryParse(at, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var expires)
-            && expires <= DateTimeOffset.UtcNow)
-        {
-            context.RejectPrincipal();
-            await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        }
     }
 
     /// <summary>

@@ -144,6 +144,22 @@ public sealed class ConsoleEndToEndLiveTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_session_outlives_its_access_token_by_renewing_it()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        using var browser = _console.Client(handler: new HttpClientHandler { CookieContainer = new CookieContainer() });
+        Assert.Equal("pat", (await (await browser.GetAsync("login?returnUrl=/api/me", ct)).Content.ReadFromJsonAsync<Caller>(ct))!.Subject);
+
+        // The rig's issuer gives twenty-second tokens: past that the session would have ended without a renewal.
+        await Task.Delay(TimeSpan.FromSeconds(22), ct);
+        using var marked = new HttpRequestMessage(HttpMethod.Post, "api/graph/local") { Content = JsonContent.Create(Call), Headers = { { ConsoleAuthentication.RequestHeader, "1" } } };
+        using var asked = await browser.SendAsync(marked, ct);
+
+        asked.EnsureSuccessStatusCode();
+        Assert.Equal(Canary, Assert.Single((await asked.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("claims").EnumerateArray()).GetProperty("value").GetString());
+    }
+
+    [Fact]
     public async Task Sign_in_returns_only_to_an_address_on_the_console()
     {
         var ct = TestContext.Current.CancellationToken;

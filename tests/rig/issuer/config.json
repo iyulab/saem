@@ -64,6 +64,15 @@
           }
         },
         {
+          "requestParam": "grant_type",
+          "match": "refresh_token",
+          "claims": {
+            "sub": "pat",
+            "aud": ["saem-console"],
+            "groups": ["g-plant"]
+          }
+        },
+        {
           "requestParam": "actor_token_type",
           "match": "urn:ietf:params:oauth:token-type:access_token",
           "claims": {

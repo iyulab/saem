@@ -574,7 +574,9 @@ web UI that calls it next. A browser signs in through the console itself (`GET /
 a confidential client at the issuer saem trusts, runs the authorization code flow with PKCE, and keeps the
 person's tokens in its session — the browser holds only a session cookie (`Secure`, `HttpOnly`,
 `SameSite=Strict`), never a token, as the backend-for-frontend pattern of the IETF browser-based apps BCP
-has it. The session ends when the access token it keeps expires; `POST /logout` ends it sooner. A
+has it. Shortly before the access token it keeps expires the session renews it with the refresh token —
+once, shared by the requests that arrive together, since an issuer that rotates refresh tokens takes a
+second use as theft — and ends when it cannot; `POST /logout` ends it sooner. A
 browser's state-changing request must carry the `X-Saem-Console` header, which a page on another origin
 cannot add without a preflight the console never approves (CSRF). A program may instead present a bearer
 token for the console's own audience (a token meant for the MCP server is refused). Either way the caller
