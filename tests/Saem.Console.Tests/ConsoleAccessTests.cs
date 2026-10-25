@@ -38,6 +38,15 @@ public sealed class ConsoleAccessTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_role_the_token_carries_itself_is_not_a_console_role()
+    {
+        using var client = _server.Client(ConsoleServer.Token(
+            "mallory", ["sales"], more: new() { [System.Security.Claims.ClaimTypes.Role] = ConsoleRoles.Builder, ["role"] = ConsoleRoles.Builder }));
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("api/me", TestContext.Current.CancellationToken)).StatusCode);
+    }
+
+    [Fact]
     public async Task A_token_meant_for_the_mcp_server_is_not_accepted_here()
     {
         using var client = _server.Client(ConsoleServer.Token("alice", ["ontology-builders"], audience: "saem"));

@@ -25,14 +25,19 @@ internal sealed class ConsoleServer : IAsyncDisposable
 
     private ConsoleServer(WebApplication app) => _app = app;
 
+    /// <summary>The catalog file the console reads — the test may rewrite it; it is read on every request.</summary>
+    public string OntologyFile { get; private init; } = "";
+
     public Uri Address => new(_app.Urls.First() + "/");
 
     /// <summary>
     /// The console with the identity and roles settings only — no source and no store is configured, so whatever it
     /// serves it serves without either (saem D-89).
     /// </summary>
-    public static async Task<ConsoleServer> StartAsync(string? builders = "ontology-builders", string? liveIssuer = null)
+    public static async Task<ConsoleServer> StartAsync(string? builders = "ontology-builders", string? liveIssuer = null, string ontologyJson = "[]")
     {
+        var ontologyFile = Path.GetTempFileName();
+        await File.WriteAllTextAsync(ontologyFile, ontologyJson);
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
@@ -42,6 +47,7 @@ internal sealed class ConsoleServer : IAsyncDisposable
             ["Saem:Console:Identity:RequireHttpsMetadata"] = liveIssuer is null ? "true" : "false",
             ["Saem:Console:Identity:Audience"] = Audience,
             ["Saem:Console:Roles:Auditors:0"] = "privacy-office",
+            ["Saem:Console:Ontology"] = ontologyFile,
         });
         if (builders is not null)
         {
@@ -61,7 +67,7 @@ internal sealed class ConsoleServer : IAsyncDisposable
         var app = builder.Build();
         app.MapSaemConsole();
         await app.StartAsync();
-        return new ConsoleServer(app);
+        return new ConsoleServer(app) { OntologyFile = ontologyFile };
     }
 
     public HttpClient Client(string? token = null)
@@ -75,15 +81,19 @@ internal sealed class ConsoleServer : IAsyncDisposable
         return client;
     }
 
-    public static string Token(string subject, string[]? groups = null, string audience = Audience) =>
+    public static string Token(string subject, string[]? groups = null, string audience = Audience, Dictionary<string, object>? more = null) =>
         new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = Issuer,
             Audience = audience,
-            Claims = new Dictionary<string, object> { ["sub"] = subject, ["groups"] = groups ?? [] },
+            Claims = new Dictionary<string, object>(more ?? []) { ["sub"] = subject, ["groups"] = groups ?? [] },
             Expires = DateTime.UtcNow.AddMinutes(5),
             SigningCredentials = new SigningCredentials(Key, SecurityAlgorithms.HmacSha256),
         });
 
-    public async ValueTask DisposeAsync() => await _app.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        await _app.DisposeAsync();
+        File.Delete(OntologyFile);
+    }
 }

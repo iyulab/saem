@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
+using Saem.Ontology;
 
 namespace Saem.Console;
 
@@ -46,8 +47,8 @@ public static class ConsoleRoles
 
 /// <summary>
 /// Wires the console: bearer tokens from the configured issuer, for the console's own audience, and the person's roles
-/// from the groups the token names. Configuration lives under <c>Saem:Console</c>: <c>Identity</c>
-/// (<see cref="ConsoleIdentityOptions"/>) and <c>Roles</c> (<see cref="ConsoleRoleOptions"/>). Nothing here names a source
+/// from the groups the token names. Configuration lives under <c>Saem:Console</c>: <c>Ontology</c> (the catalog file),
+/// <c>Identity</c> (<see cref="ConsoleIdentityOptions"/>) and <c>Roles</c> (<see cref="ConsoleRoleOptions"/>). Nothing here names a source
 /// or a store: the console reads neither (saem D-89).
 /// </summary>
 public static class SaemConsole
@@ -60,6 +61,11 @@ public static class SaemConsole
             .Bind(console.GetSection("Identity"))
             .Validate(i => !string.IsNullOrEmpty(i.Authority) && !string.IsNullOrEmpty(i.Audience), "Saem:Console:Identity names the trusted issuer (Authority) and the console's audience (Audience).")
             .ValidateOnStart();
+        services.AddOptions<ConsoleCatalogOptions>()
+            .Bind(console)
+            .Validate(c => !string.IsNullOrEmpty(c.Ontology), "Saem:Console:Ontology names the catalog file the console shows.")
+            .ValidateOnStart();
+        services.AddSingleton<IOntologyCatalog>(provider => new FileOntologyCatalog(provider.GetRequiredService<IOptions<ConsoleCatalogOptions>>().Value.Ontology));
         services.AddOptions<ConsoleRoleOptions>()
             .Bind(console.GetSection("Roles"))
             .Validate(r => r.Builders.Count > 0, "Saem:Console:Roles:Builders names at least one group; a console no one may use is a mistake, not a lock.")
@@ -93,6 +99,7 @@ public static class SaemConsole
         app.UseAuthorization();
 
         var api = app.MapGroup("/api").RequireAuthorization(ConsoleRoles.AnyRole);
+        CatalogApi.Map(api);
         api.MapGet("/me", (ClaimsPrincipal user) => TypedResults.Ok(new Caller(
             user.FindFirstValue("sub") ?? "",
             [.. user.FindAll(ClaimTypes.Role).Select(c => c.Value).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)])));
@@ -105,25 +112,37 @@ public static class SaemConsole
 /// <param name="Roles">The console roles their groups hold.</param>
 public sealed record Caller(string Subject, IReadOnlyList<string> Roles);
 
-/// <summary>Adds a role claim for each console role the token's groups hold; a group the mapping does not name holds none.</summary>
+/// <summary>
+/// Gives the caller the console roles their token's groups hold — and only those: a role claim the token carries itself
+/// is dropped, so no issuer setting can grant a console role the mapping does not. A group the mapping does not name
+/// holds none.
+/// </summary>
 internal sealed class GroupRoles(IOptions<ConsoleRoleOptions> roles) : IClaimsTransformation
 {
     public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
-        if (principal.Identity is not ClaimsIdentity { IsAuthenticated: true } identity || identity.HasClaim(c => c.Type == ClaimTypes.Role))
+        if (principal.Identity is not ClaimsIdentity { IsAuthenticated: true })
         {
             return Task.FromResult(principal);
         }
 
-        var groups = principal.FindAll("groups").Select(c => c.Value).ToHashSet(StringComparer.Ordinal);
+        // The principal may be transformed more than once per request: each time from the token's own claims, on a copy.
+        var mapped = principal.Clone();
+        var identity = (ClaimsIdentity)mapped.Identity!;
+        foreach (var carried in identity.FindAll(identity.RoleClaimType).ToList())
+        {
+            identity.RemoveClaim(carried);
+        }
+
+        var groups = mapped.FindAll("groups").Select(c => c.Value).ToHashSet(StringComparer.Ordinal);
         foreach (var (role, holders) in new[] { (ConsoleRoles.Builder, roles.Value.Builders), (ConsoleRoles.Auditor, roles.Value.Auditors) })
         {
             if (holders.Any(groups.Contains))
             {
-                identity.AddClaim(new Claim(ClaimTypes.Role, role));
+                identity.AddClaim(new Claim(identity.RoleClaimType, role));
             }
         }
 
-        return Task.FromResult(principal);
+        return Task.FromResult(mapped);
     }
 }
