@@ -52,4 +52,21 @@ describe("walking a local graph", () => {
     expect(refusalText(graph.steps[0].refusal!)).toContain("may hold rows your account cannot read");
     expect(idOf(wo)).toBe("WorkOrder/WO-3");
   });
+
+  it("keeps the candidates a start by a field's value answered with, to start again from one by key", () => {
+    const start = { type: "WorkOrder", where: { field: "item", value: "I-200" } };
+    const answer: LookupAnswer = {
+      kind: "candidates",
+      entities: [
+        { entity: { type: "WorkOrder", key: "WO-2" }, source: { system: "mes", table: "work_orders", record: "WO-2" } },
+        { entity: { type: "WorkOrder", key: "WO-4" }, source: { system: "mes", table: "work_orders", record: "WO-4" } },
+      ],
+    };
+
+    const graph = step(empty(), start, null, answer);
+
+    expect(graph.nodes.size).toBe(0);
+    expect(graph.steps[0].candidates?.map((c) => c.entity.key)).toEqual(["WO-2", "WO-4"]);
+    expect(graph.steps[0].from).toBe("WorkOrder?item=I-200");
+  });
 });

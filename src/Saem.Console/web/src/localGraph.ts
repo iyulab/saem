@@ -1,4 +1,4 @@
-import type { Catalog, Claim, EntityKey, LookupAnswer, PartitionRead, Refusal, SourceRecord } from "./api";
+import type { Catalog, Claim, EntityKey, LookupAnswer, LookupStart, PartitionRead, Refusal, SourceRecord } from "./api";
 
 /** How far a local graph walks from where it started: three relations (saem D-88 C7). */
 export const maxDepth = 3;
@@ -30,13 +30,21 @@ export function walksFrom(catalog: Catalog, type: string): Walk[] {
   ].sort((a, b) => a.relation.localeCompare(b.relation));
 }
 
-export const idOf = (e: EntityKey) => `${e.type}/${e.key}`;
+export const idOf = (e: LookupStart) => ("key" in e ? `${e.type}/${e.key}` : `${e.type}?${e.where.field}=${e.where.value}`);
 
 /** An entity the walk reached, the values read on it with where each came from, and how many relations from the start. */
 export type Visited = { entity: EntityKey; depth: number; values: Array<{ field: string; value: unknown; sources: SourceRecord[]; fieldKind?: string }> };
 
 /** What one step found: the entities and edges it added, or the refusal it was answered with, and the partitions it read. */
-export type Step = { from: string; relation: string; reached: string[]; refusal?: Refusal; partitions: PartitionRead[] };
+export type Step = {
+  from: string;
+  relation: string;
+  reached: string[];
+  refusal?: Refusal;
+  /** A start by a field's value that more than one visible entity holds: the entities to start from by key. */
+  candidates?: Array<{ entity: EntityKey; source: SourceRecord }>;
+  partitions: PartitionRead[];
+};
 
 export type LocalGraph = { nodes: Map<string, Visited>; edges: Array<{ from: string; to: string; relation: string }>; steps: Step[] };
 
@@ -62,13 +70,15 @@ function visit(nodes: Map<string, Visited>, claims: Claim[], depth: number): str
  * The graph after one step: the start read with no relation, or a relation walked from a node already in the graph.
  * The answer is taken as the server gave it — a refusal is kept as the step's answer, never turned into "nothing there".
  */
-export function step(graph: LocalGraph, from: EntityKey, relation: string | null, answer: LookupAnswer): LocalGraph {
+export function step(graph: LocalGraph, from: LookupStart, relation: string | null, answer: LookupAnswer): LocalGraph {
   const nodes = new Map(graph.nodes);
   const depth = relation === null ? 0 : (nodes.get(idOf(from))?.depth ?? 0) + 1;
   const partitions = answer.partitions ?? [];
-  if (answer.kind !== "answered") {
-    const refusal = answer.kind === "refused" ? answer.refusal : undefined;
-    return { nodes, edges: graph.edges, steps: [...graph.steps, { from: idOf(from), relation: relation ?? "", reached: [], refusal, partitions }] };
+  if (answer.kind === "refused") {
+    return { nodes, edges: graph.edges, steps: [...graph.steps, { from: idOf(from), relation: relation ?? "", reached: [], refusal: answer.refusal, partitions }] };
+  }
+  if (answer.kind === "candidates") {
+    return { nodes, edges: graph.edges, steps: [...graph.steps, { from: idOf(from), relation: relation ?? "", reached: [], candidates: answer.entities, partitions }] };
   }
   const reached = visit(nodes, answer.claims, depth);
   const edges = relation === null ? graph.edges : [...graph.edges];

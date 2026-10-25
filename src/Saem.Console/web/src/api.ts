@@ -58,7 +58,10 @@ export type LookupAnswer = { catalogVersion?: string; partitions?: PartitionRead
   | { kind: "candidates"; entities: Array<{ entity: EntityKey; source: SourceRecord }> }
 );
 
-export type LookupCall = { start: EntityKey; path: string[]; read: string[] };
+/** Where a lookup starts: an entity by its key, or by the value one of its declared fields holds. */
+export type LookupStart = EntityKey | { type: string; where: { field: string; value: string } };
+
+export type LookupCall = { start: LookupStart; path: string[]; read: string[] };
 
 /** What the console answered: the value, or why there is none — signed out, no console role, or a problem it named. */
 export type Answer<T> =

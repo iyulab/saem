@@ -1,6 +1,6 @@
 import cytoscape from "cytoscape";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type Answer, type Catalog, type EntityKey } from "./api";
+import { api, type Answer, type Catalog, type LookupStart } from "./api";
 import { noSystem, sizeOf, systemColors } from "./graph";
 import { empty, fieldsOf, idOf, maxDepth, refusalText, step, systemOf, walksFrom, type LocalGraph } from "./localGraph";
 
@@ -17,6 +17,8 @@ export function LocalGraphView() {
   const [problem, setProblem] = useState<string | null>(null);
   const [type, setType] = useState("");
   const [key, setKey] = useState("");
+  // Empty: start by the entity's key; a field name: start by the value that field holds.
+  const [by, setBy] = useState("");
   const canvas = useRef<HTMLDivElement>(null);
   const drawn = useRef<cytoscape.Core | null>(null);
 
@@ -82,7 +84,7 @@ export function LocalGraphView() {
   }
   const declared = catalog.value;
 
-  async function walk(from: EntityKey, relation: string | null, to: string) {
+  async function walk(from: LookupStart, relation: string | null, to: string) {
     setBusy(true);
     setProblem(null);
     const answer = await api.lookup({ start: from, path: relation === null ? [] : [relation], read: fieldsOf(declared, to) });
@@ -92,8 +94,9 @@ export function LocalGraphView() {
       return;
     }
     setGraph((g) => step(relation === null ? empty() : g, from, relation, answer.value));
-    if (relation === null) {
-      setSelected(idOf(from));
+    if (relation === null && answer.value.kind === "answered") {
+      // A start by a field's value that one entity holds is walked from that entity.
+      setSelected(idOf(answer.value.claims[0].entity));
     }
   }
 
@@ -107,13 +110,19 @@ export function LocalGraphView() {
         onSubmit={(e) => {
           e.preventDefault();
           if (type && key.trim()) {
-            walk({ type, key: key.trim() }, null, type);
+            walk(by ? { type, where: { field: by, value: key.trim() } } : { type, key: key.trim() }, null, type);
           }
         }}
       >
         <label>
           Start at{" "}
-          <select value={type} onChange={(e) => setType(e.target.value)}>
+          <select
+            value={type}
+            onChange={(e) => {
+              setType(e.target.value);
+              setBy("");
+            }}
+          >
             {declared.declarations
               .filter((d) => d.kind === "entityType")
               .map((d) => (
@@ -122,14 +131,35 @@ export function LocalGraphView() {
           </select>
         </label>
         <label>
-          key <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="the entity's key" />
+          by{" "}
+          <select value={by} onChange={(e) => setBy(e.target.value)}>
+            <option value="">key</option>
+            {fieldsOf(declared, type).map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
         </label>
+        <input value={key} onChange={(e) => setKey(e.target.value)} placeholder={by ? `the value ${by} holds` : "the entity's key"} aria-label="value" />
         <button className="button" disabled={busy || !key.trim()}>
           Look up
         </button>
       </form>
       {problem && <p role="alert">{problem}</p>}
       {lastStep?.refusal && <p className="refusal">{refusalText(lastStep.refusal)}</p>}
+      {lastStep?.candidates && (
+        <div className="refusal">
+          <p>More than one {type} you can see holds that value — start from one:</p>
+          <div className="walks">
+            {lastStep.candidates.map((c) => (
+              <button key={idOf(c.entity)} className="tab" disabled={busy} onClick={() => walk(c.entity, null, c.entity.type)}>
+                {c.entity.type} {c.entity.key} <span className="muted">({c.source.system} · {c.source.table} · {c.source.record})</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {lastStep && lastStep.partitions.some((p) => p.blocked || p.incomplete) && (
         <p className="refusal">
           Read from edges kept for your groups:{" "}
