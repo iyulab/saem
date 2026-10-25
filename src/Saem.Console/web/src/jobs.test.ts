@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Job } from "./api";
-import { runningJob, summary, took, violations } from "./jobs";
+import type { Catalog, Job } from "./api";
+import { fitIdentities, runningJob, summary, took, violations } from "./jobs";
 
 const job = (more: Partial<Job>): Job => ({
   id: "0123456789abcdef0123456789abcdef",
@@ -48,5 +48,17 @@ describe("a group's jobs", () => {
     };
     expect(violations(job({ kind: "check", report })).map((f) => f.kind)).toEqual(["key"]);
     expect(violations(job({}))).toEqual([]);
+  });
+
+  it("offers a fit for the identities that name a linkage rule, and no other", () => {
+    const catalog: Catalog = {
+      version: "v1",
+      declarations: [
+        { kind: "identity", name: "same_supplier", first: "Supplier", second: "Vendor", linkage: "names" },
+        { kind: "identity", name: "same_order", first: "WorkOrder", second: "WorkOrder", match: [] },
+        { kind: "linkage", name: "names" },
+      ],
+    };
+    expect(fitIdentities(catalog)).toEqual(["same_supplier"]);
   });
 });

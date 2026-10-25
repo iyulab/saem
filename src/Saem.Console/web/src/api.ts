@@ -118,7 +118,8 @@ export const api = {
   logout: () => ask<void>("/logout", change()),
   executors: () => ask<Array<{ group: string }>>("/api/executors"),
   jobs: (group: string) => ask<Job[]>(`/api/executors/${encodeURIComponent(group)}/jobs`),
-  startJob: (group: string, kind: JobKind) => ask<Job>(`/api/executors/${encodeURIComponent(group)}/jobs`, change({ kind })),
+  startJob: (group: string, kind: JobKind, args?: { identity: string }) =>
+    ask<Job>(`/api/executors/${encodeURIComponent(group)}/jobs`, change(args ? { kind, arguments: args } : { kind })),
   cancelJob: (group: string, id: string) => ask<void>(`/api/executors/${encodeURIComponent(group)}/jobs/${id}/cancel`, change()),
   lookup: (call: LookupCall) => ask<LookupAnswer>("/api/graph/local", change(call)),
 };

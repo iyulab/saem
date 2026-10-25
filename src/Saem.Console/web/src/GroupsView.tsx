@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Answer, type Job, type JobKind } from "./api";
-import { asks, isRunning, runningJob, summary, took, violations } from "./jobs";
+import { api, type Answer, type Catalog, type Job, type JobKind } from "./api";
+import { asks, fitIdentities, fitSays, isRunning, runningJob, summary, took, violations } from "./jobs";
 
 const POLL_MS = 2000;
 
@@ -12,8 +12,10 @@ const POLL_MS = 2000;
 export function GroupsView() {
   const [groups, setGroups] = useState<Answer<Array<{ group: string }>> | null>(null);
   const [group, setGroup] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<Answer<Catalog> | null>(null);
 
   useEffect(() => {
+    api.catalog().then(setCatalog);
     api.executors().then((answer) => {
       setGroups(answer);
       if (answer.ok && answer.value.length > 0) {
@@ -52,15 +54,16 @@ export function GroupsView() {
           </select>
         </label>
       </div>
-      {group && <Executor key={group} group={group} />}
+      {group && <Executor key={group} group={group} fits={catalog?.ok ? fitIdentities(catalog.value) : []} />}
     </section>
   );
 }
 
-function Executor({ group }: { group: string }) {
+function Executor({ group, fits }: { group: string; fits: string[] }) {
   const [jobs, setJobs] = useState<Answer<Job[]> | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<JobKind | null>(null);
+  const [confirm, setConfirm] = useState<{ kind: JobKind; identity?: string } | null>(null);
+  const [identity, setIdentity] = useState(fits[0] ?? "");
   const [refused, setRefused] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
 
@@ -83,10 +86,10 @@ function Executor({ group }: { group: string }) {
     return () => clearInterval(timer);
   }, [running?.id, load]);
 
-  const ask = (kind: JobKind) => {
+  const ask = (kind: JobKind, forIdentity?: string) => {
     setConfirm(null);
     setRefused(null);
-    api.startJob(group, kind).then((answer) => {
+    api.startJob(group, kind, forIdentity ? { identity: forIdentity } : undefined).then((answer) => {
       if (answer.ok) {
         setOpen(answer.value.id);
       } else {
@@ -113,11 +116,23 @@ function Executor({ group }: { group: string }) {
             className="button"
             title={a.says}
             disabled={running !== undefined}
-            onClick={() => (a.writes ? setConfirm(a.kind) : ask(a.kind))}
+            onClick={() => (a.writes ? setConfirm({ kind: a.kind }) : ask(a.kind))}
           >
             {a.title}
           </button>
         ))}
+        {fits.length > 0 && (
+          <span>
+            <select value={identity || fits[0]} onChange={(e) => setIdentity(e.target.value)} aria-label="Identity to fit">
+              {fits.map((name) => (
+                <option key={name}>{name}</option>
+              ))}
+            </select>{" "}
+            <button className="button" title={fitSays} disabled={running !== undefined} onClick={() => setConfirm({ kind: "fit", identity: identity || fits[0] })}>
+              Fit
+            </button>
+          </span>
+        )}
         {running && (
           <button className="link" onClick={() => api.cancelJob(group, running.id).then(load)}>
             Cancel the running {running.kind}
@@ -126,8 +141,8 @@ function Executor({ group }: { group: string }) {
       </div>
       {confirm && (
         <p className="refusal" role="alertdialog">
-          {asks.find((a) => a.kind === confirm)?.says} It writes to <strong>{group}</strong>'s store.{" "}
-          <button className="button" onClick={() => ask(confirm)}>
+          {confirm.kind === "fit" ? `${fitSays} (${confirm.identity})` : asks.find((a) => a.kind === confirm.kind)?.says} It writes to <strong>{group}</strong>'s store.{" "}
+          <button className="button" onClick={() => ask(confirm.kind, confirm.identity)}>
             Run it
           </button>{" "}
           <button className="link" onClick={() => setConfirm(null)}>

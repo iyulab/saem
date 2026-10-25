@@ -1,4 +1,4 @@
-import type { Job, JobKind } from "./api";
+import type { Catalog, Job, JobKind } from "./api";
 
 /** What a builder may ask a group's executor for from the screen, with what each does to the group's store. */
 export const asks: ReadonlyArray<{ kind: JobKind; title: string; writes: boolean; says: string }> = [
@@ -31,3 +31,10 @@ export const runningJob = (jobs: readonly Job[]): Job | undefined => jobs.find(i
 
 /** The findings of a check's report that say a declaration does not hold. */
 export const violations = (job: Job) => job.report?.findings.filter((f) => f.violation) ?? [];
+
+/** What a fit does, and what it writes. */
+export const fitSays = "Fit the identity's linkage rule to the group's records and keep the fit in its store, for its passes to score with.";
+
+/** The identities a fit may be asked for: those that name a linkage rule to fit. */
+export const fitIdentities = (catalog: Catalog): string[] =>
+  catalog.declarations.filter((d) => d.kind === "identity" && typeof d.linkage === "string" && d.linkage !== "").map((d) => d.name);
