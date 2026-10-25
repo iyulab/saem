@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Saem.Ontology;
@@ -114,6 +115,15 @@ public static class SaemConsole
             .Bind(console.GetSection("Roles"))
             .Validate(r => r.Builders.Count > 0, "Saem:Console:Roles:Builders names at least one group; a console no one may use is a mistake, not a lock.")
             .ValidateOnStart();
+
+        // The session cookie carries the session, sealed with the data-protection key ring: instances that are to read one
+        // another's cookies share the ring (a directory they all reach) and the application name, which by default is the
+        // install path — so it is fixed here, not left to differ from one host to the next.
+        var keyRing = services.AddDataProtection().SetApplicationName(console["DataProtection:ApplicationName"] is { Length: > 0 } name ? name : "saem-console");
+        if (console["DataProtection:KeysPath"] is { Length: > 0 } keysPath)
+        {
+            keyRing.PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+        }
 
         services.AddAuthentication(options =>
             {

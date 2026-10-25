@@ -573,8 +573,9 @@ docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml down 
 web UI that calls it next. A browser signs in through the console itself (`GET /login`): the console is
 a confidential client at the issuer saem trusts, runs the authorization code flow with PKCE, and keeps the
 person's tokens in its session — the browser holds only a session cookie (`Secure`, `HttpOnly`,
-`SameSite=Strict`), never a token, as the backend-for-frontend pattern of the IETF browser-based apps BCP
-has it. Shortly before the access token it keeps expires the session renews it with the refresh token —
+`SameSite=Strict`) that no script on the page can read, never a token of its own, as the backend-for-frontend
+pattern of the IETF browser-based apps BCP has it. The session, tokens included, is sealed in that cookie
+with the console's data-protection key ring (see Deploying the console). Shortly before the access token it keeps expires the session renews it with the refresh token —
 once, shared by the requests that arrive together, since an issuer that rotates refresh tokens takes a
 second use as theft — and ends when it cannot; `POST /logout` ends it sooner. A
 browser's state-changing request must carry the `X-Saem-Console` header, which a page on another origin
@@ -608,6 +609,38 @@ kind it holds, and the last check — when it ran, whether every declaration hel
 the catalog in force at all. `GET /api/check` (builders) gives that check's findings without the records
 they cite: those are rows the checking account could read, which a builder looking at the console may
 not be able to read at the source; they stay in the report file.
+
+#### Deploying the console
+
+- **Build.** Two steps, in this order: `npm ci && npm run build` in `src/Saem.Console/web/` (it writes
+  `wwwroot/`), then `dotnet publish src/Saem.Console`, which takes `wwwroot/` along. A publish without the
+  first step serves the API and no page.
+- **HTTPS.** With `Saem:Console:Identity:RequireHttpsMetadata` on (the default) the session cookie is named
+  `__Host-saem-console` and is sent over HTTPS only, so the console must be reached over HTTPS — a browser
+  drops a `__Host-` cookie set over plain HTTP, and sign-in never completes. Turn it off for a local
+  development issuer and console only.
+- **Behind a proxy that ends TLS.** The sign-in redirect address is built from the scheme and host the console
+  sees. Set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` so it reads the proxy's `X-Forwarded-Proto`, and have the
+  proxy pass the original `Host` header on (`X-Forwarded-Host` is not read). That setting trusts any sender of
+  those headers, so the console must be reachable only through the proxy.
+- **What to register at the issuer.** One confidential client for the console, with the redirect address
+  `https://<console host>/signin-oidc`, the authorization code grant with PKCE and the refresh token grant, and
+  — when people are to reach the MCP server through it — the token-exchange grant with the console's own
+  client-credentials token allowed as the actor. It must take the client's secret in the request body (the
+  sign-in code redemption) and as HTTP Basic (the console's own refresh, exchange and client-credentials
+  requests). The console's audience (`Saem:Console:Identity:Audience`) must be one the issuer can put in a
+  token, and the groups that map to `builder` and `auditor` must reach the token's `groups` claim.
+- **More than one instance.** The cookie is read by whichever instance receives it, so the instances share a
+  data-protection key ring: point `Saem:Console:DataProtection:KeysPath` at a directory they all reach (and
+  keep it as secret as the client secret — whoever holds the keys can read and forge sessions; a console
+  without it keeps its keys on its own disk, and a new disk or container is a sign-in for everyone). The
+  application name is `saem-console` on every instance unless `Saem:Console:DataProtection:ApplicationName`
+  says otherwise; leave it alone unless two consoles share a key directory and are not to read one another's
+  cookies.
+- **Renewal across instances.** A session renews its access token shortly before it expires, and the renewals
+  that arrive together are shared only inside one instance. An issuer that rotates refresh tokens takes a
+  second use of one as theft and ends the session, so across instances either keep a browser on one instance
+  (affinity on the cookie) or give the console's client a short reuse window for a refreshed token at the issuer.
 
 ## Roadmap
 
