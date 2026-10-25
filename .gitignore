@@ -23,3 +23,7 @@ CLAUDE.md
 
 .serena/
 .env
+
+## The console's web UI: dependencies, and the build the console serves
+node_modules/
+src/Saem.Console/wwwroot/

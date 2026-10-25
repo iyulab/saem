@@ -211,10 +211,27 @@ public static class SaemConsole
         }
     }
 
-    /// <summary>Maps the console's sign-in and sign-out under <c>/login</c> and <c>/logout</c>, and its API under <c>/api</c>.</summary>
+    /// <summary>
+    /// Serves the web UI, and maps the console's sign-in and sign-out under <c>/login</c> and <c>/logout</c> and its API
+    /// under <c>/api</c>.
+    /// </summary>
     public static WebApplication MapSaemConsole(this WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
+        app.Use(async (http, next) =>
+        {
+            // The browser's session is only as safe as the page is from injected script: everything here comes from the
+            // console's own origin, and no other site may frame it.
+            var headers = http.Response.Headers;
+            headers.ContentSecurityPolicy = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+            headers.XContentTypeOptions = "nosniff";
+            headers["Referrer-Policy"] = "no-referrer";
+            await next(http);
+        });
+
+        // The web UI (web/, built into wwwroot): a page that holds no data — what it shows it asks the API for.
+        app.UseDefaultFiles();
+        app.UseStaticFiles();
         app.UseAuthentication();
         app.Use(async (http, next) =>
         {

@@ -586,6 +586,12 @@ client-credentials token as `actor_token`, so the answer's `answeredFor.actedBy`
 record say the person asked through the console; `PresentActor: false` for an issuer that refuses actor
 tokens), and the answer comes back as the server gives it to that person.
 
+The web UI lives in `src/Saem.Console/web/` (React and TypeScript, built with Vite): `npm ci && npm run
+build` there writes `src/Saem.Console/wwwroot/`, which the console serves before `dotnet publish` takes it
+along; `npm test` runs its tests, and `npm run dev` serves it against a console running at
+`SAEM_CONSOLE`. The page holds no data and loads nothing from another origin — every answer carries a
+`default-src 'self'` content security policy and may not be framed.
+
 The console holds no credential to any source and no key to any group's store: what a person may read it
 asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` (the catalog file),
 `Saem:Console:Identity` (issuer, audience, the console's client id and secret, sign-in scopes),

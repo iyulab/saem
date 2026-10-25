@@ -7,6 +7,11 @@
     asks the MCP server for, as that person, and what a group's store holds it asks that group's runner for.
   -->
 
+  <!-- The web UI's sources and tooling are not the console's content; what it builds into wwwroot is. -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);web/**</DefaultItemExcludes>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Saem.Ontology\Saem.Ontology.csproj" />
   </ItemGroup>
