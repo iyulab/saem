@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Hosting;
 using Saem.Connectors.MorphDb;
 using Saem.Connectors.Postgres;
 using Saem.Materialization;
@@ -18,6 +19,30 @@ Console.CancelKeyPress += (_, e) =>
     e.Cancel = true;
     cancellation.Cancel();
 };
+
+if (args is ["serve", .. var serveArgs])
+{
+    if (serveArgs is [] or ["--help"] or ["-h"])
+    {
+        Console.WriteLine(ServeOptions.Usage);
+        return serveArgs is [] ? 2 : 0;
+    }
+
+    try
+    {
+        var serve = ServeOptions.Parse(serveArgs, Environment.GetEnvironmentVariable);
+        await using var executor = ExecutorHost.Build(serve.Listen, serve.Secrets, ExecutorJobs.For(serve.Run, Environment.GetEnvironmentVariable));
+        await executor.StartAsync(cancellation.Token);
+        await executor.WaitForShutdownAsync(cancellation.Token);
+        return 0;
+    }
+    catch (MaterializeUsageException e)
+    {
+        Console.Error.WriteLine(e.Message);
+        Console.Error.WriteLine("Run saem-materialize serve --help for the arguments.");
+        return 2;
+    }
+}
 
 if (args is ["check", .. var checkArgs])
 {

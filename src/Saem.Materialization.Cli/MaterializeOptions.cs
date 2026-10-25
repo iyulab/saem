@@ -68,6 +68,7 @@ internal sealed record MaterializeOptions(
         given, or documents a projection skipped); the pass rebuilds it.
         To check the declarations against the sources first, as one account: saem-materialize check --help.
         To fit an identity's linkage rule to the group's records: saem-materialize fit --help.
+        To keep the executor running for the administration console to ask: saem-materialize serve --help.
         To file a person's judgment of a pair an identity is about: saem-materialize judge --help.
         """;
 

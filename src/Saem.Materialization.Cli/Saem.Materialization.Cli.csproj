@@ -13,6 +13,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- `serve` keeps the executor running behind a small HTTP surface; the framework, not a package. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Saem.Materialization\Saem.Materialization.csproj" />
     <ProjectReference Include="..\Saem.Connectors.Postgres\Saem.Connectors.Postgres.csproj" />
     <ProjectReference Include="..\Saem.Connectors.MySql\Saem.Connectors.MySql.csproj" />
