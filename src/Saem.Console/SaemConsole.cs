@@ -223,7 +223,9 @@ public static class SaemConsole
             // The browser's session is only as safe as the page is from injected script: everything here comes from the
             // console's own origin, and no other site may frame it.
             var headers = http.Response.Headers;
-            headers.ContentSecurityPolicy = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+            // The one inline style allowed is the graph library's own, by its hash: the rule it adds to its container.
+            headers.ContentSecurityPolicy = "default-src 'self'; style-src 'self' 'sha256-pgvDUBa4IjFA2yuSJ2cqcyxmNYJMborsd0ORcRv9vw8='; "
+                + "base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
             headers.XContentTypeOptions = "nosniff";
             headers["Referrer-Policy"] = "no-referrer";
             await next(http);

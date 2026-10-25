@@ -39,3 +39,11 @@ table { border-collapse: collapse; width: 100%; margin-top: 8px; }
 th, td { text-align: left; padding: 4px 8px; border-top: 1px solid var(--line); vertical-align: top; }
 th { font-weight: 500; white-space: nowrap; }
 code { font-size: 0.9em; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; list-style: none; padding: 0; color: var(--muted); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
+.graph { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; }
+.canvas { position: relative; height: 560px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.detail { border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.detail h2 { margin: 0 0 4px; font-size: 1.1em; }
+.detail ul { padding-left: 18px; }
+@media (max-width: 800px) { .graph { grid-template-columns: 1fr; } }

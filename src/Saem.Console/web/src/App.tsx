@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { api, signInAddress, type Answer, type Caller } from "./api";
 import { CatalogView } from "./CatalogView";
 
-type Screen = "catalog";
+// The graph library is most of the page's weight: it loads when a graph screen is first opened, not before.
+const GraphView = lazy(() => import("./GraphView").then((m) => ({ default: m.GraphView })));
 
-const screens: ReadonlyArray<{ screen: Screen; title: string }> = [{ screen: "catalog", title: "Catalog" }];
+type Screen = "catalog" | "graph";
+
+const screens: ReadonlyArray<{ screen: Screen; title: string }> = [
+  { screen: "catalog", title: "Catalog" },
+  { screen: "graph", title: "Knowledge graph" },
+];
 
 /** The console: who is signed in, the screens their role opens, and the screen in front of them. */
 export function App() {
@@ -40,7 +46,14 @@ export function App() {
           Sign out
         </button>
       </header>
-      <main>{screen === "catalog" && <CatalogView />}</main>
+      <main>
+        {screen === "catalog" && <CatalogView />}
+        {screen === "graph" && (
+          <Suspense fallback={<p>Loading the graph…</p>}>
+            <GraphView />
+          </Suspense>
+        )}
+      </main>
     </div>
   );
 }
