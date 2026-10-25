@@ -63,6 +63,24 @@ export type LookupStart = EntityKey | { type: string; where: { field: string; va
 
 export type LookupCall = { start: LookupStart; path: string[]; read: string[] };
 
+export type JobKind = "verify" | "check" | "pass" | "changed-pass" | "fit" | "judge";
+
+/** One job of a group's executor, as the console gives it: a check's lines are withheld and its report has no records. */
+export type Job = {
+  id: string;
+  kind: JobKind;
+  requestedBy: string;
+  arguments: { identity?: string | null; first?: string | null; second?: string | null; same?: boolean | null };
+  state: "running" | "succeeded" | "failed" | "cancelled";
+  exitCode: number | null;
+  output: string;
+  outputTruncated: boolean;
+  outputWithheld?: boolean;
+  startedAt: string;
+  finishedAt: string | null;
+  report: CheckReport | null;
+};
+
 /** What the console answered: the value, or why there is none — signed out, no console role, or a problem it named. */
 export type Answer<T> =
   | { ok: true; value: T }
@@ -80,7 +98,7 @@ async function ask<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
   // A problem the console names (RFC 9457) says why; anything else says only its status.
   const problem = await response
     .json()
-    .then((p: { title?: string; detail?: string }) => [p.title, p.detail].filter(Boolean).join(" "))
+    .then((p: { title?: string; detail?: string; error?: string }) => [p.title, p.detail, p.error].filter(Boolean).join(" "))
     .catch(() => "");
   return { ok: false, status: response.status, problem: problem || `The console answered ${response.status}.` };
 }
@@ -98,6 +116,10 @@ export const api = {
   catalog: () => ask<Catalog>("/api/catalog"),
   graph: () => ask<DeclarationGraph>("/api/catalog/graph"),
   logout: () => ask<void>("/logout", change()),
+  executors: () => ask<Array<{ group: string }>>("/api/executors"),
+  jobs: (group: string) => ask<Job[]>(`/api/executors/${encodeURIComponent(group)}/jobs`),
+  startJob: (group: string, kind: JobKind) => ask<Job>(`/api/executors/${encodeURIComponent(group)}/jobs`, change({ kind })),
+  cancelJob: (group: string, id: string) => ask<void>(`/api/executors/${encodeURIComponent(group)}/jobs/${id}/cancel`, change()),
   lookup: (call: LookupCall) => ask<LookupAnswer>("/api/graph/local", change(call)),
 };
 
