@@ -73,6 +73,38 @@ jobs:
       - name: Check formatting
         run: dotnet format saem.slnx --verify-no-changes --verbosity diagnostic
 
+  # The administration console's web UI (src/Saem.Console/web): type-checked, tested and built as it is shipped,
+  # and its runtime dependencies audited. The .NET jobs never build it, so this is the only place it is checked.
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: src/Saem.Console/web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/Saem.Console/web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check and build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Audit the runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
   security:
     runs-on: ubuntu-latest
 
