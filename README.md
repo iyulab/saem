@@ -447,6 +447,24 @@ sources before it is put in force, beside `saem-author diff`'s breaking and addi
 with their cited `records`, and with `--before` the `against` differences) — the file the
 administration console shows.
 
+`saem-materialize serve` keeps a group's executor running, to be asked for work instead of scheduled: the
+arguments of a pass plus `--listen <url>`, and the executor does what the administration console asks of
+it for that group — `verify`, `check`, `pass`, `changed-pass`, `fit` and `judge`, the commands above — one
+job at a time. A caller sends `POST /jobs` with `{"kind": …, "requestedBy": "<who asked>", "arguments": {…}}`
+(`arguments` carries a fit's `identity`, and a judgment's `identity`, `first`, `second` and `same`) and reads
+the job at `GET /jobs/{id}`: its state, its exit status and the lines the command prints; `POST
+/jobs/{id}/cancel` stops it. Asking while a job runs is refused (`409`) and names the job in the way. The
+executor reads the catalog and the sources file afresh for every job, holds the last twenty jobs in
+memory only, and does what the one-shot command does with them — the group's store and the report files
+are what remains. A caller presents one of two bearer secrets (`SAEM_EXECUTOR_SECRET`, at least 24
+characters, and `SAEM_EXECUTOR_SECRET_NEXT`, accepted too so a secret is replaced without refusing the
+console), and the secret is sent in every request: serve over HTTPS, or over loopback behind a proxy
+that ends TLS. `requestedBy` is the caller's word — the console puts the signed-in person's subject
+there and the executor records it, so a judgment is filed as theirs, but the executor does not check
+people; whoever holds a secret may ask in anyone's name. The console is told where each executor
+listens by `Saem:Console:Executors:<group>:Address` and `…:Secret`, and shows a builder what the executor
+printed — except for a `check`, whose lines and report it shows without the records they cite.
+
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its
 own interface: the session logs in with the person's credential (`PostgresSource.As(user, secret)`,
@@ -602,13 +620,22 @@ The console holds no credential to any source and no key to any group's store: w
 asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` (the catalog file),
 `Saem:Console:Identity` (issuer, audience, the console's client id and secret, sign-in scopes),
 `Saem:Console:Roles`, `Saem:Console:Lookup` (the MCP server, its audience, `PresentActor`),
-`Saem:Console:CheckReport` (the last `saem-materialize check --report` file, optional).
+`Saem:Console:CheckReport` (the last `saem-materialize check --report` file, optional),
+`Saem:Console:Executors:<group>` (the address and secret of the group's `saem-materialize serve`, optional).
 
 `GET /api/overview` says what is waiting at a glance: the catalog in force, how many declarations of each
 kind it holds, and the last check — when it ran, whether every declaration held, and whether it checked
 the catalog in force at all. `GET /api/check` (builders) gives that check's findings without the records
 they cite: those are rows the checking account could read, which a builder looking at the console may
 not be able to read at the source; they stay in the report file.
+
+`GET /api/executors` (builders) lists the groups the console has an executor for, and
+`/api/executors/<group>/jobs` starts (`POST`), lists (`GET`), reads (`…/jobs/{id}`) and cancels
+(`POST …/jobs/{id}/cancel`) that group's jobs. The console checks the request, names the signed-in person as
+who asked whatever the request says, and gives the executor's answer back: the only credential it holds for
+this is the executor's secret, which lets it ask that executor for work and reaches neither the group's
+store nor its sources. An executor that cannot be reached, or that refuses the secret, is a `502` that says
+which group and does not repeat the secret.
 
 #### Deploying the console
 
