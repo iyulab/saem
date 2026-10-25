@@ -107,6 +107,18 @@ public static class SaemConsole
             .ValidateOnStart();
         services.AddSingleton<IOntologyCatalog>(provider => new FileOntologyCatalog(provider.GetRequiredService<IOptions<ConsoleCatalogOptions>>().Value.Ontology));
         services.Configure<ConsoleLookupOptions>(console.GetSection("Lookup"));
+        services.AddOptions<ConsoleExecutors>()
+            .Configure(executors =>
+            {
+                foreach (var group in console.GetSection("Executors").GetChildren())
+                {
+                    executors[group.Key] = new ConsoleExecutorOptions { Address = group["Address"] ?? "", Secret = group["Secret"] ?? "" };
+                }
+            })
+            .Validate(executors => executors.Problem() is null, "Saem:Console:Executors names each group's executor: an http(s) Address and a Secret of at least 24 characters.")
+            .ValidateOnStart();
+        services.AddHttpClient(nameof(HttpConsoleExecutors));
+        services.AddSingleton<IConsoleExecutors, HttpConsoleExecutors>();
         services.Configure<ConsoleCheckOptions>(console);
         services.AddHttpClient(nameof(ConsoleIssuer));
         services.AddSingleton<ConsoleIssuer>();
@@ -267,6 +279,7 @@ public static class SaemConsole
         var api = app.MapGroup("/api").RequireAuthorization(ConsoleRoles.AnyRole);
         CatalogApi.Map(api);
         OverviewApi.Map(api);
+        ExecutorsApi.Map(api);
 
         // A local graph is a lookup asked as the person looking: the answer, partition reports and refusals included, as
         // the MCP server gives it to that person — the console adds nothing and reads no source (saem D-89 ①).
