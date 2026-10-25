@@ -8,7 +8,7 @@ namespace Saem.Ontology;
 /// A consistent set of declarations: every name unique among its kind — and a path's steps, relations, inverses and
 /// identities, unique among them all — every relation starting and
 /// ending at a declared type and leaving through a declared field, every identity and grouping standing on
-/// declared types and fields. Built only through
+/// declared types and fields, every linkage rule an identity names declared and comparing fields its two types have. Built only through
 /// <see cref="Create"/>, which reports every inconsistency at once — a catalog with one mistake is
 /// refused whole, so a walk never runs on half an ontology.
 /// </summary>
@@ -18,23 +18,27 @@ public sealed class Ontology
     private readonly Dictionary<string, RelationDeclaration> _relations;
     private readonly Dictionary<string, RelationDeclaration> _inverses;
     private readonly Dictionary<string, IdentityDeclaration> _identities;
+    private readonly Dictionary<string, LinkageDeclaration> _linkages;
     private readonly Dictionary<string, GroupingDeclaration> _groupings;
 
     private Ontology(
         Dictionary<string, EntityTypeDeclaration> types,
         Dictionary<string, RelationDeclaration> relations,
         Dictionary<string, IdentityDeclaration> identities,
+        Dictionary<string, LinkageDeclaration> linkages,
         Dictionary<string, GroupingDeclaration> groupings)
     {
         _types = types;
         _relations = relations;
         _identities = identities;
+        _linkages = linkages;
         _groupings = groupings;
         _inverses = relations.Values.Where(r => r.Inverse is not null).ToDictionary(r => r.Inverse!, StringComparer.Ordinal);
         Version = VersionOf([
             .. types.Values.OrderBy(t => t.Name, StringComparer.Ordinal),
             .. relations.Values.OrderBy(r => r.Name, StringComparer.Ordinal),
             .. identities.Values.OrderBy(i => i.Name, StringComparer.Ordinal),
+            .. linkages.Values.OrderBy(l => l.Name, StringComparer.Ordinal),
             .. groupings.Values.OrderBy(g => g.Name, StringComparer.Ordinal),
         ]);
     }
@@ -56,6 +60,9 @@ public sealed class Ontology
 
     /// <summary>The declared identities, by name.</summary>
     public IReadOnlyDictionary<string, IdentityDeclaration> Identities => _identities;
+
+    /// <summary>The declared linkage rules, by name.</summary>
+    public IReadOnlyDictionary<string, LinkageDeclaration> Linkages => _linkages;
 
     /// <summary>The declared groupings, by name.</summary>
     public IReadOnlyDictionary<string, GroupingDeclaration> Groupings => _groupings;
@@ -152,10 +159,19 @@ public sealed class Ontology
             }
         }
 
+        var linkages = new Dictionary<string, LinkageDeclaration>(StringComparer.Ordinal);
+        foreach (var linkage in all.OfType<LinkageDeclaration>())
+        {
+            if (Check(linkage, problems) && !linkages.TryAdd(linkage.Name, linkage))
+            {
+                problems.Add($"Linkage rule '{linkage.Name}' is declared more than once.");
+            }
+        }
+
         var identities = new Dictionary<string, IdentityDeclaration>(StringComparer.Ordinal);
         foreach (var identity in all.OfType<IdentityDeclaration>())
         {
-            if (!Check(identity, types, problems))
+            if (!Check(identity, types, linkages, problems))
             {
                 continue;
             }
@@ -194,10 +210,14 @@ public sealed class Ontology
             throw new OntologyDeclarationException(problems);
         }
 
-        return new Ontology(types, relations, identities, groupings);
+        return new Ontology(types, relations, identities, linkages, groupings);
     }
 
-    private static bool Check(IdentityDeclaration identity, Dictionary<string, EntityTypeDeclaration> types, List<string> problems)
+    private static bool Check(
+        IdentityDeclaration identity,
+        Dictionary<string, EntityTypeDeclaration> types,
+        Dictionary<string, LinkageDeclaration> linkages,
+        List<string> problems)
     {
         if (Blank(identity.Name, identity.First, identity.Second))
         {
@@ -226,6 +246,31 @@ public sealed class Ontology
         else if (links && string.IsNullOrWhiteSpace(identity.Linkage))
         {
             problems.Add($"Identity '{identity.Name}' names an empty linkage rule.");
+        }
+        else if (links && !linkages.TryGetValue(identity.Linkage!, out _))
+        {
+            problems.Add($"Identity '{identity.Name}' names the linkage rule '{identity.Linkage}', which is not declared.");
+        }
+        else if (links && first is not null && second is not null)
+        {
+            foreach (var compared in linkages[identity.Linkage!].Compare)
+            {
+                if (!first.Fields.ContainsKey(compared.First))
+                {
+                    problems.Add($"Identity '{identity.Name}' scores by '{identity.Linkage}', which compares '{compared.First}', not a field of '{first.Name}'.");
+                }
+
+                if (!second.Fields.ContainsKey(compared.Second))
+                {
+                    problems.Add($"Identity '{identity.Name}' scores by '{identity.Linkage}', which compares '{compared.Second}', not a field of '{second.Name}'.");
+                }
+
+                // Equality is the field match's test, so it is refused where the field match's would be.
+                if (compared.Method == LinkageMethod.Exact && Unmatchable([(first, compared.First), (second, compared.Second)]) is { } why)
+                {
+                    problems.Add($"Identity '{identity.Name}' scores by '{identity.Linkage}', which requires equal {why}.");
+                }
+            }
         }
         else if (matches && identity.Match!.Count == 0)
         {
@@ -259,6 +304,83 @@ public sealed class Ontology
         }
 
         return problems.Count == before;
+    }
+
+    private static bool Check(LinkageDeclaration linkage, List<string> problems)
+    {
+        if (string.IsNullOrWhiteSpace(linkage.Name))
+        {
+            problems.Add("A linkage rule leaves its name empty.");
+            return false;
+        }
+
+        if (linkage.Compare is not { Count: > 0 })
+        {
+            problems.Add($"Linkage rule '{linkage.Name}' compares no field.");
+            return false;
+        }
+
+        var before = problems.Count;
+        foreach (var compared in linkage.Compare)
+        {
+            if (compared is null || Blank(compared.First, compared.Second))
+            {
+                problems.Add($"Linkage rule '{linkage.Name}' compares an empty field.");
+                continue;
+            }
+
+            if (Unscorable(compared) is { } why)
+            {
+                problems.Add($"Linkage rule '{linkage.Name}' compares '{compared.First}' with '{compared.Second}' {why}.");
+            }
+        }
+
+        if (linkage.MatchThreshold is { } match && linkage.NonMatchThreshold is { } nonMatch && !(match > nonMatch))
+        {
+            problems.Add($"Linkage rule '{linkage.Name}' puts its match threshold ({match}) at or below its non-match threshold ({nonMatch}).");
+        }
+
+        if (linkage.MatchThreshold is { } m && !double.IsFinite(m) || linkage.NonMatchThreshold is { } n && !double.IsFinite(n))
+        {
+            problems.Add($"Linkage rule '{linkage.Name}' has a threshold that is not a number.");
+        }
+
+        return problems.Count == before;
+    }
+
+    /// <summary>Why a comparison's method and thresholds cannot score, or null when they can.</summary>
+    private static string? Unscorable(LinkageComparison compared)
+    {
+        var thresholds = compared.Thresholds ?? [];
+        if (!Enum.IsDefined(compared.Method))
+        {
+            return "by a method that is not one of exact, jaroWinkler, tokenJaccard or mongeElkan";
+        }
+
+        if (compared.Method == LinkageMethod.Exact && thresholds.Count > 0)
+        {
+            return "exactly, which takes no similarity threshold";
+        }
+
+        if (compared.Method == LinkageMethod.TokenJaccard && thresholds.Count == 0)
+        {
+            return "by shared words with no threshold — how many words must be shared has no default";
+        }
+
+        if (thresholds.Any(t => !(t is >= 0 and <= 1)))
+        {
+            return "with a threshold outside 0 to 1";
+        }
+
+        for (var i = 1; i < thresholds.Count; i++)
+        {
+            if (!(thresholds[i] < thresholds[i - 1]))
+            {
+                return "with thresholds that are not highest first";
+            }
+        }
+
+        return null;
     }
 
     private static bool Check(GroupingDeclaration grouping, Dictionary<string, EntityTypeDeclaration> types, List<string> problems)

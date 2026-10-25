@@ -99,9 +99,10 @@ public sealed class IdentityTests
     public async Task An_identity_by_a_linkage_rule_is_not_matched_by_fields()
     {
         var linked = new IdentityDeclaration("linked", "Material", "Item", IdentityDecision.Confirmed) { Linkage = "names" };
+        var names = new LinkageDeclaration("names", [new LinkageComparison("erpCode", "code", LinkageMethod.JaroWinkler)]);
         var sessions = new Sessions(new());
 
-        Assert.Empty(await new IdentityMatcher(With(linked), Iris).MatchAsync(sessions, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken));
+        Assert.Empty(await new IdentityMatcher(With(linked, names), Iris).MatchAsync(sessions, TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken));
         Assert.Empty(sessions.Scans);
     }
 

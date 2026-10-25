@@ -115,4 +115,30 @@ public sealed class OntologyChangesTests
             ],
             OntologyChanges.Between(before, after));
     }
+
+    [Fact]
+    public void A_linkage_rule_added_only_adds_but_one_changed_or_removed_breaks()
+    {
+        var rule = new LinkageDeclaration("names", [new LinkageComparison("name", "name", LinkageMethod.JaroWinkler, [0.9])]);
+        var other = new LinkageDeclaration("codes", [new LinkageComparison("item", "item")]);
+        var before = Ontology.Create([.. Before.EntityTypes.Values, .. Before.Relations.Values, rule, other]);
+
+        // The same thresholds written as another list are the same rule.
+        Assert.Empty(OntologyChanges.Between(before, Ontology.Create(
+            [.. Before.EntityTypes.Values, .. Before.Relations.Values, rule with { Compare = [new LinkageComparison("name", "name", LinkageMethod.JaroWinkler, [0.9])] }, other])));
+
+        Assert.Equal(
+            [
+                new OntologyChange(ChangeKind.Breaking, "linkage codes", "removed"),
+                new OntologyChange(ChangeKind.Breaking, "linkage names", "scores what is one thing otherwise"),
+                new OntologyChange(ChangeKind.Additive, "linkage titles", "added"),
+            ],
+            OntologyChanges.Between(before, Ontology.Create(
+            [
+                .. Before.EntityTypes.Values,
+                .. Before.Relations.Values,
+                rule with { NonMatchThreshold = -3 },
+                new LinkageDeclaration("titles", [new LinkageComparison("name", "name", LinkageMethod.TokenJaccard, [0.5])]),
+            ])));
+    }
 }

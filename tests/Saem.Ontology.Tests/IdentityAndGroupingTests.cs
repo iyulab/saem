@@ -54,13 +54,98 @@ public sealed class IdentityAndGroupingTests
         Assert.Equal(ontology.Version, Ontology.Create([Line, SameItem, OntologyTests.Supplier, Material, Item, WorkOrder]).Version);
     }
 
+    // D-87 ⓐ: the rule is a declaration of its own — the fields compared and how — which an identity names.
+    private static readonly LinkageDeclaration SupplierNames = new(
+        "supplier-names", [new LinkageComparison("name", "name", LinkageMethod.JaroWinkler, [0.95, 0.9])])
+    {
+        MatchThreshold = 6,
+        NonMatchThreshold = -2,
+    };
+
+    private static readonly IdentityDeclaration SameSupplier = new("same_supplier", "Supplier", "Supplier", IdentityDecision.Confirmed) { Linkage = "supplier-names" };
+
     [Fact]
     public void An_identity_by_a_linkage_rule_and_one_within_a_single_type_are_both_declarable()
     {
-        var ontology = Create(
-            new IdentityDeclaration("same_supplier", "Supplier", "Supplier", IdentityDecision.Confirmed) { Linkage = "supplier-names" });
+        var ontology = Create(SupplierNames, SameSupplier);
 
         Assert.Equal("supplier-names", ontology.Identities["same_supplier"].Linkage);
+        Assert.Equal(SupplierNames, ontology.Linkages["supplier-names"]);
+        Assert.NotEqual(ontology.Version, Create(SupplierNames with { MatchThreshold = 7 }, SameSupplier).Version);
+    }
+
+    [Fact]
+    public void A_linkage_rule_travels_as_its_own_kind_and_an_omitted_method_is_equality()
+    {
+        const string json = """
+            [{ "kind": "linkage", "name": "codes", "compare": [{ "first": "erpCode", "second": "code" }, { "first": "note", "second": "name", "method": "tokenJaccard", "thresholds": [0.6] }] }]
+            """;
+
+        var rule = Assert.IsType<LinkageDeclaration>(Assert.Single(System.Text.Json.JsonSerializer.Deserialize(json, OntologyJson.Default.IReadOnlyListDeclaration)!));
+
+        Assert.Equal(LinkageMethod.Exact, rule.Compare[0].Method);
+        Assert.Null(rule.Compare[0].Thresholds);
+        Assert.Equal([0.6], rule.Compare[1].Thresholds!);
+        Assert.Null(rule.MatchThreshold);
+        Assert.Contains("\"method\":\"tokenJaccard\"", System.Text.Json.JsonSerializer.Serialize<IReadOnlyList<Declaration>>([rule], OntologyJson.Default.IReadOnlyListDeclaration), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_linkage_rule_that_cannot_score_is_refused_with_each_reason()
+    {
+        static LinkageDeclaration Rule(LinkageComparison compared) => new("r", [compared]);
+
+        Assert.Equal(
+            [
+                "Linkage rule 'r' compares no field.",
+                "Linkage rule 'r' compares an empty field.",
+                "Linkage rule 'r' compares 'a' with 'b' exactly, which takes no similarity threshold.",
+                "Linkage rule 'r' compares 'a' with 'b' by shared words with no threshold — how many words must be shared has no default.",
+                "Linkage rule 'r' compares 'a' with 'b' with a threshold outside 0 to 1.",
+                "Linkage rule 'r' compares 'a' with 'b' with thresholds that are not highest first.",
+                "Linkage rule 'r' puts its match threshold (1) at or below its non-match threshold (1).",
+                "Linkage rule 'r' has a threshold that is not a number.",
+                "Linkage rule 'r' is declared more than once.",
+            ],
+            [
+                .. Refused(new LinkageDeclaration("r", [])),
+                .. Refused(Rule(new LinkageComparison("a", " "))),
+                .. Refused(Rule(new LinkageComparison("a", "b", LinkageMethod.Exact, [1.0]))),
+                .. Refused(Rule(new LinkageComparison("a", "b", LinkageMethod.TokenJaccard))),
+                .. Refused(Rule(new LinkageComparison("a", "b", LinkageMethod.JaroWinkler, [1.2]))),
+                .. Refused(Rule(new LinkageComparison("a", "b", LinkageMethod.MongeElkan, [0.9, 0.9]))),
+                .. Refused(Rule(new LinkageComparison("a", "b")) with { MatchThreshold = 1, NonMatchThreshold = 1 }),
+                .. Refused(Rule(new LinkageComparison("a", "b")) with { MatchThreshold = double.NaN }),
+                .. Refused(Rule(new LinkageComparison("a", "b")), Rule(new LinkageComparison("a", "b"))),
+            ]);
+    }
+
+    [Fact]
+    public void An_identity_names_a_declared_rule_whose_fields_its_two_types_have()
+    {
+        var byRule = new IdentityDeclaration("i", "Material", "Item", IdentityDecision.Confirmed) { Linkage = "names" };
+        var rule = new LinkageDeclaration("names", [new LinkageComparison("erpCode", "code"), new LinkageComparison("erp", "sku", LinkageMethod.JaroWinkler)]);
+
+        Assert.Equal(
+            [
+                "Identity 'i' names the linkage rule 'names', which is not declared.",
+                "Identity 'i' scores by 'names', which compares 'erp', not a field of 'Material'.",
+                "Identity 'i' scores by 'names', which compares 'sku', not a field of 'Item'.",
+            ],
+            [.. Refused(byRule), .. Refused(rule, byRule)]);
+    }
+
+    [Fact]
+    public void Free_text_is_never_required_equal_but_may_be_scored_as_alike()
+    {
+        var byRule = new IdentityDeclaration("i", "Material", "Item", IdentityDecision.Confirmed) { Linkage = "notes" };
+
+        Assert.Contains(
+            "Identity 'i' scores by 'notes', which requires equal 'Material.note', which holds free text",
+            Assert.Single(Refused(new LinkageDeclaration("notes", [new LinkageComparison("note", "name")]), byRule)),
+            StringComparison.Ordinal);
+
+        Create(new LinkageDeclaration("notes", [new LinkageComparison("note", "name", LinkageMethod.TokenJaccard, [0.5])]), byRule);
     }
 
     [Fact]

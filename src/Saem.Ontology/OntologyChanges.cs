@@ -39,6 +39,7 @@ public static class OntologyChanges
         Compare(changes, "entityType", before.EntityTypes, after.EntityTypes, EntityType);
         Compare(changes, "relation", before.Relations, after.Relations, Relation);
         Compare(changes, "identity", before.Identities, after.Identities, Identity);
+        Compare(changes, "linkage", before.Linkages, after.Linkages, Linkage);
         Compare(changes, "grouping", before.Groupings, after.Groupings, Grouping);
         return [.. changes.OrderByDescending(c => c.Kind)];
     }
@@ -155,6 +156,28 @@ public static class OntologyChanges
         {
             add(ChangeKind.Breaking, "tells what is one thing otherwise");
         }
+    }
+
+    private static void Linkage(Action<ChangeKind, string> add, LinkageDeclaration was, LinkageDeclaration now)
+    {
+        // Every identity that names the rule is scored by it, so any change can join or part what they find.
+        if (!was.Compare.SequenceEqual(now.Compare, LinkageComparisons.Instance)
+            || was.MatchThreshold != now.MatchThreshold || was.NonMatchThreshold != now.NonMatchThreshold)
+        {
+            add(ChangeKind.Breaking, "scores what is one thing otherwise");
+        }
+    }
+
+    /// <summary>Two comparisons are the same when they compare the same fields the same way — thresholds by value.</summary>
+    private sealed class LinkageComparisons : IEqualityComparer<LinkageComparison>
+    {
+        public static readonly LinkageComparisons Instance = new();
+
+        public bool Equals(LinkageComparison? x, LinkageComparison? y) =>
+            x is not null && y is not null && x.First == y.First && x.Second == y.Second && x.Method == y.Method
+            && (x.Thresholds ?? []).SequenceEqual(y.Thresholds ?? []);
+
+        public int GetHashCode(LinkageComparison obj) => HashCode.Combine(obj.First, obj.Second, obj.Method);
     }
 
     private static void Grouping(Action<ChangeKind, string> add, GroupingDeclaration was, GroupingDeclaration now)

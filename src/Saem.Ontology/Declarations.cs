@@ -6,14 +6,15 @@ using Saem.Contracts;
 namespace Saem.Ontology;
 
 /// <summary>
-/// One declaration of the ontology: an entity type, a relation, an identity or a grouping. Each is a document of its own, so
-/// that the same declarations can later be held one document apiece wherever the ontology is kept —
-/// the shape does not change with the place. On the wire the kind travels in <c>kind</c>.
+/// One declaration of the ontology: an entity type, a relation, an identity, a linkage rule or a grouping. Each is a
+/// document of its own, so that the same declarations can later be held one document apiece wherever the ontology is
+/// kept — the shape does not change with the place. On the wire the kind travels in <c>kind</c>.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(EntityTypeDeclaration), "entityType")]
 [JsonDerivedType(typeof(RelationDeclaration), "relation")]
 [JsonDerivedType(typeof(IdentityDeclaration), "identity")]
+[JsonDerivedType(typeof(LinkageDeclaration), "linkage")]
 [JsonDerivedType(typeof(GroupingDeclaration), "grouping")]
 public abstract record Declaration
 {
@@ -155,8 +156,8 @@ public sealed record IdentityDeclaration(string Name, string First, string Secon
     public IReadOnlyList<FieldPair>? Match { get; init; }
 
     /// <summary>
-    /// The name of the linkage rule that scores two entities as one — a probabilistic match, for records no
-    /// shared key joins. Declared instead of <see cref="Match"/>, never with it.
+    /// The name of the linkage rule (<see cref="LinkageDeclaration"/>) that scores two entities as one — a probabilistic
+    /// match, for records no shared key joins. Declared instead of <see cref="Match"/>, never with it.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Linkage { get; init; }
@@ -166,6 +167,76 @@ public sealed record IdentityDeclaration(string Name, string First, string Secon
 /// <param name="First">The field of <see cref="IdentityDeclaration.First"/>.</param>
 /// <param name="Second">The field of <see cref="IdentityDeclaration.Second"/>.</param>
 public sealed record FieldPair(string First, string Second);
+
+/// <summary>
+/// A linkage rule: how two entities that share no key are scored as one thing — the fields compared, each by a method
+/// and the similarities at which its values agree, and the scores at which a pair is one thing or two (Fellegi–Sunter).
+/// It is the ontology's statement of what "the same" means for those records, so it is declared, versioned and
+/// reviewed like any other; an identity names it (<see cref="IdentityDeclaration.Linkage"/>). The rule names no type —
+/// one rule serves every identity whose two types carry its fields, the first field of each pair on the identity's
+/// first type. How much each field's agreement weighs is not declared: it is fitted to the records a group sees.
+/// </summary>
+/// <param name="Name">The rule's name, unique among linkage rules.</param>
+/// <param name="Compare">The pairs of fields compared, each with how; at least one.</param>
+public sealed record LinkageDeclaration(string Name, IReadOnlyList<LinkageComparison> Compare) : Declaration
+{
+    /// <inheritdoc />
+    [JsonPropertyOrder(-1)]
+    public override string Name { get; } = Name;
+
+    /// <summary>
+    /// The score — a log-likelihood ratio — at or above which a pair is one thing. Omitted, the scorer's own default.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? MatchThreshold { get; init; }
+
+    /// <summary>
+    /// The score at or below which a pair is two things. Between the two thresholds a pair is undecided: an identity a
+    /// person settles puts it to that person; one the rule settles leaves the two apart. Omitted, the scorer's default.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? NonMatchThreshold { get; init; }
+}
+
+/// <summary>A field of an identity's first type compared with a field of its second type, and how.</summary>
+/// <param name="First">The field of the identity's first type.</param>
+/// <param name="Second">The field of the identity's second type.</param>
+/// <param name="Method">How two values are compared. Omitted, they must be equal.</param>
+/// <param name="Thresholds">
+/// For a similarity method, the similarities at or above which two values agree, highest first, each within [0, 1]:
+/// one is agree or disagree, several give a near miss its own weight. Omitted for <see cref="LinkageMethod.Exact"/>,
+/// which has none; for Jaro-Winkler and Monge-Elkan omitted means the scorer's default; token Jaccard needs one.
+/// </param>
+public sealed record LinkageComparison(
+    string First,
+    string Second,
+    LinkageMethod Method = LinkageMethod.Exact,
+    IReadOnlyList<double>? Thresholds = null)
+{
+    /// <inheritdoc cref="LinkageComparison" path="/param[@name='Thresholds']"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<double>? Thresholds { get; init; } = Thresholds;
+}
+
+/// <summary>How a linkage rule compares two values of a field. On the wire each method travels by its camelCase name.</summary>
+public enum LinkageMethod
+{
+    /// <summary>The values, case and surrounding space aside, are equal.</summary>
+    [JsonStringEnumMemberName("exact")]
+    Exact,
+
+    /// <summary>Jaro-Winkler similarity over the whole value — for a name or a code that varies by a letter.</summary>
+    [JsonStringEnumMemberName("jaroWinkler")]
+    JaroWinkler,
+
+    /// <summary>The share of distinct words the values have in common — for a title whose words are added or moved.</summary>
+    [JsonStringEnumMemberName("tokenJaccard")]
+    TokenJaccard,
+
+    /// <summary>Each word matched to its closest counterpart by Jaro-Winkler — word order and a misspelt word count for little.</summary>
+    [JsonStringEnumMemberName("mongeElkan")]
+    MongeElkan,
+}
 
 /// <summary>
 /// A grouping: a line, a fleet, a team — a thing that is nothing but its members. A group is the set of members
