@@ -13,8 +13,9 @@ as a wellspring of knowledge
 PostgreSQL, MySQL, MorphDB and Formbase sources; an authoring pass (`saem-author`) that drafts the
 ontology's declarations from Eyu's proposals for a person to review; a lookup walk that reads each hop
 through a session opened as the person it is for; an MCP server whose one lookup tool runs as the
-person a request's bearer token names; and a first materialization pass (`saem-materialize`) that
-keeps each group's relation edges in that group's own store (all below). A MorphDB source is read with
+person a request's bearer token names; and a materialization pass (`saem-materialize`) that keeps
+each group's relation edges and identities in that group's own store, whole or only where rows changed
+(all below). A MorphDB source is read with
 the person's own token, exchanged for one meant for it; the relational sources still log in with a
 password per person, until their drivers can present a token. All of it runs on synthetic fixtures,
 not yet on a real organization's systems — so much of this README, the permission principle
@@ -569,11 +570,12 @@ projected into MorphDB is answered through the MCP server with the document's ow
 source names — and in one run, the ontology that answer is asked in is the draft an authoring pass made
 from the forms, unedited, the relation followed included.
 
-**Started: materialization by group.** Each group's edges are read through that group's own account and
-kept in that group's own store; a person reads only the partitions of the groups their token names, a
-relation walked backwards answers from them, and a person in no such group is refused. Paths longer
-than one backward hop, embeddings, and how to show a path whose middle hop the user may not read stay
-open.
+**Started: materialization by group.** Each group's edges, and what its identities hold to be one thing,
+are read through that group's own account and kept in that group's own store; a person reads only the
+partitions of the groups their token names, a relation walked backwards or an identity crossed —
+anywhere in a path — answers from them, and a person in no such group is refused. A pass may read only
+the rows changed since the last one. Identities by a linkage rule, embeddings, and how to show a path
+whose middle hop the user may not read stay open.
 
 What these slices do not show is part of the plan. They run on synthetic fixtures, so they say nothing
 about whether a given legacy system can be queried as its end users at all. Across the two relational
