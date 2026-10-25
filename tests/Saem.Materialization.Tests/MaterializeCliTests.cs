@@ -31,6 +31,14 @@ public sealed class MaterializeCliTests
         Assert.Equal(new MaterializeOptions("ontology.json", "sources.json", "g-plant", new Uri("https://example.org/ontology/"), new Uri("http://plant.test/"), null, "t0ken"), options);
     }
 
+    [Fact]
+    public void Changed_takes_no_value_and_once()
+    {
+        Assert.True(MaterializeOptions.Parse([.. Complete, "--changed"], _ => null).ChangedOnly);
+        Assert.False(MaterializeOptions.Parse(Complete, _ => null).ChangedOnly);
+        Assert.Throws<MaterializeUsageException>(() => MaterializeOptions.Parse([.. Complete, "--changed", "--changed"], _ => null));
+    }
+
     [Theory]
     [InlineData("--group")]
     [InlineData("--store")]

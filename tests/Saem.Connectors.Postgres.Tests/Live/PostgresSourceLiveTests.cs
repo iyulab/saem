@@ -138,6 +138,60 @@ public class PostgresSourceLiveTests
         Assert.DoesNotContain(Canary, System.Text.Json.JsonSerializer.Serialize(forBob), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// SD-08 on the source: the latest change comes back as PostgreSQL spells a timestamptz, and the rows at or after it
+    /// are read with that text compared as the column's own type — an empty change time is never among them. The table
+    /// is made for the test by the rig's superuser and dropped after it.
+    /// </summary>
+    [Fact]
+    public async Task The_rows_changed_at_or_after_the_latest_change_are_read_by_the_columns_own_type()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var table = $"sd08_orders_{Guid.NewGuid():N}"[..20];
+        await using var super = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("SAEM_RIG_MES")) { Username = "super_pw", Password = "rig-super-local-only", Pooling = false }.ConnectionString);
+        await super.OpenAsync(ct);
+        await Execute(super, $"""
+            CREATE TABLE {table} (wo_no text PRIMARY KEY, item_code text, updated_at timestamptz);
+            INSERT INTO {table} VALUES ('WO-1', 'I-1', '2026-10-25 09:00:00+09'), ('WO-2', 'I-2', '2026-10-25 01:30:00+00'),
+                ('WO-3', 'I-3', '2026-10-24 23:59:59.5+00'), ('WO-4', 'I-4', NULL);
+            GRANT SELECT ON {table} TO alice;
+            """, ct);
+        try
+        {
+            await using var alice = await As("alice")(ct);
+            var changes = Assert.IsAssignableFrom<IChangedRows>(alice);
+
+            var latest = await changes.LatestChangeAsync(table, "updated_at", ct);
+            var rows = new List<string>();
+            await foreach (var row in changes.ScanChangedAsync(table, "wo_no", ["item_code"], "updated_at", "2026-10-25 00:00:00+00", ct))
+            {
+                rows.Add(row.Key);
+            }
+
+            // 09:00 at +09 is 00:00 UTC — before 01:30 UTC, though its text sorts after it.
+            Assert.NotNull(latest);
+            Assert.Equal(DateTimeOffset.Parse("2026-10-25T01:30:00Z", System.Globalization.CultureInfo.InvariantCulture), DateTimeOffset.Parse(latest, System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Equal(["WO-1", "WO-2"], rows);
+            var again = new List<string>();
+            await foreach (var row in changes.ScanChangedAsync(table, "wo_no", [], "updated_at", latest, ct))
+            {
+                again.Add(row.Key);
+            }
+
+            Assert.Equal(["WO-2"], again);
+        }
+        finally
+        {
+            await Execute(super, $"DROP TABLE {table}", CancellationToken.None);
+        }
+    }
+
+    private static async Task Execute(NpgsqlConnection connection, string sql, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     [Theory]
     [InlineData("bypass", false, true)]
     [InlineData("super", true, false)]

@@ -313,7 +313,9 @@ lookup is asked, as the person, so that is the time the value is as of — an ag
 knows how old the fact is. A relation walked backwards is found through edges built ahead of time, and
 its hop says when its group's edges were read from the sources (`partitionAsOf`): the entities it leads
 to are read again as the person, so what is stated of them is current, but one that came to lead there
-after that time has no edge yet and is not among the answers.
+after that time has no edge yet and is not among the answers. After a pass that read only changed rows
+(below), the time is that pass's: a row a long transaction wrote with an earlier change time may still
+have no edge until the next whole pass.
 
 An answer cites the record it read: by default the row's key, and where a table's rows are copies of
 records kept elsewhere, the columns a type declares as its `record` — joined with `/` when there are
@@ -400,6 +402,18 @@ sources file saying where each system is and which login the group's account use
 the base IRI. Each account's secret comes from the environment (`SAEM_SOURCE_SECRET_<SYSTEM>`), so a run
 holds one group's secrets only. A system the relations need but the sources file does not name is refused
 before the store is touched; the run reports how many edges it wrote, left unchanged and retired.
+
+A type may declare `changedAt` — the column its source sets when a row changes (an `updated_at`). Every
+pass then files, per relation leaving it, the latest change it saw, asked of the source before reading
+and spelled as the source spells it; `saem-materialize --changed` reads on from there: only the rows at
+or after that value, compared by the source as the column's own type, so saem's clock never enters. Each
+changed row corrects or retires its own edge and the rest stand; a relation the store has no latest
+change for is read whole. Identities are matched by whole passes only. A `--changed` pass cannot see a row
+deleted, one the group can no longer read, or one a long transaction wrote with an earlier change time —
+the stale edge is only a candidate a lookup reads again as the person, so it gives no wrong answer, though
+it can mark its partition `blocked` — and a whole pass, still the default, retires them: run `--changed`
+often and whole passes now and then. `saem-materialize check` reports rows that leave `changedAt` empty
+(`noChangeTime`), which only a whole pass reads.
 
 `saem-materialize verify`, given a pass's own arguments, compares the group's store with the edges a pass
 would give now and writes nothing: how many it holds as given, lacks, holds otherwise or holds that are no

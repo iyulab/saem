@@ -23,16 +23,11 @@ public sealed class ChangedRowsPassTests
 
     private static SourceRow Order(string key, string? item, string? at) => EdgeMaterializerTests.Row(key, ("item_code", item), ("updated_at", at));
 
-    /// <summary>A pass as <c>saem-materialize</c> makes one: whole, or narrowed to changed rows where the store says where to read from.</summary>
-    private static async Task<EdgeWrite> PassAsync(Ontology.Ontology ontology, ChangingTable sessions, FormbaseEdgeStore store, bool changedOnly)
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var materializer = new EdgeMaterializer(ontology, Iris);
-        var latest = await materializer.LatestChangesAsync(sessions, ct);
-        var held = changedOnly ? await store.WatermarksAsync(ct) : new Dictionary<string, string>();
-        var since = held.Where(m => latest.ContainsKey(m.Key)).ToDictionary(m => m.Key, m => m.Value, StringComparer.Ordinal);
-        return await store.MergeAsync(materializer.RowsAsync(sessions, since, ct), since.Keys.ToHashSet(StringComparer.Ordinal), latest, ct);
-    }
+    /// <summary>A pass as <c>saem-materialize</c> makes one: whole, or <c>--changed</c>.</summary>
+    private static Task<EdgeWrite> PassAsync(Ontology.Ontology ontology, ChangingTable sessions, FormbaseEdgeStore store, bool changedOnly) =>
+        Cli.MaterializeRun.RunAsync(
+            ontology, new Dictionary<string, SourceOpener> { ["mes"] = ct => sessions.OpenAsync("mes", ct) }, "g-plant", Iris, store, null, TextWriter.Null,
+            TestContext.Current.CancellationToken, changedOnly);
 
     [Fact]
     public async Task A_pass_over_changed_rows_reads_only_them_and_leaves_what_a_whole_pass_would()

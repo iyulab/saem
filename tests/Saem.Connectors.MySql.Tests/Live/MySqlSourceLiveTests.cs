@@ -44,6 +44,48 @@ public class MySqlSourceLiveTests
         new RelationDeclaration("supplied_by", "Item", "supplier", "Supplier"),
     ])));
 
+    /// <summary>
+    /// SD-08 on the source: the latest change comes back as MySQL spells a datetime, and the rows at or after it are read
+    /// with that text compared as the column's own type — an empty change time is never among them. The table is made for
+    /// the test by the rig's root and dropped after it.
+    /// </summary>
+    [Fact]
+    public async Task The_rows_changed_at_or_after_the_latest_change_are_read_by_the_columns_own_type()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var table = $"sd08_items_{Guid.NewGuid():N}"[..19];
+        await using var root = new MySqlConnection(new MySqlConnectionStringBuilder(Required("SAEM_RIG_ERP")) { UserID = "root", Password = "rig-superuser-local-only", Pooling = false }.ConnectionString);
+        await root.OpenAsync(ct);
+        await Execute(root, $"CREATE TABLE {table} (item_code varchar(10) PRIMARY KEY, item_name varchar(40), updated_at datetime(6) NULL)", ct);
+        try
+        {
+            await Execute(root, $"INSERT INTO {table} VALUES ('I-1', 'Bracket', '2026-10-25 09:00:00'), ('I-2', 'Gasket', '2026-10-25 10:30:00.250000'), ('I-3', 'Valve', '2026-10-24 23:00:00'), ('I-4', 'Seal', NULL)", ct);
+            await Execute(root, $"GRANT SELECT ON {table} TO 'alice_pw'@'%'", ct);
+            await using var alice = await Erp.As("alice_pw", _ => ValueTask.FromResult(Secret("alice")))(ct);
+            var changes = Assert.IsAssignableFrom<IChangedRows>(alice);
+
+            var latest = await changes.LatestChangeAsync(table, "updated_at", ct);
+            var rows = new List<string>();
+            await foreach (var row in changes.ScanChangedAsync(table, "item_code", ["item_name"], "updated_at", "2026-10-25 09:00:00", ct))
+            {
+                rows.Add(row.Key);
+            }
+
+            Assert.Equal("2026-10-25 10:30:00.250000", latest);
+            Assert.Equal(["I-1", "I-2"], rows);
+        }
+        finally
+        {
+            await Execute(root, $"DROP TABLE {table}", CancellationToken.None);
+        }
+    }
+
+    private static async Task Execute(MySqlConnection connection, string sql, CancellationToken ct)
+    {
+        await using var command = new MySqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     [Fact]
     public async Task Each_person_reads_what_the_source_lets_them()
     {

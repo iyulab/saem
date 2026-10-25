@@ -6,6 +6,10 @@ namespace Saem.Materialization.Cli;
 internal static class MaterializeRun
 {
     /// <param name="identities">The group's identity store; omitted, the pass writes edges only.</param>
+    /// <param name="changedOnly">
+    /// Read only the rows changed since the last pass, where the store says where each relation was read to (SD-08); a
+    /// relation it says nothing of is read whole. Identities are not matched by such a pass.
+    /// </param>
     /// <exception cref="MaterializeUsageException">A relation or an identity stands on a type on a system the sources file does not name.</exception>
     public static async Task<EdgeWrite> RunAsync(
         Ontology.Ontology ontology,
@@ -15,14 +19,26 @@ internal static class MaterializeRun
         FormbaseEdgeStore store,
         FormbaseIdentityStore? identities,
         TextWriter output,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool changedOnly = false)
     {
         // Checked before the pass: a system found missing halfway would leave the store half replaced.
-        RequireSystems(ontology, openers, identities is not null);
+        RequireSystems(ontology, openers, identities is not null && !changedOnly);
 
-        var edges = new EdgeMaterializer(ontology, iris).MaterializeAsync(new PersonSessions(openers), cancellationToken);
-        var write = await store.ReplaceAsync(edges, cancellationToken).ConfigureAwait(false);
-        await output.WriteLineAsync($"group {group}: {write.Written} edge(s) written, {write.Unchanged} unchanged, {write.Retired} retired; as of {write.ReadFrom:O}.").ConfigureAwait(false);
+        // Where this pass reads to is asked before it reads: a row changed while it reads is read again by the next.
+        var materializer = new EdgeMaterializer(ontology, iris);
+        var latest = await materializer.LatestChangesAsync(new PersonSessions(openers), cancellationToken).ConfigureAwait(false);
+        var since = changedOnly
+            ? (await store.WatermarksAsync(cancellationToken).ConfigureAwait(false)).Where(m => latest.ContainsKey(m.Key)).ToDictionary(m => m.Key, m => m.Value, StringComparer.Ordinal)
+            : [];
+        var write = await store.MergeAsync(materializer.RowsAsync(new PersonSessions(openers), since, cancellationToken), since.Keys.ToHashSet(StringComparer.Ordinal), latest, cancellationToken).ConfigureAwait(false);
+        var part = changedOnly ? $" ({write.ReadInPart} relation(s) read where changed, {write.RowsRead} row(s) read)" : "";
+        await output.WriteLineAsync($"group {group}: {write.Written} edge(s) written, {write.Unchanged} unchanged, {write.Retired} retired{part}; as of {write.ReadFrom:O}.").ConfigureAwait(false);
+
+        if (changedOnly)
+        {
+            return write;
+        }
 
         if (identities is not null)
         {

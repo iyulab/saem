@@ -12,7 +12,8 @@ internal sealed record MaterializeOptions(
     Uri BaseIri,
     Uri Store,
     string? StoreNamespace,
-    string? StoreToken)
+    string? StoreToken,
+    bool ChangedOnly = false)
 {
     public const string StoreTokenVariable = "SAEM_STORE_TOKEN";
 
@@ -38,6 +39,9 @@ internal sealed record MaterializeOptions(
 
         Options:
           --store-namespace <name>       The Formbase namespace to write; omitted, the instance's own.
+          --changed                      Read only the rows changed since the last pass, where a relation's leaving type
+                                         declares changedAt and the last pass filed where it read to; every other relation
+                                         is read whole. Identities are not matched — a thing needs every member read.
 
         Environment:
           SAEM_SOURCE_SECRET_<SYSTEM>    The group account's password (postgres, mysql) or bearer secret (morphdb) for
@@ -50,6 +54,11 @@ internal sealed record MaterializeOptions(
         fields, and the store is made to hold what it finds: canonical ids carried on from the last pass (a merge keeps
         the older, the part split off gets a new one), each entity's cross-reference and the grounds of each pair. An
         identity a person settles (decision "confirmed") files its pairs as grounds only.
+
+        Every pass files, per relation whose type declares changedAt, the latest change it read from. A --changed pass
+        reads on from there: each changed row corrects or retires its own edge, and the rest stand. It cannot see a
+        row deleted, one the group can no longer read, or one a long transaction wrote with an earlier change time —
+        a whole pass does: run --changed often and whole passes now and then.
 
         To compare the store with what a pass would give now, writing nothing: saem-materialize verify <the same
         arguments> — exit status 1 when it disagrees (edges or identified things missing, different or no longer
@@ -73,6 +82,16 @@ internal sealed record MaterializeOptions(
         for (var i = 0; i < args.Count; i++)
         {
             var arg = args[i];
+            if (arg == "--changed")
+            {
+                if (!values.TryAdd(arg, ""))
+                {
+                    throw new MaterializeUsageException($"{arg} is given more than once.");
+                }
+
+                continue;
+            }
+
             if (arg is not ("--catalog" or "--sources" or "--group" or "--base-iri" or "--store" or "--store-namespace"))
             {
                 throw new MaterializeUsageException($"Unknown argument '{arg}'.");
@@ -97,7 +116,8 @@ internal sealed record MaterializeOptions(
             BaseIri: Uri.TryCreate(baseIri, UriKind.Absolute, out var iri) ? iri : throw new MaterializeUsageException($"--base-iri takes an absolute IRI, not '{baseIri}'."),
             Store: HttpAddress(Required("--store"), "--store"),
             StoreNamespace: values.GetValueOrDefault("--store-namespace"),
-            StoreToken: environment(StoreTokenVariable) is { Length: > 0 } token ? token : null);
+            StoreToken: environment(StoreTokenVariable) is { Length: > 0 } token ? token : null,
+            ChangedOnly: values.ContainsKey("--changed"));
 
         string Required(string name) =>
             values.TryGetValue(name, out var value) ? value : throw new MaterializeUsageException($"{name} is required.");

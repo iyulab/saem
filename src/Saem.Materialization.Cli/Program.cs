@@ -108,7 +108,7 @@ try
         return agrees ? 0 : 1;
     }
 
-    await MaterializeRun.RunAsync(ontology, sources.Openers, options.Group, new EntityIris(options.BaseIri), edgeStore, identityStore, Console.Out, cancellation.Token);
+    await MaterializeRun.RunAsync(ontology, sources.Openers, options.Group, new EntityIris(options.BaseIri), edgeStore, identityStore, Console.Out, cancellation.Token, options.ChangedOnly);
     return 0;
 }
 catch (MaterializeUsageException e)
