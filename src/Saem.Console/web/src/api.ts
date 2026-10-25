@@ -63,7 +63,7 @@ export type LookupStart = EntityKey | { type: string; where: { field: string; va
 
 export type LookupCall = { start: LookupStart; path: string[]; read: string[] };
 
-export type JobKind = "verify" | "check" | "candidates" | "pass" | "changed-pass" | "fit" | "judge";
+export type JobKind = "verify" | "check" | "candidates" | "status" | "pass" | "changed-pass" | "fit" | "judge";
 
 /** A pair an identity's rule found and no person has judged: the entities by their IRIs and the rule's score — no value of any record. */
 export type PairCandidate = {
@@ -75,6 +75,13 @@ export type PairCandidate = {
   secondEntity: EntityKey | null;
   rule: string;
   score: number;
+};
+
+/** What a group's store holds, in counts and times — nothing of any record. */
+export type GroupStatus = {
+  asOf: string | null;
+  relations: Array<{ relation: string; edges: number; watermark: string | null }>;
+  identities: Array<{ identity: string; things: number; members: number; awaiting: number }>;
 };
 
 /** One job of a group's executor, as the console gives it: a check's lines are withheld and its report has no records. */
@@ -90,7 +97,7 @@ export type Job = {
   outputWithheld?: boolean;
   startedAt: string;
   finishedAt: string | null;
-  report: CheckReport | { candidates: PairCandidate[] } | null;
+  report: CheckReport | { candidates: PairCandidate[] } | { status: GroupStatus } | null;
 };
 
 /** What the console answered: the value, or why there is none — signed out, no console role, or a problem it named. */

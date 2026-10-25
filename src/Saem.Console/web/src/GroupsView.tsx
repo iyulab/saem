@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Answer, type Catalog, type Job, type JobKind } from "./api";
-import { asks, checkReport, fitIdentities, fitSays, isRunning, runningJob, summary, took, violations } from "./jobs";
+import { asks, checkReport, fitIdentities, fitSays, isRunning, runningJob, statusOf, summary, took, violations } from "./jobs";
 
 const POLL_MS = 2000;
 
@@ -190,6 +190,7 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
 function JobDetail({ job }: { job: Job }) {
   const broken = violations(job);
   const report = checkReport(job);
+  const status = statusOf(job);
   return (
     <aside className="detail" aria-label="Job">
       <h2>{summary(job)}</h2>
@@ -198,6 +199,53 @@ function JobDetail({ job }: { job: Job }) {
         <p className="muted">A check's lines cite records the group's account read; they stay with the executor.</p>
       ) : (
         <pre className="output">{job.output || "(nothing printed yet)"}</pre>
+      )}
+      {status && (
+        <>
+          <p className="muted">
+            {status.asOf ? `Edges are as of the pass that began reading ${new Date(status.asOf).toLocaleString()}.` : "No pass has filed a time yet."}
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Relation</th>
+                <th>Edges</th>
+                <th>Read on from</th>
+              </tr>
+            </thead>
+            <tbody>
+              {status.relations.map((r) => (
+                <tr key={r.relation}>
+                  <td>{r.relation}</td>
+                  <td>{r.edges}</td>
+                  <td className="muted">{r.watermark ?? "read whole"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {status.identities.length > 0 && (
+            <table>
+              <thead>
+                <tr>
+                  <th>Identity</th>
+                  <th>Things</th>
+                  <th>Members</th>
+                  <th>Awaiting a person</th>
+                </tr>
+              </thead>
+              <tbody>
+                {status.identities.map((i) => (
+                  <tr key={i.identity}>
+                    <td>{i.identity}</td>
+                    <td>{i.things}</td>
+                    <td>{i.members}</td>
+                    <td>{i.awaiting}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
       {job.outputTruncated && <p className="muted">The executor kept the first part of what the job printed.</p>}
       {report && (

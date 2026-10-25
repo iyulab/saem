@@ -38,6 +38,8 @@ internal sealed record ServeOptions(MaterializeOptions Run, Uri Listen, IReadOnl
                                            check         the declarations against the sources (the report comes back too)
                                            candidates    the pairs of a person-settled identity no one has judged yet (IRIs and
                                                          scores; the list comes back as the report)
+                                           status        what the store holds in counts and times: the last pass, each
+                                                         relation's edges and watermark, each identity's things (report)
                                            pass          the edges, then what the identities find, written to the store
                                            changed-pass  the same, reading only the rows changed since the last pass
                                            fit           an identity's linkage rule fitted, the fit kept

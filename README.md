@@ -449,7 +449,7 @@ administration console shows.
 
 `saem-materialize serve` keeps a group's executor running, to be asked for work instead of scheduled: the
 arguments of a pass plus `--listen <url>`, and the executor does what the administration console asks of
-it for that group — `verify`, `check`, `pass`, `changed-pass`, `fit` and `judge`, the commands above, and `candidates`, which lists the pairs of a person-settled identity that no one has judged yet (IRIs and scores) — one
+it for that group — `verify`, `check`, `pass`, `changed-pass`, `fit` and `judge`, the commands above, `candidates`, which lists the pairs of a person-settled identity that no one has judged yet (IRIs and scores), and `status`, the store's counts and times — one
 job at a time. A caller sends `POST /jobs` with `{"kind": …, "requestedBy": "<who asked>", "arguments": {…}}`
 (`arguments` carries a fit's `identity`, and a judgment's `identity`, `first`, `second` and `same`) and reads
 the job at `GET /jobs/{id}`: its state, its exit status and the lines the command prints; `POST

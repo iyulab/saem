@@ -113,6 +113,15 @@ internal static class ExecutorJobs
                 return new JobOutcome(true, JsonSerializer.Serialize(new { candidates = pairs.Select(pair => Candidate(group.Ontology, iris, pair)) }, CandidateJson));
             },
 
+            // What the store holds, in counts and times: when the last pass began reading, each relation's edges and watermark, each identity's things.
+            ["status"] = async (_, output, cancellationToken) =>
+            {
+                using var group = await open(cancellationToken).ConfigureAwait(false);
+                var status = await GroupStatus.ReadAsync(group.Ontology, new FormbaseEdgeStore(group.Store, run.StoreNamespace), new FormbaseIdentityStore(group.Store, run.StoreNamespace), cancellationToken).ConfigureAwait(false);
+                await output.WriteLineAsync($"group {run.Group}: {status.Relations.Sum(r => r.Edges)} edge(s) over {status.Relations.Count} relation(s), {status.Identities.Sum(i => i.Things)} thing(s) over {status.Identities.Count} identity(ies).").ConfigureAwait(false);
+                return new JobOutcome(true, JsonSerializer.Serialize(new { status }, CandidateJson));
+            },
+
             // The declarations against the sources, read as the group's account; the findings come back as the report too.
             ["check"] = async (_, output, cancellationToken) =>
             {

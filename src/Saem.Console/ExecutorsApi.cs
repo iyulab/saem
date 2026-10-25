@@ -103,7 +103,7 @@ internal sealed class HttpConsoleExecutors(IHttpClientFactory clients, IOptions<
 internal static partial class ExecutorsApi
 {
     /// <summary>The kinds of job an executor does, as a request names them.</summary>
-    internal static readonly string[] Kinds = ["verify", "check", "candidates", "pass", "changed-pass", "fit", "judge"];
+    internal static readonly string[] Kinds = ["verify", "check", "candidates", "status", "pass", "changed-pass", "fit", "judge"];
 
     private const int MaxArgumentLength = 2048;
 

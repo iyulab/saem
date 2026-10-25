@@ -150,6 +150,25 @@ public sealed class ExecutorJobsTests : IDisposable
         Assert.Equal("WO/2", pair.GetProperty("secondEntity").GetProperty("key").GetString());
     }
 
+    [Fact]
+    public async Task The_status_is_counts_and_times_after_a_pass()
+    {
+        var empty = await RunAsync("status");
+        using var before = JsonDocument.Parse(empty.Outcome.Report!);
+        Assert.Equal(JsonValueKind.Null, before.RootElement.GetProperty("status").GetProperty("asOf").ValueKind);
+
+        await RunAsync("pass");
+        var (outcome, output) = await RunAsync("status");
+
+        Assert.True(outcome.Succeeded);
+        Assert.Equal("group g-plant: 1 edge(s) over 1 relation(s), 0 thing(s) over 0 identity(ies).", output.Trim());
+        using var report = JsonDocument.Parse(outcome.Report!);
+        var status = report.RootElement.GetProperty("status");
+        Assert.NotEqual(JsonValueKind.Null, status.GetProperty("asOf").ValueKind);
+        var relation = Assert.Single(status.GetProperty("relations").EnumerateArray());
+        Assert.Equal(("orders_item", 1), (relation.GetProperty("relation").GetString(), relation.GetProperty("edges").GetInt32()));
+    }
+
     [Theory]
     [InlineData(null, "wo/1", "wo/2", true, "identity is required")]
     [InlineData("same_order", null, "wo/2", true, "first is required")]

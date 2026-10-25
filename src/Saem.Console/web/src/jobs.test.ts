@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Catalog, Job } from "./api";
-import { awaiting, fitIdentities, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
+import { awaiting, fitIdentities, statusOf, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
 
 const job = (more: Partial<Job>): Job => ({
   id: "0123456789abcdef0123456789abcdef",
@@ -81,5 +81,15 @@ describe("the pairs a person is yet to judge", () => {
   it("leaves out the pairs judged since the listing", () => {
     const pairs = [pair("a", "b", 9), pair("a", "c", 4)];
     expect(awaiting(pairs, new Set([pairKey(pair("b", "a"))])).map((c) => c.second)).toEqual(["c"]);
+  });
+});
+
+describe("what a group's store holds", () => {
+  const status = { asOf: "2026-10-25T07:00:00Z", relations: [], identities: [] };
+
+  it("reads a finished status job, and no other", () => {
+    expect(statusOf(job({ kind: "status", report: { status } }))).toBe(status);
+    expect(statusOf(job({ kind: "status", state: "failed", report: { status } }))).toBeNull();
+    expect(statusOf(job({ kind: "check", report: { status } }))).toBeNull();
   });
 });
