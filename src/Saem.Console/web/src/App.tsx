@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { api, signInAddress, type Answer, type Caller } from "./api";
+import { api, signInAddress, type Answer, type Caller, type EntityKey } from "./api";
 import { CatalogView } from "./CatalogView";
 import { CheckView } from "./CheckView";
 import { GroupsView } from "./GroupsView";
@@ -26,6 +26,7 @@ const screens: ReadonlyArray<{ screen: Screen; title: string; builders?: boolean
 export function App() {
   const [me, setMe] = useState<Answer<Caller> | null>(null);
   const [screen, setScreen] = useState<Screen>("overview");
+  const [localFrom, setLocalFrom] = useState<{ entity: EntityKey; at: number } | undefined>();
 
   useEffect(() => {
     api.me().then(setMe);
@@ -44,7 +45,14 @@ export function App() {
         <strong className="brand">saem console</strong>
         <nav>
           {screens.filter((s) => !s.builders || me.value.roles.includes("builder")).map((s) => (
-            <button key={s.screen} className={s.screen === screen ? "tab active" : "tab"} onClick={() => setScreen(s.screen)}>
+            <button
+              key={s.screen}
+              className={s.screen === screen ? "tab active" : "tab"}
+              onClick={() => {
+                setLocalFrom(undefined);
+                setScreen(s.screen);
+              }}
+            >
               {s.title}
             </button>
           ))}
@@ -60,11 +68,18 @@ export function App() {
         {screen === "overview" && <OverviewView onOpenCheck={me.value.roles.includes("builder") ? () => setScreen("check") : undefined} />}
         {screen === "catalog" && <CatalogView />}
         {screen === "check" && <CheckView />}
-        {screen === "judgments" && <JudgmentsView />}
+        {screen === "judgments" && (
+          <JudgmentsView
+            onOpenLocal={(entity) => {
+              setLocalFrom({ entity, at: Date.now() });
+              setScreen("local");
+            }}
+          />
+        )}
         {screen === "groups" && <GroupsView />}
         {screen === "local" && (
           <Suspense fallback={<p>Loading…</p>}>
-            <LocalGraphView />
+            <LocalGraphView key={localFrom?.at} from={localFrom?.entity} />
           </Suspense>
         )}
         {screen === "graph" && (

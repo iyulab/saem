@@ -1,4 +1,4 @@
-import type { Catalog, CheckReport, Job, JobKind, PairCandidate } from "./api";
+import type { Catalog, CheckReport, EntityKey, Job, JobKind, PairCandidate } from "./api";
 
 /** What a builder may ask a group's executor for from the screen, with what each does to the group's store. */
 export const asks: ReadonlyArray<{ kind: JobKind; title: string; writes: boolean; says: string }> = [
@@ -48,6 +48,20 @@ export function latestCandidates(jobs: readonly Job[]): { job: Job; pairs: PairC
     }
   }
   return null;
+}
+
+/** The entity an IRI names: its type and key are its last two path segments, each percent-escaped, or null for any other IRI. */
+export function entityOf(iri: string): EntityKey | null {
+  const segments = iri.split("/");
+  const [type, key] = segments.slice(-2);
+  if (segments.length < 4 || !type || !key) {
+    return null;
+  }
+  try {
+    return { type: decodeURIComponent(type), key: decodeURIComponent(key) };
+  } catch {
+    return null;
+  }
 }
 
 /** The pair as one key, whichever way round it is read. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Catalog, Job } from "./api";
-import { awaiting, fitIdentities, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
+import { awaiting, entityOf, fitIdentities, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
 
 const job = (more: Partial<Job>): Job => ({
   id: "0123456789abcdef0123456789abcdef",
@@ -76,6 +76,13 @@ describe("the pairs a person is yet to judge", () => {
   it("keeps a pair as one key whichever way round it is read", () => {
     expect(pairKey(pair("b", "a"))).toBe(pairKey(pair("a", "b")));
     expect(pairKey({ ...pair("a", "b"), identity: "other" })).not.toBe(pairKey(pair("a", "b")));
+  });
+
+  it("reads the entity an IRI names from its last two segments", () => {
+    expect(entityOf("https://example.org/ontology/WorkOrder/WO-1")).toEqual({ type: "WorkOrder", key: "WO-1" });
+    expect(entityOf("https://example.org/ontology/WorkOrder/a%2Fb%20c")).toEqual({ type: "WorkOrder", key: "a/b c" });
+    expect(entityOf("WorkOrder")).toBeNull();
+    expect(entityOf("https://example.org/ontology/WorkOrder/%E0%A4")).toBeNull();
   });
 
   it("leaves out the pairs judged since the listing", () => {

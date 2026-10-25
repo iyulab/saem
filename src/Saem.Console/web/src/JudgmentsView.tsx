@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Answer, type Job } from "./api";
-import { awaiting, latestCandidates, pairKey, runningJob } from "./jobs";
+import { api, type Answer, type EntityKey, type Job } from "./api";
+import { awaiting, entityOf, latestCandidates, pairKey, runningJob } from "./jobs";
 
 const POLL_MS = 2000;
 
@@ -9,7 +9,7 @@ const POLL_MS = 2000;
  * and a builder says each pair is one thing or two. The console shows IRIs and scores only — it reads no record, and a
  * judgment is filed by the executor in the name of the one who asked. The group's things change on its next pass.
  */
-export function JudgmentsView() {
+export function JudgmentsView({ onOpenLocal }: { onOpenLocal: (entity: EntityKey) => void }) {
   const [groups, setGroups] = useState<Answer<Array<{ group: string }>> | null>(null);
   const [group, setGroup] = useState<string | null>(null);
 
@@ -52,12 +52,12 @@ export function JudgmentsView() {
           </select>
         </label>
       </div>
-      {group && <Candidates key={group} group={group} />}
+      {group && <Candidates key={group} group={group} onOpenLocal={onOpenLocal} />}
     </section>
   );
 }
 
-function Candidates({ group }: { group: string }) {
+function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entity: EntityKey) => void }) {
   const [jobs, setJobs] = useState<Answer<Job[]> | null>(null);
   const [judged, setJudged] = useState<ReadonlySet<string>>(new Set());
   const [refused, setRefused] = useState<string | null>(null);
@@ -147,8 +147,8 @@ function Candidates({ group }: { group: string }) {
                   {left.map((c) => (
                     <tr key={pairKey(c)}>
                       <td>{c.identity}</td>
-                      <td><code>{c.first}</code></td>
-                      <td><code>{c.second}</code></td>
+                      <td><Entity iri={c.first} onOpen={onOpenLocal} /></td>
+                      <td><Entity iri={c.second} onOpen={onOpenLocal} /></td>
                       <td className="muted">{c.score}</td>
                       <td>
                         <button className="button" disabled={running !== undefined} onClick={() => judge(c, true)}>
@@ -164,6 +164,24 @@ function Candidates({ group }: { group: string }) {
               </table>
             </div>
           )}
+        </>
+      )}
+    </>
+  );
+}
+
+/** An entity by its IRI, with a way to see what the person judging can read of it: the local graph walks it as them. */
+function Entity({ iri, onOpen }: { iri: string; onOpen: (entity: EntityKey) => void }) {
+  const entity = entityOf(iri);
+  return (
+    <>
+      <code>{iri}</code>
+      {entity && (
+        <>
+          {" "}
+          <button className="link" title="Read it as yourself in the local graph" onClick={() => onOpen(entity)}>
+            Look
+          </button>
         </>
       )}
     </>

@@ -1,6 +1,6 @@
 import cytoscape from "cytoscape";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type Answer, type Catalog, type LookupStart } from "./api";
+import { api, type Answer, type Catalog, type EntityKey, type LookupStart } from "./api";
 import { noSystem, sizeOf, systemColors } from "./graph";
 import { empty, fieldsOf, idOf, maxDepth, refusalText, step, systemOf, walksFrom, type LocalGraph } from "./localGraph";
 
@@ -9,7 +9,7 @@ import { empty, fieldsOf, idOf, maxDepth, refusalText, step, systemOf, walksFrom
  * Every step is a lookup asked as the person looking — what they cannot see is said, not hidden — and nothing walked is
  * kept beyond this page.
  */
-export function LocalGraphView() {
+export function LocalGraphView({ from }: { from?: EntityKey }) {
   const [catalog, setCatalog] = useState<Answer<Catalog> | null>(null);
   const [graph, setGraph] = useState<LocalGraph>(empty);
   const [selected, setSelected] = useState<string | null>(null);
@@ -26,7 +26,21 @@ export function LocalGraphView() {
     api.catalog().then((c) => {
       setCatalog(c);
       if (c.ok) {
-        setType(c.value.declarations.find((d) => d.kind === "entityType")?.name ?? "");
+        setType(from?.type ?? c.value.declarations.find((d) => d.kind === "entityType")?.name ?? "");
+        if (from) {
+          // Opened from another screen at an entity: walk from it at once, as if its key had been typed.
+          setKey(from.key);
+          api.lookup({ start: from, path: [], read: fieldsOf(c.value, from.type) }).then((answer) => {
+            if (answer.ok) {
+              setGraph(step(empty(), from, null, answer.value));
+              if (answer.value.kind === "answered") {
+                setSelected(idOf(answer.value.claims[0].entity));
+              }
+            } else {
+              setProblem("problem" in answer ? answer.problem : answer.status === 403 ? "Only builders walk a local graph." : "Your session has ended — sign in again.");
+            }
+          });
+        }
       }
     });
   }, []);
