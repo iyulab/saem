@@ -23,6 +23,27 @@ export type GraphEdge = {
 
 export type DeclarationGraph = { version: string; nodes: GraphNode[]; edges: GraphEdge[] };
 
+export type EntityKey = { type: string; key: string };
+
+export type SourceRecord = { system: string; table: string; record: string; readAt?: string };
+
+export type Hop = { relation: string; from: EntityKey; to: EntityKey; partition?: string };
+
+export type Claim = { entity: EntityKey; field: string; value: unknown; sources: SourceRecord[]; path: Hop[]; fieldKind?: string };
+
+export type Refusal = { reason: string; atHop: number; relation?: string | null; system: string };
+
+export type PartitionRead = { name: string; asOf?: string | null; blocked: boolean; incomplete: boolean };
+
+/** The lookup tool's answer, as the MCP server gives it to the person looking — the console passes it on unchanged. */
+export type LookupAnswer = { catalogVersion?: string; partitions?: PartitionRead[]; answeredFor?: { subject: string; actedBy?: string } } & (
+  | { kind: "answered"; claims: Claim[] }
+  | { kind: "refused"; refusal: Refusal }
+  | { kind: "candidates"; entities: Array<{ entity: EntityKey; source: SourceRecord }> }
+);
+
+export type LookupCall = { start: EntityKey; path: string[]; read: string[] };
+
 /** What the console answered: the value, or why there is none — signed out, no console role, or a problem it named. */
 export type Answer<T> =
   | { ok: true; value: T }
@@ -56,6 +77,7 @@ export const api = {
   catalog: () => ask<Catalog>("/api/catalog"),
   graph: () => ask<DeclarationGraph>("/api/catalog/graph"),
   logout: () => ask<void>("/logout", change()),
+  lookup: (call: LookupCall) => ask<LookupAnswer>("/api/graph/local", change(call)),
 };
 
 /** Where signing in starts: the console sends the browser to the issuer and back to this page. */

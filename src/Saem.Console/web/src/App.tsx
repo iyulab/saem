@@ -4,12 +4,14 @@ import { CatalogView } from "./CatalogView";
 
 // The graph library is most of the page's weight: it loads when a graph screen is first opened, not before.
 const GraphView = lazy(() => import("./GraphView").then((m) => ({ default: m.GraphView })));
+const LocalGraphView = lazy(() => import("./LocalGraphView").then((m) => ({ default: m.LocalGraphView })));
 
-type Screen = "catalog" | "graph";
+type Screen = "catalog" | "graph" | "local";
 
-const screens: ReadonlyArray<{ screen: Screen; title: string }> = [
+const screens: ReadonlyArray<{ screen: Screen; title: string; builders?: boolean }> = [
   { screen: "catalog", title: "Catalog" },
   { screen: "graph", title: "Knowledge graph" },
+  { screen: "local", title: "Local graph", builders: true },
 ];
 
 /** The console: who is signed in, the screens their role opens, and the screen in front of them. */
@@ -33,7 +35,7 @@ export function App() {
       <header className="bar">
         <strong className="brand">saem console</strong>
         <nav>
-          {screens.map((s) => (
+          {screens.filter((s) => !s.builders || me.value.roles.includes("builder")).map((s) => (
             <button key={s.screen} className={s.screen === screen ? "tab active" : "tab"} onClick={() => setScreen(s.screen)}>
               {s.title}
             </button>
@@ -48,6 +50,11 @@ export function App() {
       </header>
       <main>
         {screen === "catalog" && <CatalogView />}
+        {screen === "local" && (
+          <Suspense fallback={<p>Loading…</p>}>
+            <LocalGraphView />
+          </Suspense>
+        )}
         {screen === "graph" && (
           <Suspense fallback={<p>Loading the graph…</p>}>
             <GraphView />

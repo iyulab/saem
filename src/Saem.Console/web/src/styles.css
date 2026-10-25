@@ -47,3 +47,14 @@ code { font-size: 0.9em; }
 .detail h2 { margin: 0 0 4px; font-size: 1.1em; }
 .detail ul { padding-left: 18px; }
 @media (max-width: 800px) { .graph { grid-template-columns: 1fr; } }
+.start { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
+.start input, .start select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.button:disabled { opacity: 0.5; }
+button.button { border: 0; font: inherit; cursor: pointer; }
+.refusal { border-left: 3px solid #c2911b; padding: 6px 10px; background: var(--panel); }
+.detail dl { margin: 8px 0; }
+.detail dt { font-weight: 600; margin-top: 6px; }
+.detail dd { margin: 0; overflow-wrap: anywhere; }
+.detail dd.free { font-style: italic; }
+.detail dd.source { font-size: 0.85em; }
+.walks { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 8px; }
