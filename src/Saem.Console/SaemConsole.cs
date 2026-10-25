@@ -105,6 +105,7 @@ public static class SaemConsole
             .ValidateOnStart();
         services.AddSingleton<IOntologyCatalog>(provider => new FileOntologyCatalog(provider.GetRequiredService<IOptions<ConsoleCatalogOptions>>().Value.Ontology));
         services.Configure<ConsoleLookupOptions>(console.GetSection("Lookup"));
+        services.Configure<ConsoleCheckOptions>(console);
         services.AddHttpClient<IConsoleLookups, McpConsoleLookups>();
         services.AddOptions<ConsoleRoleOptions>()
             .Bind(console.GetSection("Roles"))
@@ -262,6 +263,7 @@ public static class SaemConsole
 
         var api = app.MapGroup("/api").RequireAuthorization(ConsoleRoles.AnyRole);
         CatalogApi.Map(api);
+        OverviewApi.Map(api);
 
         // A local graph is a lookup asked as the person looking: the answer, partition reports and refusals included, as
         // the MCP server gives it to that person — the console adds nothing and reads no source (saem D-89 ①).

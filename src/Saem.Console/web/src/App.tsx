@@ -1,23 +1,27 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { api, signInAddress, type Answer, type Caller } from "./api";
 import { CatalogView } from "./CatalogView";
+import { CheckView } from "./CheckView";
+import { OverviewView } from "./OverviewView";
 
 // The graph library is most of the page's weight: it loads when a graph screen is first opened, not before.
 const GraphView = lazy(() => import("./GraphView").then((m) => ({ default: m.GraphView })));
 const LocalGraphView = lazy(() => import("./LocalGraphView").then((m) => ({ default: m.LocalGraphView })));
 
-type Screen = "catalog" | "graph" | "local";
+type Screen = "overview" | "catalog" | "graph" | "local" | "check";
 
 const screens: ReadonlyArray<{ screen: Screen; title: string; builders?: boolean }> = [
+  { screen: "overview", title: "Overview" },
   { screen: "catalog", title: "Catalog" },
   { screen: "graph", title: "Knowledge graph" },
   { screen: "local", title: "Local graph", builders: true },
+  { screen: "check", title: "Check", builders: true },
 ];
 
 /** The console: who is signed in, the screens their role opens, and the screen in front of them. */
 export function App() {
   const [me, setMe] = useState<Answer<Caller> | null>(null);
-  const [screen, setScreen] = useState<Screen>("catalog");
+  const [screen, setScreen] = useState<Screen>("overview");
 
   useEffect(() => {
     api.me().then(setMe);
@@ -49,7 +53,9 @@ export function App() {
         </button>
       </header>
       <main>
+        {screen === "overview" && <OverviewView onOpenCheck={me.value.roles.includes("builder") ? () => setScreen("check") : undefined} />}
         {screen === "catalog" && <CatalogView />}
+        {screen === "check" && <CheckView />}
         {screen === "local" && (
           <Suspense fallback={<p>Loading…</p>}>
             <LocalGraphView />

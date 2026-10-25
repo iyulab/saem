@@ -442,7 +442,10 @@ declaration does not hold. With `--before <file>` — the declarations a change 
 checked against the same sources and what changes is listed after the findings: each finding whose count
 differs, or that one has and the other has not, marked `WORSE` when a declaration would hold for fewer
 rows. The exit status is then 1 when the change makes something worse — a change simulated against the
-sources before it is put in force, beside `saem-author diff`'s breaking and additive vocabulary.
+sources before it is put in force, beside `saem-author diff`'s breaking and additive vocabulary. `--report
+<file>` also writes it all as JSON (`checkedAt`, the `catalogVersion` checked, `holds`, the `findings`
+with their cited `records`, and with `--before` the `against` differences) — the file the
+administration console shows.
 
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its
@@ -595,7 +598,14 @@ along; `npm test` runs its tests, and `npm run dev` serves it against a console 
 The console holds no credential to any source and no key to any group's store: what a person may read it
 asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` (the catalog file),
 `Saem:Console:Identity` (issuer, audience, the console's client id and secret, sign-in scopes),
-`Saem:Console:Roles`, `Saem:Console:Lookup` (the MCP server, its audience, the issuer's token endpoint).
+`Saem:Console:Roles`, `Saem:Console:Lookup` (the MCP server, its audience, the issuer's token endpoint),
+`Saem:Console:CheckReport` (the last `saem-materialize check --report` file, optional).
+
+`GET /api/overview` says what is waiting at a glance: the catalog in force, how many declarations of each
+kind it holds, and the last check — when it ran, whether every declaration held, and whether it checked
+the catalog in force at all. `GET /api/check` (builders) gives that check's findings without the records
+they cite: those are rows the checking account could read, which a builder looking at the console may
+not be able to read at the source; they stay in the report file.
 
 ## Roadmap
 

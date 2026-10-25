@@ -156,6 +156,28 @@ public sealed class DeclarationCheckTests
         Assert.False(await Cli.CheckRun.RunAsync(textKeyed, openers, output, TestContext.Current.CancellationToken, before: Plant));
         Assert.Contains("  WORSE WorkOrder.orders_item [unresolved] - -> 1", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("1 finding(s) are worse with the change.", output.ToString(), StringComparison.Ordinal);
+
+        // The same as JSON, for the administration console: findings, and what the change makes worse.
+        using var file = new MemoryStream();
+        var at = new DateTimeOffset(2026, 10, 25, 3, 0, 0, TimeSpan.Zero);
+        await Cli.CheckRun.RunAsync(textKeyed, openers, TextWriter.Null, TestContext.Current.CancellationToken, before: Plant, report: file, time: new FixedTime(at));
+        using var json = JsonDocument.Parse(file.ToArray());
+        var root = json.RootElement;
+        Assert.Equal(at, root.GetProperty("checkedAt").GetDateTimeOffset());
+        Assert.Equal(textKeyed.Version, root.GetProperty("catalogVersion").GetString());
+        Assert.False(root.GetProperty("holds").GetBoolean());
+        var unresolved = Assert.Single(root.GetProperty("findings").EnumerateArray(), f => f.GetProperty("kind").GetString() == "unresolved");
+        Assert.True(unresolved.GetProperty("violation").GetBoolean());
+        Assert.Equal(["WO-1"], unresolved.GetProperty("records").EnumerateArray().Select(r => r.GetString()));
+        Assert.Equal(Plant.Version, root.GetProperty("against").GetProperty("catalogVersion").GetString());
+        Assert.Equal(1, root.GetProperty("against").GetProperty("worse").GetInt32());
+        var worse = Assert.Single(root.GetProperty("against").GetProperty("differences").EnumerateArray(), d => d.GetProperty("worse").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, worse.GetProperty("before").ValueKind);
+    }
+
+    private sealed class FixedTime(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     private sealed class Tables(Dictionary<string, List<SourceRow>> tables, string? failing = null) : ISourceSessions

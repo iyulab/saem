@@ -23,6 +23,22 @@ export type GraphEdge = {
 
 export type DeclarationGraph = { version: string; nodes: GraphNode[]; edges: GraphEdge[] };
 
+export type CheckSummary = { checkedAt: string | null; catalogVersion: string | null; current: boolean; holds: boolean; violations: number };
+
+export type Overview = { catalogVersion: string; declarations: Record<string, number>; check: CheckSummary | null };
+
+export type CheckFinding = { type: string; relation: string | null; kind: string; violation: boolean; what: string; count: number; recordsCited: number };
+
+export type CheckDifference = { type: string; relation: string | null; kind: string; before: number | null; after: number | null; worse: boolean };
+
+export type CheckReport = {
+  checkedAt: string;
+  catalogVersion: string;
+  holds: boolean;
+  findings: CheckFinding[];
+  against?: { catalogVersion: string; worse: number; differences: CheckDifference[] };
+};
+
 export type EntityKey = { type: string; key: string };
 
 export type SourceRecord = { system: string; table: string; record: string; readAt?: string };
@@ -74,6 +90,8 @@ const change = (body?: unknown): RequestInit => ({
 
 export const api = {
   me: () => ask<Caller>("/api/me"),
+  overview: () => ask<Overview>("/api/overview"),
+  check: () => ask<CheckReport>("/api/check"),
   catalog: () => ask<Catalog>("/api/catalog"),
   graph: () => ask<DeclarationGraph>("/api/catalog/graph"),
   logout: () => ask<void>("/logout", change()),
