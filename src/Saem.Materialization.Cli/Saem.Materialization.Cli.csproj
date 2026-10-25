@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Saem.Materialization.Tests" />
+    <InternalsVisibleTo Include="Saem.Mcp.Tests" />
   </ItemGroup>
 
 </Project>
