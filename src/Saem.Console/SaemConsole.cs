@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 using Saem.Ontology;
 
 namespace Saem.Console;
@@ -66,6 +67,8 @@ public static class SaemConsole
             .Validate(c => !string.IsNullOrEmpty(c.Ontology), "Saem:Console:Ontology names the catalog file the console shows.")
             .ValidateOnStart();
         services.AddSingleton<IOntologyCatalog>(provider => new FileOntologyCatalog(provider.GetRequiredService<IOptions<ConsoleCatalogOptions>>().Value.Ontology));
+        services.Configure<ConsoleLookupOptions>(console.GetSection("Lookup"));
+        services.AddHttpClient<IConsoleLookups, McpConsoleLookups>();
         services.AddOptions<ConsoleRoleOptions>()
             .Bind(console.GetSection("Roles"))
             .Validate(r => r.Builders.Count > 0, "Saem:Console:Roles:Builders names at least one group; a console no one may use is a mistake, not a lock.")
@@ -100,6 +103,23 @@ public static class SaemConsole
 
         var api = app.MapGroup("/api").RequireAuthorization(ConsoleRoles.AnyRole);
         CatalogApi.Map(api);
+
+        // A local graph is a lookup asked as the person looking: the answer, partition reports and refusals included, as
+        // the MCP server gives it to that person — the console adds nothing and reads no source (saem D-89 ①).
+        api.MapPost("/graph/local", async (HttpContext http, IConsoleLookups lookups, JsonElement call, CancellationToken ct) =>
+        {
+            var presented = http.Request.Headers.Authorization.ToString() is { } header && header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? header["Bearer ".Length..].Trim()
+                : "";
+            try
+            {
+                return Results.Json(await lookups.LookupAsync(presented, call, ct));
+            }
+            catch (LookupUnavailableException e)
+            {
+                return TypedResults.Problem(title: "The lookup could not be asked.", detail: e.Message, statusCode: StatusCodes.Status502BadGateway);
+            }
+        }).RequireAuthorization(ConsoleRoles.Builder);
         api.MapGet("/me", (ClaimsPrincipal user) => TypedResults.Ok(new Caller(
             user.FindFirstValue("sub") ?? "",
             [.. user.FindAll(ClaimTypes.Role).Select(c => c.Value).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)])));
