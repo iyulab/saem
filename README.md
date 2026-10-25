@@ -564,6 +564,23 @@ EYU_LLM_ENDPOINT=… EYU_LLM_API_KEY=… EYU_LLM_MODEL=… \
 docker compose -f tests/rig/compose.yaml -f tests/rig/compose.morphdb.yaml down -v
 ```
 
+### Administration console
+
+`Saem.Console` is the process the people who keep the ontology work in — a management API now, the
+web UI that calls it next. It accepts a bearer token from the issuer saem trusts, for the console's own
+audience (a token meant for the MCP server is refused), and gives the caller the roles the token's
+groups hold: `Saem:Console:Roles` maps groups to `builder` and `auditor`; a role claim the token carries
+itself counts for nothing. `GET /api/me` says who the caller is; `GET /api/catalog` is the catalog in
+force in its own file shape, and `GET /api/catalog/graph` its declaration graph — entity types and
+groupings as nodes (with the system each stands on, and how many edges touch it), relations, identities
+and memberships as edges. `POST /api/graph/local` takes the lookup tool's arguments and asks the MCP
+server as the person looking: the console's token is exchanged at the issuer for one meant for the server
+(`Saem:Console:Lookup`), and the answer comes back as the server gives it to that person.
+
+The console holds no credential to any source and no key to any group's store: what a person may read it
+asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` (the catalog file),
+`Saem:Console:Identity` (issuer and audience), `Saem:Console:Roles`, `Saem:Console:Lookup`.
+
 ## Roadmap
 
 Order, not dates.
