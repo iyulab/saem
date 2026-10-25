@@ -87,6 +87,53 @@ if (args is ["judge", .. var judgeArgs])
     }
 }
 
+if (args is ["fit", .. var fitArgs])
+{
+    if (fitArgs is [] or ["--help"] or ["-h"])
+    {
+        Console.WriteLine(FitRun.Usage);
+        return fitArgs is [] ? 2 : 0;
+    }
+
+    try
+    {
+        var (identity, fitOptions) = FitRun.Parse(fitArgs, Environment.GetEnvironmentVariable);
+        var declared = await new FileOntologyCatalog(fitOptions.CatalogPath).GetAsync(cancellation.Token);
+        using var fitSources = GroupSources.Load(await File.ReadAllTextAsync(fitOptions.SourcesPath, cancellation.Token), Environment.GetEnvironmentVariable);
+        using var fitStore = new HttpClient { BaseAddress = fitOptions.Store };
+        if (fitOptions.StoreToken is { } fitToken)
+        {
+            fitStore.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fitToken);
+        }
+
+        return await FitRun.RunAsync(
+            declared, identity, fitSources.Openers, fitOptions.Group, new EntityIris(fitOptions.BaseIri),
+            new FormbaseIdentityStore(fitStore, fitOptions.StoreNamespace), DateTimeOffset.UtcNow, Console.Out, cancellation.Token) ? 0 : 1;
+    }
+    catch (MaterializeUsageException e)
+    {
+        Console.Error.WriteLine(e.Message);
+        Console.Error.WriteLine("Run saem-materialize fit --help for the arguments.");
+        return 2;
+    }
+    catch (ArgumentException e)
+    {
+        Console.Error.WriteLine(e.Message);
+        return 2;
+    }
+    catch (Exception e) when (e is IdentityStoreException or OntologyDeclarationException or NoSourceLoginException or MorphDbSourceException or InsecureSourceRoleException
+                              or System.Data.Common.DbException or HttpRequestException or IOException or InvalidOperationException)
+    {
+        Console.Error.WriteLine(e.Message);
+        return 1;
+    }
+    catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+    {
+        Console.Error.WriteLine("Cancelled.");
+        return 130;
+    }
+}
+
 try
 {
     // verify takes the pass's own arguments, and compares instead of writing.

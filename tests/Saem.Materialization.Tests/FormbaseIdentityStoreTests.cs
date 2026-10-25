@@ -118,6 +118,29 @@ public sealed class FormbaseIdentityStoreTests
     }
 
     [Fact]
+    public async Task A_fit_is_kept_as_rates_only_and_read_back_as_it_was_and_only_for_an_identity_by_a_rule()
+    {
+        var formbase = new FakeFormbase();
+        var linked = Ontology.Ontology.Create(
+            [IdentityLinkerTests.Supplier, IdentityLinkerTests.Vendor, IdentityLinkerTests.Names, IdentityLinkerTests.Same(IdentityDecision.Automatic)]);
+        var parameters = new Eyu.Core.Linkage.FieldLinkageParameters(
+            new Dictionary<string, IReadOnlyList<double>> { ["name=name"] = [0.1, 0.9] },
+            new Dictionary<string, IReadOnlyList<double>> { ["name=name"] = [0.95, 0.05] },
+            0.07,
+            Eyu.Core.Linkage.EstimationStatus.Converged);
+        var fit = new LinkageFit("same_supplier", "r1", parameters, 24, First);
+
+        await Store(formbase, First).KeepFitAsync(linked, fit, TestContext.Current.CancellationToken);
+        var kept = (await Store(formbase, Second).FitsAsync(TestContext.Current.CancellationToken))["same_supplier"];
+
+        Assert.Equal(("r1", 24, First, 0.07, Eyu.Core.Linkage.EstimationStatus.Converged), (kept.Rule, kept.Records, kept.FittedAt, kept.Parameters.MatchPrior, kept.Parameters.Status));
+        Assert.Equal([0.1, 0.9], kept.Parameters.MLevelProbabilities["name=name"]);
+        await Assert.ThrowsAsync<IdentityStoreException>(() => Store(formbase, First).KeepFitAsync(
+            linked, fit with { Parameters = parameters with { ValueFrequencies = new Dictionary<string, IReadOnlyDictionary<string, double>>() } }, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<IdentityStoreException>(() => Store(formbase, First).KeepFitAsync(Plant(), fit with { Identity = "same_item" }, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task A_person_settled_identity_files_its_pairs_as_grounds_and_issues_no_id()
     {
         var formbase = new FakeFormbase();

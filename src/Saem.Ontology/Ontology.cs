@@ -265,6 +265,12 @@ public sealed class Ontology
                     problems.Add($"Identity '{identity.Name}' scores by '{identity.Linkage}', which compares '{compared.Second}', not a field of '{second.Name}'.");
                 }
 
+                // Within one type a pair is two rows of it, compared field by field: a field can only be compared with itself.
+                if (ReferenceEquals(first, second) && compared.First != compared.Second)
+                {
+                    problems.Add($"Identity '{identity.Name}' is within '{first.Name}' and scores by '{identity.Linkage}', which compares '{compared.First}' with '{compared.Second}'; two rows of one type are compared field by field.");
+                }
+
                 // Equality is the field match's test, so it is refused where the field match's would be.
                 if (compared.Method == LinkageMethod.Exact && Unmatchable([(first, compared.First), (second, compared.Second)]) is { } why)
                 {

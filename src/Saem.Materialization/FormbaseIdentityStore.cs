@@ -1,15 +1,20 @@
 using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Saem.Materialization;
 
 /// <summary>
 /// Keeps what a group's identities found in that group's own Formbase, beside its edges (saem D-81 ① ③), under
-/// three form types of text fields — none a record's body could be written into:
+/// four form types of text fields — none a record's body could be written into:
 /// <list type="bullet">
 /// <item><see cref="CanonicalFormType"/> — one record per canonical id: the identity, the id and when it was issued.</item>
 /// <item><see cref="MemberFormType"/> — the cross-references: one record per entity in a thing, naming its canonical id.</item>
 /// <item><see cref="GroundFormType"/> — the grounds each was judged on: the rule, its score, the pair of entities, who
 /// judged and in which pass. A ground names entities by their IRIs and holds no value any record holds.</item>
+/// <item><see cref="FitFormType"/> — for an identity by a linkage rule, the fit its passes score with (saem D-87 ⓑ):
+/// how often each compared field agrees on pairs that are one thing and on pairs that are two — rates over the group's
+/// records, never a value one holds.</item>
 /// </list>
 /// <para>
 /// A pass carries the canonical ids on (<see cref="IdentitySuccession"/>), then makes each form type hold exactly what
@@ -38,6 +43,9 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
     /// <summary>The form type the grounds are filed under.</summary>
     public const string GroundFormType = "identity_grounds";
 
+    /// <summary>The form type the linkage fits are filed under.</summary>
+    public const string FitFormType = "identity_fits";
+
     /// <summary>The rule a field match is judged by: equal values, scored 1.</summary>
     public const string MatchRule = "match";
 
@@ -52,6 +60,10 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
     private static readonly string[] MemberFields = ["identity", "entity_iri", "canonical_id"];
 
     private static readonly string[] GroundFields = ["identity", "first_iri", "second_iri", "rule", "score", "judged_by", "generation"];
+
+    private static readonly string[] FitFields = ["identity", "rule", "parameters", "records", "fitted_at"];
+
+    private static readonly JsonSerializerOptions ParameterJson = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
 
@@ -136,6 +148,20 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
                     members[$"{identity.Name} {member}"] = [identity.Name, member, thing.Id];
                 }
             }
+        }
+
+        // A fit is kept only while its identity is one by a linkage rule: one dropped or turned to a field match leaves none.
+        await _forms.DeclareAsync(FitFormType, "saem_identity_fits", FitFields, cancellationToken).ConfigureAwait(false);
+        var heldFits = await _forms.HeldAsync(FitFormType, "", FitFields, cancellationToken).ConfigureAwait(false);
+        var staleFits = heldFits.Keys.Where(k => !ontology.Identities.TryGetValue(k, out var i) || i.Linkage is null).Order(StringComparer.Ordinal).ToList();
+        foreach (var stale in staleFits)
+        {
+            await _forms.RetireAsync(FitFormType, stale, "Retiring a linkage fit", cancellationToken).ConfigureAwait(false);
+        }
+
+        if (staleFits.Count > 0)
+        {
+            await _forms.ProjectAsync(FitFormType, "Projecting the linkage fits", cancellationToken).ConfigureAwait(false);
         }
 
         return new IdentityWrite(
@@ -287,6 +313,70 @@ public sealed class FormbaseIdentityStore(HttpClient http, string? formbaseNames
 
     /// <summary>A score as the grounds hold it: the shortest text that reads back as the same number.</summary>
     private static string Score(double score) => score.ToString("R", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Keeps <paramref name="fit"/> as the one its identity's passes score with, in place of any kept before. The next pass
+    /// scores with it.
+    /// </summary>
+    /// <exception cref="IdentityStoreException">The identity is not one by a linkage rule, or the fit carries record values.</exception>
+    public async Task KeepFitAsync(Ontology.Ontology ontology, LinkageFit fit, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(ontology);
+        ArgumentNullException.ThrowIfNull(fit);
+        if (!ontology.Identities.TryGetValue(fit.Identity, out var identity) || identity.Linkage is null)
+        {
+            throw new IdentityStoreException($"'{fit.Identity}' is not a declared identity by a linkage rule.");
+        }
+
+        // Value frequencies are shares of the values records hold: rates, but keyed by the values themselves.
+        if (fit.Parameters.ValueFrequencies is not null)
+        {
+            throw new IdentityStoreException($"The fit of '{fit.Identity}' carries value frequencies, which name record values; a fit kept here holds rates only.");
+        }
+
+        await _forms.DeclareAsync(FitFormType, "saem_identity_fits", FitFields, cancellationToken).ConfigureAwait(false);
+        await _forms.FileAsync(
+            FitFormType,
+            fit.Identity,
+            FitFields,
+            [fit.Identity, fit.Rule, JsonSerializer.Serialize(fit.Parameters, ParameterJson), fit.Records.ToString(CultureInfo.InvariantCulture), fit.FittedAt.ToString("O", CultureInfo.InvariantCulture)],
+            "Filing a linkage fit",
+            cancellationToken).ConfigureAwait(false);
+        await _forms.ProjectAsync(FitFormType, "Projecting the linkage fits", cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The fits kept for the identities by a linkage rule, by identity; none when nothing was ever fitted.</summary>
+    public async Task<IReadOnlyDictionary<string, LinkageFit>> FitsAsync(CancellationToken cancellationToken = default)
+    {
+        await _forms.DeclareAsync(FitFormType, "saem_identity_fits", FitFields, cancellationToken).ConfigureAwait(false);
+        var held = await _forms.HeldAsync(FitFormType, "", FitFields, cancellationToken).ConfigureAwait(false);
+        return held.Values.ToDictionary(
+            f => f[0],
+            f => new LinkageFit(
+                f[0],
+                f[1],
+                Parameters(f[0], f[2]),
+                int.TryParse(f[3], NumberStyles.None, CultureInfo.InvariantCulture, out var records)
+                    ? records
+                    : throw new IdentityStoreException($"The fit of '{f[0]}' names its records as '{f[3]}', which is not a count."),
+                DateTimeOffset.TryParseExact(f[4], "O", CultureInfo.InvariantCulture, DateTimeStyles.None, out var at)
+                    ? at
+                    : throw new IdentityStoreException($"The fit of '{f[0]}' names its time as '{f[4]}', which is not a round-trip time.")),
+            StringComparer.Ordinal);
+    }
+
+    private static Eyu.Core.Linkage.FieldLinkageParameters Parameters(string identity, string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<Eyu.Core.Linkage.FieldLinkageParameters>(json, ParameterJson)
+                ?? throw new IdentityStoreException($"The fit of '{identity}' holds no parameters.");
+        }
+        catch (Exception e) when (e is JsonException or ArgumentException)
+        {
+            throw new IdentityStoreException($"The fit of '{identity}' holds parameters that cannot be read: {e.Message}", e);
+        }
+    }
 
     private static string Filter(string identity, string field, string value) =>
         $"&filter={Uri.EscapeDataString("identity:" + identity)}&filter={Uri.EscapeDataString(field + ":" + value)}";

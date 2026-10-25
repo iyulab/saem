@@ -174,7 +174,7 @@ public sealed class IdentityLinker(Ontology.Ontology ontology, EntityIris iris)
     /// <summary>
     /// The entities of both types as Eyu records: each named by its IRI, its fields the rule's comparisons — the first
     /// type's value of a pair's first field and the second type's of its second, under one name per pair, so the two
-    /// are compared. Within one type, a pair's first field is read.
+    /// are compared. Within one type, a pair compares a field with itself (the ontology refuses otherwise).
     /// </summary>
     private async Task<(List<RawRecord> All, Func<RawRecord, RawRecord, bool> CannotLink)> ReadAsync(
         ISourceSessions sessions, IdentityDeclaration identity, LinkageDeclaration rule, CancellationToken cancellationToken)

@@ -51,9 +51,12 @@ internal sealed record MaterializeOptions(
         Only the relations' leaving types are read, and only their relation fields and record columns. The store
         is made to hold exactly this pass's edges: unchanged ones are not sent, changed ones are corrected, and
         ones no longer found are retired. Then each identity declaring a field match reads its two types' matched
-        fields, and the store is made to hold what it finds: canonical ids carried on from the last pass (a merge keeps
-        the older, the part split off gets a new one), each entity's cross-reference and the grounds of each pair. An
-        identity a person settles (decision "confirmed") files its pairs as grounds only.
+        fields, and each identity by a linkage rule reads its compared fields and scores every pair with the fit the
+        store keeps (saem-materialize fit --help) — one with no fit, or a fit of a rule since changed, is left out and
+        the pass says so. The store is made to hold what they find: canonical ids carried on from the last pass (a merge
+        keeps the older, the part split off gets a new one), each entity's cross-reference and the grounds of each pair
+        — the rule and its score. An identity a person settles (decision "confirmed") files its pairs as grounds only:
+        for a linkage rule, every pair scored one thing or undecided, each a candidate for that person.
 
         Every pass files, per relation whose type declares changedAt, the latest change it read from. A --changed pass
         reads on from there: each changed row corrects or retires its own edge, and the rest stand. It cannot see a
@@ -64,6 +67,7 @@ internal sealed record MaterializeOptions(
         arguments> — exit status 1 when it disagrees (edges or identified things missing, different or no longer
         given, or documents a projection skipped); the pass rebuilds it.
         To check the declarations against the sources first, as one account: saem-materialize check --help.
+        To fit an identity's linkage rule to the group's records: saem-materialize fit --help.
         To file a person's judgment of a pair an identity is about: saem-materialize judge --help.
         """;
 

@@ -130,6 +130,61 @@ public sealed class MaterializeCliTests
     }
 
     [Fact]
+    public async Task A_linkage_identity_is_left_out_until_fitted_then_scored_with_the_kept_fit_and_verified()
+    {
+        var formbase = new FakeFormbase();
+        var sources = IdentityLinkerTests.Sources();
+        var openers = new Dictionary<string, SourceOpener>
+        {
+            ["mes"] = cancellationToken => sources.OpenAsync("mes", cancellationToken),
+            ["erp"] = cancellationToken => sources.OpenAsync("erp", cancellationToken),
+        };
+        var linked = Ontology.Ontology.Create(
+        [
+            IdentityLinkerTests.Supplier, IdentityLinkerTests.Vendor, IdentityLinkerTests.Names, IdentityLinkerTests.Same(IdentityDecision.Automatic),
+        ]);
+        var iris = new EntityIris(new Uri("https://example.org/ontology/"));
+        var store = new FormbaseIdentityStore(formbase.Client);
+        var ct = TestContext.Current.CancellationToken;
+
+        var before = new StringWriter();
+        await MaterializeRun.RunAsync(linked, openers, "g-plant", iris, new FormbaseEdgeStore(formbase.Client), store, before, ct);
+        Assert.Contains("group g-plant: identity 'same_supplier' left out — no fit is kept for it — run the fit first.", before.ToString(), StringComparison.Ordinal);
+        Assert.Empty(await store.ReadAsync(ct));
+
+        var fitted = new StringWriter();
+        Assert.True(await FitRun.RunAsync(linked, "same_supplier", openers, "g-plant", iris, store, DateTimeOffset.UnixEpoch, fitted, ct));
+        Assert.StartsWith("group g-plant: 'same_supplier' fitted on 24 entities — converged;", fitted.ToString(), StringComparison.Ordinal);
+        Assert.Equal(DateTimeOffset.UnixEpoch, (await store.FitsAsync(ct))["same_supplier"].FittedAt);
+
+        var after = new StringWriter();
+        await MaterializeRun.RunAsync(linked, openers, "g-plant", iris, new FormbaseEdgeStore(formbase.Client), store, after, ct);
+        Assert.DoesNotContain("left out", after.ToString(), StringComparison.Ordinal);
+        Assert.Equal(8, (await store.ReadAsync(ct)).Count);
+        Assert.All(formbase.Type("identity_grounds").Rows, r => Assert.Equal("supplier-names", (string?)r.Body!["rule"]));
+
+        var verified = new StringWriter();
+        Assert.True(await MaterializeRun.VerifyAsync(linked, openers, "g-plant", iris, new FormbaseEdgeStore(formbase.Client), store, verified, ct));
+
+        // The identity dropped from the catalog leaves no fit behind.
+        await MaterializeRun.RunAsync(
+            Ontology.Ontology.Create([IdentityLinkerTests.Supplier, IdentityLinkerTests.Vendor]), openers, "g-plant", iris, new FormbaseEdgeStore(formbase.Client), store, new StringWriter(), ct);
+        Assert.Empty(await store.FitsAsync(ct));
+    }
+
+    [Theory]
+    [InlineData(new[] { "--catalog", "c" }, "--identity <name> is required.")]
+    [InlineData(new[] { "--identity", "same", "--changed" }, "--base-iri is required.")]
+    public void A_fit_command_line_names_its_identity_and_reads_whole(string[] args, string message)
+    {
+        Assert.Equal(message, Assert.Throws<MaterializeUsageException>(() => FitRun.Parse(args, _ => null)).Message);
+        Assert.Equal(
+            "--changed reads part of a table; a fit reads both types whole.",
+            Assert.Throws<MaterializeUsageException>(() => FitRun.Parse([.. Complete, "--identity", "same", "--changed"], _ => null)).Message);
+        Assert.Equal("same", FitRun.Parse([.. Complete, "--identity", "same"], _ => null).Identity);
+    }
+
+    [Fact]
     public async Task A_judgment_from_the_command_line_is_filed_as_the_persons_ground()
     {
         var formbase = new FakeFormbase();

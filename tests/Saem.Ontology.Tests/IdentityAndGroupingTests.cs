@@ -138,6 +138,17 @@ public sealed class IdentityAndGroupingTests
     }
 
     [Fact]
+    public void Within_one_type_a_rule_compares_each_field_with_itself()
+    {
+        var within = new IdentityDeclaration("dup", "Item", "Item", IdentityDecision.Confirmed) { Linkage = "cross" };
+
+        Assert.Equal(
+            ["Identity 'dup' is within 'Item' and scores by 'cross', which compares 'name' with 'code'; two rows of one type are compared field by field."],
+            Refused(new LinkageDeclaration("cross", [new LinkageComparison("name", "code", LinkageMethod.JaroWinkler)]), within));
+        Create(new LinkageDeclaration("cross", [new LinkageComparison("name", "name", LinkageMethod.JaroWinkler)]), within);
+    }
+
+    [Fact]
     public void Free_text_is_never_required_equal_but_may_be_scored_as_alike()
     {
         var byRule = new IdentityDeclaration("i", "Material", "Item", IdentityDecision.Confirmed) { Linkage = "notes" };

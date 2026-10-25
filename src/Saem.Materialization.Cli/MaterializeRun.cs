@@ -43,8 +43,10 @@ internal static class MaterializeRun
         if (identities is not null)
         {
             // Run even with no identity declared: one declared before leaves its records behind otherwise.
-            var clusters = new IdentityMatcher(ontology, iris).MatchAsync(new PersonSessions(openers), cancellationToken);
+            var skipped = new List<LinkageSkip>();
+            var clusters = await FoundAsync(ontology, openers, iris, identities, skipped, cancellationToken).ConfigureAwait(false);
             var found = await identities.ReplaceAsync(ontology, clusters, cancellationToken).ConfigureAwait(false);
+            await TellSkippedAsync(group, skipped, output).ConfigureAwait(false);
             await output.WriteLineAsync(
                 $"group {group}: {found.Canonical.Written + found.Canonical.Unchanged} identified thing(s) — {found.Issued} new, {found.Merged} merged, " +
                 $"{found.Canonical.Retired - found.Merged} gone; {found.Members.Written} cross-reference(s) and {found.Grounds.Written} ground(s) written.").ConfigureAwait(false);
@@ -82,8 +84,10 @@ internal static class MaterializeRun
             return comparison.Agrees;
         }
 
-        var clusters = new IdentityMatcher(ontology, iris).MatchAsync(new PersonSessions(openers), cancellationToken);
+        var skipped = new List<LinkageSkip>();
+        var clusters = await FoundAsync(ontology, openers, iris, identities, skipped, cancellationToken).ConfigureAwait(false);
         var found = await identities.CompareAsync(ontology, clusters, cancellationToken).ConfigureAwait(false);
+        await TellSkippedAsync(group, skipped, output).ConfigureAwait(false);
         await output.WriteLineAsync(
             $"group {group}: {found.Matching} identified thing(s) as the sources give them, {found.Missing} missing, {found.Differing} different, " +
             $"{found.Extra} no longer found; {found.GroundsMissing} ground(s) missing, {found.GroundsExtra} no longer found, " +
@@ -92,12 +96,39 @@ internal static class MaterializeRun
         return comparison.Agrees && found.Agrees;
     }
 
+    /// <summary>
+    /// What every identity finds: the field-matched ones by equal values, then the ones by a linkage rule scored with the
+    /// fits the store keeps — one with no fit, or a fit of another rule, is left out and told to <paramref name="skipped"/>.
+    /// </summary>
+    private static async Task<IAsyncEnumerable<IdentityCluster>> FoundAsync(
+        Ontology.Ontology ontology,
+        IReadOnlyDictionary<string, SourceOpener> openers,
+        EntityIris iris,
+        FormbaseIdentityStore identities,
+        List<LinkageSkip> skipped,
+        CancellationToken cancellationToken)
+    {
+        var fits = ontology.Identities.Values.Any(i => i.Linkage is not null)
+            ? await identities.FitsAsync(cancellationToken).ConfigureAwait(false)
+            : new Dictionary<string, LinkageFit>();
+        return new IdentityMatcher(ontology, iris).MatchAsync(new PersonSessions(openers), cancellationToken)
+            .Concat(new IdentityLinker(ontology, iris).ScoreAsync(new PersonSessions(openers), fits, skipped.Add, cancellationToken));
+    }
+
+    private static async Task TellSkippedAsync(string group, List<LinkageSkip> skipped, TextWriter output)
+    {
+        foreach (var skip in skipped)
+        {
+            await output.WriteLineAsync($"group {group}: identity '{skip.Identity}' left out — {skip.Reason}.").ConfigureAwait(false);
+        }
+    }
+
     private static void RequireSystems(Ontology.Ontology ontology, IReadOnlyDictionary<string, SourceOpener> openers, bool identities)
     {
         var read = ontology.Relations.Values.Select(r => r.From);
         if (identities)
         {
-            read = read.Concat(ontology.Identities.Values.Where(i => i.Match is not null).SelectMany(i => new[] { i.First, i.Second }));
+            read = read.Concat(ontology.Identities.Values.SelectMany(i => new[] { i.First, i.Second }));
         }
 
         var missing = read

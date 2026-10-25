@@ -18,17 +18,17 @@ public sealed class IdentityLinkerTests
 
     private static readonly DateTimeOffset Now = new(2026, 10, 25, 0, 0, 0, TimeSpan.Zero);
 
-    private static readonly EntityTypeDeclaration Supplier = new(
+    internal static readonly EntityTypeDeclaration Supplier = new(
         "Supplier", "mes", "suppliers", "sup_id", new Dictionary<string, string> { ["name"] = "sup_name", ["bizNo"] = "biz_no" });
 
-    private static readonly EntityTypeDeclaration Vendor = new(
+    internal static readonly EntityTypeDeclaration Vendor = new(
         "Vendor", "erp", "vendors", "vendor_id", new Dictionary<string, string> { ["name"] = "vendor_name", ["regNo"] = "reg_no" });
 
-    private static readonly LinkageDeclaration Names = new(
+    internal static readonly LinkageDeclaration Names = new(
         "supplier-names",
         [new LinkageComparison("name", "name", LinkageMethod.JaroWinkler, [0.92]), new LinkageComparison("bizNo", "regNo")]);
 
-    private static IdentityDeclaration Same(IdentityDecision decision) => new("same_supplier", "Supplier", "Vendor", decision) { Linkage = "supplier-names" };
+    internal static IdentityDeclaration Same(IdentityDecision decision) => new("same_supplier", "Supplier", "Vendor", decision) { Linkage = "supplier-names" };
 
     private static Ontology.Ontology With(IdentityDecision decision, LinkageDeclaration? rule = null) =>
         Ontology.Ontology.Create([Supplier, Vendor, rule ?? Names, Same(decision)]);
@@ -45,7 +45,7 @@ public sealed class IdentityLinkerTests
 
     // Ten suppliers each kept once more as a vendor — the same registration number, the name now and then misspelt —
     // and two of each side the other never had. One vendor shares a supplier's name but not its number.
-    private static Sessions Sources() => new(new()
+    internal static Sessions Sources() => new(new()
     {
         ["mes/suppliers"] =
         [
