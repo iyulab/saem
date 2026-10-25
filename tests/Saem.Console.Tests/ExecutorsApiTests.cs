@@ -131,6 +131,31 @@ public sealed class ExecutorsApiTests
         Assert.DoesNotContain("I-100", job.GetRawText());
     }
 
+    [Theory]
+    [InlineData("candidates")]
+    [InlineData("status")]
+    public async Task A_read_of_the_store_is_asked_with_no_arguments_and_its_report_comes_back_as_json(string kind)
+    {
+        var executors = new FakeExecutors
+        {
+            Reply = new ExecutorReply(200, JsonNode.Parse(
+                """
+                {"id":"0123456789abcdef0123456789abcdef","kind":"KIND","state":"succeeded","output":"group plant: 1\n",
+                 "report":"{\"candidates\":[{\"identity\":\"same_order\",\"first\":\"wo/1\",\"second\":\"wo/2\",\"score\":9.5}],\"status\":{\"asOf\":null,\"relations\":[],\"identities\":[]}}"}
+                """.Replace("KIND", kind, StringComparison.Ordinal))),
+        };
+        var (server, builder, requests) = await StartAsync(executors);
+        await using var scope = server;
+
+        await builder.PostAsJsonAsync("api/executors/plant/jobs", new { kind, arguments = new { identity = "ignored" } }, TestContext.Current.CancellationToken);
+        var job = await builder.GetFromJsonAsync<JsonElement>("api/executors/plant/jobs/0123456789abcdef0123456789abcdef", TestContext.Current.CancellationToken);
+
+        Assert.Equal("{\"kind\":\"" + kind + "\",\"requestedBy\":\"alice\",\"arguments\":{}}", requests.Requests[0].Body!.ToJsonString());
+        Assert.Equal(JsonValueKind.Object, job.GetProperty("report").ValueKind);
+        Assert.Equal("group plant: 1\n", job.GetProperty("output").GetString());
+        Assert.False(job.TryGetProperty("outputWithheld", out _));
+    }
+
     [Fact]
     public async Task What_a_pass_printed_comes_back_as_it_is_and_a_busy_executor_names_the_job_in_the_way()
     {
