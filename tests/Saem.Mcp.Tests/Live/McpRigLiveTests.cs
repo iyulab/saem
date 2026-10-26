@@ -122,7 +122,7 @@ public sealed class McpRigLiveTests : IAsyncLifetime
 
         // erp's own audit log records alice's login with the session named after her lookup.
         var lookupId = InteractionId("alice", "WorkOrder");
-        var audit = await ContainerTextAsync(Environment.GetEnvironmentVariable("SAEM_RIG_ERP_CONTAINER") ?? "saem-rig-erp-1", ["cat", "/var/lib/mysql/audit_filter.log"], ct);
+        var audit = await ContainerTextAsync(RigContainer("erp", "SAEM_RIG_ERP_CONTAINER"), ["cat", "/var/lib/mysql/audit_filter.log"], ct);
         var record = Assert.Single(audit.Split("<AUDIT_RECORD>"), r => r.Contains($"<VALUE>saem/{lookupId}</VALUE>", StringComparison.Ordinal) && r.Contains("<NAME>Connect</NAME>", StringComparison.Ordinal));
         Assert.Contains("<USER>alice_pw</USER>", record, StringComparison.Ordinal);
     }
@@ -163,9 +163,16 @@ public sealed class McpRigLiveTests : IAsyncLifetime
             && l.Contains($"\"subject\":\"{person}\"", StringComparison.Ordinal)
             && l.Contains($"\"startType\":\"{startType}\"", StringComparison.Ordinal)).Split(' ')[1];
 
+    // A rig's containers are named after its compose project (`<project>-<service>-1`), and its network after it too
+    // (`<project>_default`): a rig started under another project name (to run beside one that is up) is reached through
+    // the network name the other live tests already take, and an environment variable names the container outright.
+    private static string RigContainer(string service, string variable) =>
+        Environment.GetEnvironmentVariable(variable)
+        ?? $"{(Environment.GetEnvironmentVariable("SAEM_RIG_NETWORK") ?? "saem-rig_default").Replace("_default", string.Empty, StringComparison.Ordinal)}-{service}-1";
+
     // The rig's mes container log, where PostgreSQL writes its connection log.
     private static async Task<string[]> MesLogAsync(CancellationToken ct) =>
-        (await DockerAsync(["logs", Environment.GetEnvironmentVariable("SAEM_RIG_MES_CONTAINER") ?? "saem-rig-mes-1"], ct)).Split('\n');
+        (await DockerAsync(["logs", RigContainer("mes", "SAEM_RIG_MES_CONTAINER")], ct)).Split('\n');
 
     private static Task<string> ContainerTextAsync(string container, string[] command, CancellationToken ct) =>
         DockerAsync(["exec", container, .. command], ct);
