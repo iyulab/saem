@@ -117,11 +117,10 @@ jobs:
       - name: Internal token scan
         uses: iyulab/dotnet-ci-actions/internal-token-scan@7e501c0d46f7c06e73a8945f4b0f83fcb347eb53 # main, 2026-09-06
         with:
-          # The floor exists to catch a scan that silently covers nothing. This repository is small
-          # (about twenty text files when this was set), so the default floor of twenty rejected a
-          # scan that did cover it; the floor sits under the real count, not over it. Raise it as the
-          # repository grows.
-          min-files: '10'
+          # The floor exists to catch a scan that silently covers nothing, so it sits well under the
+          # real count: the scan reads about 210 files, and a floor of 100 still fails when half of
+          # them go unread. Raise it as the repository grows.
+          min-files: '100'
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
