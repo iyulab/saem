@@ -66,3 +66,4 @@ button.button { border: 0; font: inherit; cursor: pointer; }
 tr.worse th, tr.worse td { color: #c2411b; }
 @media (prefers-color-scheme: dark) { tr.worse th, tr.worse td { color: #ff9a76; } }
 .output { max-height: 360px; overflow: auto; margin: 8px 0; padding: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-size: 0.85em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.block { display: block; margin: 12px 0; }

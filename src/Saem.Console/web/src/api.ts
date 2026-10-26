@@ -23,6 +23,14 @@ export type GraphEdge = {
 
 export type DeclarationGraph = { version: string; nodes: GraphNode[]; edges: GraphEdge[] };
 
+/** A change from the catalog in force to a draft: the breaking ones can refuse a call that worked before. */
+export type DraftChange = { kind: "breaking" | "additive"; declaration: string; change: string };
+
+/** The draft read against the catalog in force: both versions are what a confirmation names. */
+export type CatalogDraft = { inForce: string; draft: string; changes: DraftChange[]; breaking: number };
+
+export type Confirmed = { from: string; to: string; breaking: number };
+
 export type CheckSummary = { checkedAt: string | null; catalogVersion: string | null; current: boolean; holds: boolean; violations: number };
 
 export type Overview = { catalogVersion: string; declarations: Record<string, number>; check: CheckSummary | null };
@@ -104,7 +112,7 @@ export type Job = {
 export type Answer<T> =
   | { ok: true; value: T }
   | { ok: false; status: 401 | 403 }
-  | { ok: false; status: number; problem: string };
+  | { ok: false; status: number; problem: string; code?: string };
 
 async function ask<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
   const response = await fetch(path, { credentials: "same-origin", ...init });
@@ -115,11 +123,11 @@ async function ask<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
     return { ok: false, status: response.status };
   }
   // A problem the console names (RFC 9457) says why; anything else says only its status.
-  const problem = await response
+  const named = await response
     .json()
-    .then((p: { title?: string; detail?: string; error?: string }) => [p.title, p.detail, p.error].filter(Boolean).join(" "))
-    .catch(() => "");
-  return { ok: false, status: response.status, problem: problem || `The console answered ${response.status}.` };
+    .then((p: { title?: string; detail?: string; error?: string; code?: string }) => ({ text: [p.title, p.detail, p.error].filter(Boolean).join(" "), code: p.code }))
+    .catch(() => ({ text: "", code: undefined }));
+  return { ok: false, status: response.status, problem: named.text || `The console answered ${response.status}.`, ...(named.code ? { code: named.code } : {}) };
 }
 
 const change = (body?: unknown): RequestInit => ({
@@ -134,6 +142,9 @@ export const api = {
   check: () => ask<CheckReport>("/api/check"),
   catalog: () => ask<Catalog>("/api/catalog"),
   graph: () => ask<DeclarationGraph>("/api/catalog/graph"),
+  draft: () => ask<CatalogDraft>("/api/catalog/draft"),
+  confirm: (seen: Pick<CatalogDraft, "inForce" | "draft">, acknowledgeBreaking: boolean) =>
+    ask<Confirmed>("/api/catalog/confirm", change({ base: seen.inForce, draft: seen.draft, acknowledgeBreaking })),
   logout: () => ask<void>("/logout", change()),
   executors: () => ask<Array<{ group: string }>>("/api/executors"),
   jobs: (group: string) => ask<Job[]>(`/api/executors/${encodeURIComponent(group)}/jobs`),
