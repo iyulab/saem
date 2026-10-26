@@ -35,7 +35,7 @@ internal sealed class ConsoleServer : IAsyncDisposable
     /// The console with the identity and roles settings only — no source and no store is configured, so whatever it
     /// serves it serves without either (saem D-89).
     /// </summary>
-    public static async Task<ConsoleServer> StartAsync(string? builders = "ontology-builders", string? liveIssuer = null, string ontologyJson = "[]", Action<IServiceCollection>? configure = null)
+    public static async Task<ConsoleServer> StartAsync(string? builders = "ontology-builders", string? liveIssuer = null, string ontologyJson = "[]", Action<IServiceCollection>? configure = null, IReadOnlyDictionary<string, string?>? settings = null)
     {
         var ontologyFile = Path.GetTempFileName();
         await File.WriteAllTextAsync(ontologyFile, ontologyJson);
@@ -53,6 +53,11 @@ internal sealed class ConsoleServer : IAsyncDisposable
             ["Saem:Console:Roles:Auditors:0"] = "privacy-office",
             ["Saem:Console:Ontology"] = ontologyFile,
         });
+        if (settings is not null)
+        {
+            builder.Configuration.AddInMemoryCollection(settings);
+        }
+
         if (builders is not null)
         {
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Saem:Console:Roles:Builders:0"] = builders });

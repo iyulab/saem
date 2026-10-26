@@ -104,6 +104,9 @@ public static class SaemConsole
         services.AddOptions<ConsoleCatalogOptions>()
             .Bind(console)
             .Validate(c => !string.IsNullOrEmpty(c.Ontology), "Saem:Console:Ontology names the catalog file the console shows.")
+            .Validate(
+                c => (c.Draft.Length > 0) == (c.Confirmations.Length > 0) && !string.Equals(c.Draft, c.Ontology, StringComparison.Ordinal),
+                "Saem:Console:Draft (a file other than the catalog) and Saem:Console:Confirmations are set together or not at all.")
             .ValidateOnStart();
         services.AddSingleton<IOntologyCatalog>(provider => new FileOntologyCatalog(provider.GetRequiredService<IOptions<ConsoleCatalogOptions>>().Value.Ontology));
         services.Configure<ConsoleLookupOptions>(console.GetSection("Lookup"));
@@ -278,6 +281,7 @@ public static class SaemConsole
 
         var api = app.MapGroup("/api").RequireAuthorization(ConsoleRoles.AnyRole);
         CatalogApi.Map(api);
+        CatalogConfirmApi.Map(api);
         OverviewApi.Map(api);
         ExecutorsApi.Map(api);
 

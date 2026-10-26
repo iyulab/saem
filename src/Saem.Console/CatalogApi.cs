@@ -8,6 +8,15 @@ public sealed class ConsoleCatalogOptions
 {
     /// <summary>The catalog file.</summary>
     public string Ontology { get; set; } = "";
+
+    /// <summary>
+    /// The draft a builder confirms into the catalog (empty: the console confirms nothing). The file a catalog is drafted
+    /// into (<c>saem-author --draft</c>) — reviewed, then confirmed here.
+    /// </summary>
+    public string Draft { get; set; } = "";
+
+    /// <summary>The file each confirmation is recorded in, one JSON line each (required with <see cref="Draft"/>).</summary>
+    public string Confirmations { get; set; } = "";
 }
 
 /// <summary>

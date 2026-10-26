@@ -634,7 +634,21 @@ asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` 
 `Saem:Console:Identity` (issuer, audience, the console's client id and secret, sign-in scopes),
 `Saem:Console:Roles`, `Saem:Console:Lookup` (the MCP server, its audience, `PresentActor`),
 `Saem:Console:CheckReport` (the last `saem-materialize check --report` file, optional),
-`Saem:Console:Executors:<group>` (the address and secret of the group's `saem-materialize serve`, optional).
+`Saem:Console:Executors:<group>` (the address and secret of the group's `saem-materialize serve`, optional),
+`Saem:Console:Draft` and `Saem:Console:Confirmations` (the draft a builder confirms and the file each confirmation is
+recorded in — set together, optional).
+
+A builder confirms a catalog draft in the console rather than by copying a file. `GET /api/catalog/draft` reads
+the draft (the file `saem-author --draft` wrote, after its review) against the catalog in force: both versions, and
+each change between them, the ones that can break what was built on the catalog first. `POST /api/catalog/confirm`
+with `{ "base": …, "draft": …, "acknowledgeBreaking": … }` — the versions the builder saw — replaces the catalog
+file with exactly that draft, whole or not at all, and appends a line to the confirmations file (when, who, from
+which version to which, how many changes break). It is refused with `409` and a `code` when the catalog in force is no
+longer the base (`stale-base`) — builders write one at a time, and the second to confirm reads the draft against
+the new catalog and tries again — when the draft changed since it was read (`stale-draft`), when it has nothing to
+add (`nothing-to-confirm`), or when it breaks something and the builder has not acknowledged it (`breaking`); a draft
+the ontology refuses is `422`. The console needs write access to the catalog file and the confirmations file; the lock
+covers the console's own confirmations, not an edit made to the file by other means in the same instant.
 
 `GET /api/overview` says what is waiting at a glance: the catalog in force, how many declarations of each
 kind it holds, and the last check — when it ran, whether every declaration held, and whether it checked
