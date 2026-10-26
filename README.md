@@ -54,7 +54,7 @@ enforced; give it up and saem is an expensive RAG.
 **What is still empty.** Sitting read-only on top of existing line-of-business systems,
 attaching grounding to every answer, and respecting source-system permissions — we have not
 found a product that does all three. **That is an empty seat, not a proven advantage**: of the
-three, the permission axis is still unsolved.
+three, the permission axis is the one still open at the original source systems.
 
 > *Re-checked 2026-08-24: newly released control-plane, agent-building, and MCP-integration
 > features from several graph database and ontology-platform vendors were reviewed against this
@@ -69,13 +69,24 @@ three, the permission axis is still unsolved.
 > evaluate access against their own store or a mirrored copy of the source's ACL (a configured
 > connection credential, an ACL mirrored at crawl time and evaluated at query time, the platform's
 > internal permissions). None runs the query back to the source system as the end user. The seat
-> is still empty. **Re-check by 2026-12-06.** A claim about who else is in the market is true on the
-> day it is made and quietly stops being true afterwards; the date says when this one has to be
-> looked at again rather than leaving "periodically" to whoever remembers. One thing the same review did establish: pass-through session credentials,
+> is still empty. One thing the same review did establish: pass-through session credentials,
 > constrained delegation and on-behalf-of flows are standard features of established data
 > virtualization products, so the delegation this project assumes is an adoption, not an
 > invention — with a documented cost, one connection pool per user, that the assumptions above
 > now carry.*
+>
+> *Re-checked 2026-10-26: one ontology platform's documentation now states that authoring and
+> querying respect the user's access to the bound data, including row-, object- and column-level
+> security enforced at the source, and that queries run against the live bound source rather than
+> a copy held in the ontology. Its bindable sources are items of the same platform; an outside
+> system takes part as a mirrored copy, so what is enforced is the platform's own rendering of the
+> source's permissions, not the source system's. Whether grounding is attached to every answer was
+> not established. The permission axis is therefore no longer unsolved in general — it is solved
+> inside one platform's boundary — and the seat, read-only queries back to the original system under
+> that system's own permissions, is still empty. **Re-check by 2027-01-26.** A claim about who else
+> is in the market is true on the day it is made and quietly stops being true afterwards; the date
+> says when this one has to be looked at again rather than leaving "periodically" to whoever
+> remembers.*
 
 ## Principles
 
