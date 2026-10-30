@@ -294,7 +294,9 @@ file that would replace the catalog.
 documents are read from a Formbase instance, the declarations in force from the catalog file, and
 the subjects from a sources file that says where each one's rows stand for a lookup. Out come three
 files, a review, a draft catalog and the pass's proposals; nothing else is written, and an existing file
-is replaced only with `--overwrite`.
+is replaced only with `--overwrite`. A subject is sampled from the most recent end of its stream by
+default, so a form revised since it was first filled in is read as it stands now; `--sample oldest`
+reads from the start instead.
 
 ```sh
 # sources.json: { "items": { "system": "forms", "table": "items", "keyField": "item_code", "record": ["fb_doc_id"] } }

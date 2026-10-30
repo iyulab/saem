@@ -62,7 +62,7 @@ var proposer = new SinglePassOntologyProposer(new RetryingModelClient(
         retries.Add(retry);
         Console.Error.WriteLine($"model call attempt {retry.Attempt} failed ({retry.Failure.GetType().Name}: {retry.Failure.Message}); trying again.");
     }));
-var connector = new FormbaseConnector(formbase, options.FormbaseNamespace);
+var connector = new FormbaseConnector(formbase, options.FormbaseNamespace, options.Sample);
 
 try
 {

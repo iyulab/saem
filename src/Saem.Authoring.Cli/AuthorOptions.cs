@@ -1,4 +1,5 @@
 using System.Globalization;
+using Saem.Connectors.Formbase;
 
 namespace Saem.Authoring.Cli;
 
@@ -20,6 +21,7 @@ internal sealed record AuthorOptions(
     TimeSpan ModelTimeout,
     int Retries,
     int RecordsPerSubject,
+    SampleDirection Sample,
     string ReviewPath,
     string DraftPath,
     string ProposalsPath,
@@ -49,6 +51,9 @@ internal sealed record AuthorOptions(
           --model-timeout-minutes <n>    How long to wait on the model before a call fails (default 10).
           --retries <n>                  How many more times a call that fails transiently is tried (default 1).
           --records <n>                  How many documents to sample from each subject (default 20).
+          --sample newest|oldest         Which end of a subject's stream the sample is taken from (default newest).
+                                         Newest reads the form as it stands now; oldest reads from the start of the
+                                         stream, where a form revised since may show none of its revised fields.
           --review <path>                Where the review document goes (default review.md).
           --draft <path>                 Where the draft catalog goes (default draft.json). Pass the catalog
                                          itself, with --overwrite, to review the draft as a diff of that file.
@@ -87,7 +92,7 @@ internal sealed record AuthorOptions(
                 flags.Add(arg);
             }
             else if (arg is "--formbase" or "--formbase-namespace" or "--sources" or "--catalog" or "--model-endpoint" or "--model"
-                     or "--model-timeout-minutes" or "--retries" or "--records" or "--review" or "--draft" or "--proposals")
+                     or "--model-timeout-minutes" or "--retries" or "--records" or "--sample" or "--review" or "--draft" or "--proposals")
             {
                 if (i + 1 >= args.Count || args[i + 1].StartsWith("--", StringComparison.Ordinal))
                 {
@@ -118,6 +123,12 @@ internal sealed record AuthorOptions(
             ModelTimeout: TimeSpan.FromMinutes(Count("--model-timeout-minutes", 10, minimum: 1)),
             Retries: Count("--retries", 1, minimum: 0),
             RecordsPerSubject: Count("--records", 20, minimum: 1),
+            Sample: values.GetValueOrDefault("--sample") switch
+            {
+                null or "newest" => SampleDirection.Newest,
+                "oldest" => SampleDirection.Oldest,
+                var other => throw new AuthorUsageException($"--sample takes newest or oldest, not '{other}'."),
+            },
             ReviewPath: values.GetValueOrDefault("--review", "review.md"),
             DraftPath: values.GetValueOrDefault("--draft", "draft.json"),
             ProposalsPath: values.GetValueOrDefault("--proposals", "proposals.json"),

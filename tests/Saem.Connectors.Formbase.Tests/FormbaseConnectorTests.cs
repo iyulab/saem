@@ -254,7 +254,7 @@ public class FormbaseConnectorTests
     {
         var formbase = new StubFormbase().Answer("GET", "/formtypes/workorders/documents?after=0&limit=1", HttpStatusCode.OK, Page(head: 1, 1));
 
-        await new FormbaseConnector(formbase.Client, "tenant-a").SampleAsync(WorkOrders, 1, TestContext.Current.CancellationToken);
+        await new FormbaseConnector(formbase.Client, "tenant-a", SampleDirection.Oldest).SampleAsync(WorkOrders, 1, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, formbase.Requests.Count);
         Assert.All(formbase.Requests, r => Assert.Equal(["tenant-a"], r.Headers.GetValues("Formbase-Namespace")));
@@ -272,7 +272,7 @@ public class FormbaseConnectorTests
         var formbase = new StubFormbase()
             .Answer("GET", "/formtypes/workorders/declaration", HttpStatusCode.NotFound, UnknownNamespace)
             .Answer("GET", "/formtypes/workorders/documents?after=0&limit=5", HttpStatusCode.NotFound, UnknownNamespace);
-        var connector = new FormbaseConnector(formbase.Client, "source");
+        var connector = new FormbaseConnector(formbase.Client, "source", SampleDirection.Oldest);
 
         var declaration = await Assert.ThrowsAsync<FormbaseConnectorException>(() => connector.GetStructureAsync(WorkOrders, TestContext.Current.CancellationToken));
         var sample = await Assert.ThrowsAsync<FormbaseConnectorException>(() => connector.SampleAsync(WorkOrders, 5, TestContext.Current.CancellationToken));
@@ -328,7 +328,9 @@ public class FormbaseConnectorTests
         Assert.Equal(["2", "3"], records.Select(r => r.Fields["n"]));
     }
 
-    private static FormbaseConnector Connector(StubFormbase formbase) => new(formbase.Client);
+    // These stand-in answers are the start of the stream, so they read it from there; the most recent
+    // records are read in FormbaseConnectorSampleDirectionTests.
+    private static FormbaseConnector Connector(StubFormbase formbase) => new(formbase.Client, sample: SampleDirection.Oldest);
 
     private static string Page(long head, params long[] watermarks) =>
         "{ \"documents\": [" + string.Join(",", watermarks.Select(w =>

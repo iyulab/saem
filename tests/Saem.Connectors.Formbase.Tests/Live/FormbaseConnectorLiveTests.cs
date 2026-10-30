@@ -59,6 +59,44 @@ public class FormbaseConnectorLiveTests
     }
 
     /// <summary>
+    /// A form revised after a long stretch of the original, read from both ends of its stream: the
+    /// earliest records show none of the revision, the most recent show all of it, and the most recent
+    /// are the same records on a stream another form type shares.
+    /// </summary>
+    [Fact]
+    public async Task A_revised_forms_most_recent_records_are_read_across_the_process_boundary()
+    {
+        using var http = Formbase();
+        var type = "revised-" + Guid.NewGuid().ToString("N")[..12];
+        var other = "other-" + Guid.NewGuid().ToString("N")[..12];
+        var ct = TestContext.Current.CancellationToken;
+        await AssertAnswersAsFormbaseAsync(http, ct);
+
+        for (var i = 1; i <= 140; i++)
+        {
+            (await http.PostAsJsonAsync($"formtypes/{type}/documents", new { wo = $"WO-{i}" }, ct)).EnsureSuccessStatusCode();
+            if (i % 3 == 0)
+            {
+                (await http.PostAsJsonAsync($"formtypes/{other}/documents", new { n = i }, ct)).EnsureSuccessStatusCode();
+            }
+        }
+
+        for (var i = 141; i <= 150; i++)
+        {
+            (await http.PostAsJsonAsync($"formtypes/{type}/documents", new { wo = $"WO-{i}", crane = "C-1" }, ct)).EnsureSuccessStatusCode();
+        }
+
+        var subject = SubjectRef.Create(type);
+        var earliest = await new FormbaseConnector(http, sample: SampleDirection.Oldest).SampleAsync(subject, 20, ct);
+        var latest = await new FormbaseConnector(http, sample: SampleDirection.Newest).SampleAsync(subject, 20, ct);
+
+        Assert.Equal(20, earliest.Count);
+        Assert.DoesNotContain(earliest, r => r.Fields.ContainsKey("crane"));
+        Assert.Equal(Enumerable.Range(131, 20).Select(i => $"WO-{i}"), latest.Select(r => r.Fields["wo"]));
+        Assert.Equal(10, latest.Count(r => r.Fields.ContainsKey("crane")));
+    }
+
+    /// <summary>
     /// Fails with the cause when <c>SAEM_FORMBASE_URL</c> reaches something that is not a Formbase host —
     /// a port another service already listens on, say. Without it the first write below fails with a bare
     /// status from whatever answered, in the test's own preparation rather than in the connector.

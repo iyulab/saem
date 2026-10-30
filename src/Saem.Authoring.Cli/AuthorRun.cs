@@ -49,7 +49,7 @@ internal static class AuthorRun
         var sources = await ReadSourcesAsync(options.SourcesPath, cancellationToken).ConfigureAwait(false);
         var existing = await ReadCatalogAsync(options.CatalogPath, cancellationToken).ConfigureAwait(false);
         await log.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
-            $"Sampling {sources.Count} subjects ({options.RecordsPerSubject} documents each) against {existing.Count} declarations in force; asking {options.Model}.")).ConfigureAwait(false);
+            $"Sampling {sources.Count} subjects ({options.RecordsPerSubject} documents each, {options.Sample.ToString().ToLowerInvariant()} first) against {existing.Count} declarations in force; asking {options.Model}.")).ConfigureAwait(false);
 
         var drafted = await new DeclarationAuthoring(proposer, records, structures)
             .DraftAsync(sources, existing, options.RecordsPerSubject, cancellationToken).ConfigureAwait(false);

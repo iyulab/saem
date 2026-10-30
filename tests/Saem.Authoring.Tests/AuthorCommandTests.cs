@@ -7,6 +7,7 @@ using Eyu.Core.Primitives;
 using Eyu.Core.Proposals;
 using Eyu.Core.Records;
 using Saem.Authoring.Cli;
+using Saem.Connectors.Formbase;
 using Saem.Ontology;
 using Xunit;
 
@@ -39,6 +40,7 @@ public sealed class AuthorCommandTests : IDisposable
         Assert.Equal(("review.md", "draft.json", "proposals.json"), (options.ReviewPath, options.DraftPath, options.ProposalsPath));
         Assert.False(options.Overwrite);
         Assert.False(options.ModelStream);
+        Assert.Equal(SampleDirection.Newest, options.Sample);
         Assert.Null(options.FormbaseNamespace);
         Assert.Null(options.ModelApiKey);
         Assert.Null(options.FormbaseToken);
@@ -81,12 +83,20 @@ public sealed class AuthorCommandTests : IDisposable
     [InlineData(new[] { "--records", "0" }, "--records takes a whole number of at least 1, not '0'.")]
     [InlineData(new[] { "--retries", "-1" }, "--retries takes a whole number of at least 0, not '-1'.")]
     [InlineData(new[] { "--records" }, "--records needs a value.")]
+    [InlineData(new[] { "--sample", "latest" }, "--sample takes newest or oldest, not 'latest'.")]
+    [InlineData(new[] { "--sample" }, "--sample needs a value.")]
     [InlineData(new[] { "--records", "--overwrite" }, "--records needs a value.")]
     [InlineData(new[] { "--api-key", "k" }, "Unknown argument '--api-key'.")]
     [InlineData(new[] { "--model", "n" }, "--model is given more than once.")]
     [InlineData(new[] { "--formbase", "forms.test" }, "--formbase is given more than once.")]
     public void A_malformed_command_line_is_refused(string[] extra, string message) =>
         Assert.Equal(message, Assert.Throws<AuthorUsageException>(() => AuthorOptions.Parse([.. Required, .. extra], _ => null)).Message);
+
+    [Theory]
+    [InlineData("newest", SampleDirection.Newest)]
+    [InlineData("oldest", SampleDirection.Oldest)]
+    public void The_end_of_the_stream_a_sample_is_taken_from_is_chosen(string value, SampleDirection expected) =>
+        Assert.Equal(expected, AuthorOptions.Parse([.. Required, "--sample", value], _ => null).Sample);
 
     [Fact]
     public void An_address_must_be_http()

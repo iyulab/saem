@@ -31,13 +31,26 @@ namespace Saem.Connectors.Formbase;
 /// <param name="formbaseNamespace">
 /// The Formbase namespace to address, sent as <c>Formbase-Namespace</c>; omitted, the instance's own.
 /// </param>
-public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace = null) : IStructureSource, IRecordSample
+/// <param name="sample">
+/// Which end of a form type's stream a sample is taken from. The most recent records by default: a
+/// sample is read to learn what a form type holds now, and after a revision its oldest records are the
+/// ones that no longer say.
+/// </param>
+public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace = null, SampleDirection sample = SampleDirection.Newest) : IStructureSource, IRecordSample
 {
     private const string NamespaceHeader = "Formbase-Namespace";
     private const string NoDeclaration = "/problems/no-declaration";
 
     /// <summary>The largest page the raw stream serves; a sample larger than this is read in several pages.</summary>
     private const int MaxPageSize = 1000;
+
+    /// <summary>
+    /// The first stretch of the stream read when sampling the most recent records, at least. Watermarks
+    /// number every form type's documents in one sequence, so a stretch holds this form type's documents
+    /// and no more than that many of them — often fewer, which is why a stretch that falls short is
+    /// followed by one twice as wide.
+    /// </summary>
+    private const int MinimumStretch = 128;
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -131,8 +144,9 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     }
 
     /// <summary>
-    /// The form type's records in the order Formbase accepted them, oldest first, up to
-    /// <paramref name="maxCount"/>. Each record's top-level members become its fields — a string as its
+    /// Up to <paramref name="maxCount"/> of the form type's standing records, the most recent by default
+    /// or the earliest when the connector was built for it, in the order Formbase accepted them (the oldest
+    /// of those chosen first). Each record's top-level members become its fields — a string as its
     /// text, a nested object or array as its JSON, except the array a declared repeated section is held
     /// in, whose items are that section's records — and its id is the Formbase document id, so a claim
     /// Eyu grounds in it points back at a document the instance can show. Each record carries the form
@@ -143,8 +157,10 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     /// earlier documents, and a retirement removes the record — the same fold Formbase's own projection
     /// applies — so a corrected record is sampled once, as corrected, and a retired one not at all. A
     /// document without a key is a record of its own; an instance that predates record keys sends none,
-    /// and every document is sampled as before. Reading stops once <paramref name="maxCount"/> records
-    /// stand, so a record corrected or retired further along the stream is sampled as it stood there.
+    /// and every document is sampled as before. Reading from the start stops once
+    /// <paramref name="maxCount"/> records stand, so a record corrected or retired further along the
+    /// stream is sampled as it stood there; reading from the end meets the latest document of each record
+    /// first, so a record is always sampled as it stands now and a retired one is not sampled at all.
     /// </para>
     /// <para>
     /// A repeated section has no documents of its own: its declaration names the parent
@@ -154,7 +170,8 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     /// identity when the parent has no such field). A row's id is the document's, a slash and the item's
     /// position, the name the projection gives the row. In a section of values an item that is a value
     /// is the section's one field beside the key. Up to <paramref name="maxCount"/> parent documents are
-    /// read, and up to <paramref name="maxCount"/> rows returned.
+    /// read, and up to <paramref name="maxCount"/> rows returned — the last rows of the parents chosen when
+    /// sampling the most recent records.
     /// </para>
     /// </summary>
     public async Task<IReadOnlyList<RawRecord>> SampleAsync(SubjectRef subject, int maxCount, CancellationToken cancellationToken = default)
@@ -166,10 +183,10 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
         {
             var parent = SubjectRef.Create(section.FormType);
             var valueField = (declaration.Fields ?? []).Select(f => f.Name).Where(f => f != section.KeyField).ToList() is [var only] ? only : null;
-            return [.. (await StandingAsync(parent, maxCount, cancellationToken).ConfigureAwait(false))
+            var rows = (await StandingAsync(parent, maxCount, cancellationToken).ConfigureAwait(false))
                 .SelectMany(document => Rows(document, section, valueField)
-                    .Select((row, position) => new RawRecord($"{document.DocumentId}/{position.ToString(CultureInfo.InvariantCulture)}", row, subject)))
-                .Take(maxCount)];
+                    .Select((row, position) => new RawRecord($"{document.DocumentId}/{position.ToString(CultureInfo.InvariantCulture)}", row, subject)));
+            return [.. sample == SampleDirection.Newest ? rows.TakeLast(maxCount) : rows.Take(maxCount)];
         }
 
         // A section array is not a field of its parent: its items are the section's records, and the
@@ -221,12 +238,15 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
 
     /// <summary>
     /// The standing documents of <paramref name="formType"/>, oldest first, up to <paramref name="maxCount"/>
-    /// — the fold described on <see cref="SampleAsync"/>.
+    /// — the fold described on <see cref="SampleAsync"/>, taken from the start of the stream or from its end.
     /// </summary>
-    private async Task<List<DocumentResponse>> StandingAsync(SubjectRef formType, int maxCount, CancellationToken cancellationToken)
-    {
-        var subject = formType;
+    private Task<List<DocumentResponse>> StandingAsync(SubjectRef formType, int maxCount, CancellationToken cancellationToken) =>
+        sample == SampleDirection.Newest
+            ? StandingNewestAsync(formType, maxCount, cancellationToken)
+            : StandingOldestAsync(formType, maxCount, cancellationToken);
 
+    private async Task<List<DocumentResponse>> StandingOldestAsync(SubjectRef formType, int maxCount, CancellationToken cancellationToken)
+    {
         // Standing records by position in the stream: the latest document of each key, and every document
         // without one. A later document of a key moves the record to that document's position.
         var standing = new SortedDictionary<long, DocumentResponse>();
@@ -234,21 +254,7 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
         long after = 0;
         while (standing.Count < maxCount)
         {
-            var limit = Math.Min(maxCount - standing.Count, MaxPageSize);
-            using var response = await SendAsync(
-                $"formtypes/{Uri.EscapeDataString(subject.Value)}/documents?after={after.ToString(CultureInfo.InvariantCulture)}&limit={limit.ToString(CultureInfo.InvariantCulture)}",
-                cancellationToken).ConfigureAwait(false);
-
-            if (response.StatusCode == HttpStatusCode.MethodNotAllowed)
-            {
-                throw new FormbaseConnectorException(
-                    "This Formbase instance does not serve a form type's raw stream (GET /formtypes/{type}/documents answered 405). " +
-                    "Reading documents across the process boundary needs Formbase 0.11.0 or later, which serves it.");
-            }
-
-            await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
-            var page = await response.Content.ReadFromJsonAsync<DocumentPageResponse>(Json, cancellationToken).ConfigureAwait(false)
-                ?? throw new FormbaseConnectorException($"Formbase answered a page of '{subject}' with an empty body.");
+            var page = await ReadPageAsync(formType, after, Math.Min(maxCount - standing.Count, MaxPageSize), cancellationToken).ConfigureAwait(false);
 
             // The whole page is folded, even past maxCount: a later document on it may correct or retire a
             // record already counted.
@@ -281,6 +287,92 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
         }
 
         return [.. standing.Values.Take(maxCount)];
+    }
+
+    /// <summary>
+    /// The most recent standing documents, found by reading stretches of the stream from its head down.
+    /// The fold runs the other way round from <see cref="StandingOldestAsync"/>: the first document met
+    /// for a key is its latest, so it stands (unless it retires the key) and every older one of that key
+    /// is passed over — a retirement met in one stretch hides the key's documents in all the older ones.
+    /// </summary>
+    private async Task<List<DocumentResponse>> StandingNewestAsync(SubjectRef formType, int maxCount, CancellationToken cancellationToken)
+    {
+        if (maxCount == 0)
+        {
+            return [];
+        }
+
+        // The head is read once and held: documents accepted while the stretches are read are not part of
+        // this sample, so the stretches stay disjoint and the sample is one moment of the stream.
+        var high = (await ReadPageAsync(formType, after: 0, limit: 0, cancellationToken).ConfigureAwait(false)).RawHead;
+        var standing = new SortedDictionary<long, DocumentResponse>();
+        var met = new HashSet<string>(StringComparer.Ordinal);
+        var width = (long)Math.Max(maxCount, MinimumStretch);
+        while (high > 0)
+        {
+            var low = Math.Max(0, high - width);
+            var stretch = await ReadStretchAsync(formType, low, high, (int)Math.Min(width, MaxPageSize), cancellationToken).ConfigureAwait(false);
+            for (var i = stretch.Count - 1; i >= 0; i--)
+            {
+                var document = stretch[i];
+                if (document.RecordKey is { } key && (!met.Add(key) || document.Retired))
+                {
+                    continue;
+                }
+
+                standing[document.Watermark] = document;
+            }
+
+            if (standing.Count >= maxCount)
+            {
+                break;
+            }
+
+            high = low;
+            width = Math.Min(width * 2, long.MaxValue / 4);
+        }
+
+        return [.. standing.Values.TakeLast(maxCount)];
+    }
+
+    /// <summary>
+    /// The form type's documents with a watermark above <paramref name="low"/> up to and including
+    /// <paramref name="high"/>, oldest first. The stream has no upper bound to ask for, so a page that runs
+    /// past <paramref name="high"/> is cut there.
+    /// </summary>
+    private async Task<List<DocumentResponse>> ReadStretchAsync(SubjectRef formType, long low, long high, int pageSize, CancellationToken cancellationToken)
+    {
+        var documents = new List<DocumentResponse>();
+        var after = low;
+        while (true)
+        {
+            var page = await ReadPageAsync(formType, after, pageSize, cancellationToken).ConfigureAwait(false);
+            documents.AddRange(page.Documents.TakeWhile(d => d.Watermark <= high));
+            if (page.Documents.Count == 0 || page.Documents[^1].Watermark >= high)
+            {
+                return documents;
+            }
+
+            after = page.Documents[^1].Watermark;
+        }
+    }
+
+    private async Task<DocumentPageResponse> ReadPageAsync(SubjectRef formType, long after, int limit, CancellationToken cancellationToken)
+    {
+        using var response = await SendAsync(
+            $"formtypes/{Uri.EscapeDataString(formType.Value)}/documents?after={after.ToString(CultureInfo.InvariantCulture)}&limit={limit.ToString(CultureInfo.InvariantCulture)}",
+            cancellationToken).ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.MethodNotAllowed)
+        {
+            throw new FormbaseConnectorException(
+                "This Formbase instance does not serve a form type's raw stream (GET /formtypes/{type}/documents answered 405). " +
+                "Reading documents across the process boundary needs Formbase 0.11.0 or later, which serves it.");
+        }
+
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        return await response.Content.ReadFromJsonAsync<DocumentPageResponse>(Json, cancellationToken).ConfigureAwait(false)
+            ?? throw new FormbaseConnectorException($"Formbase answered a page of '{formType}' with an empty body.");
     }
 
     private async Task<HttpResponseMessage> SendAsync(string path, CancellationToken cancellationToken)
