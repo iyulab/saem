@@ -80,7 +80,8 @@ public static class ContractSchema
                 "to": { "$ref": "#/$defs/entityKey" },
                 "partition": { "type": "string" },
                 "partitionAsOf": { "type": "string", "format": "date-time" },
-                "identity": { "enum": ["automatic", "confirmed"] }
+                "identity": { "enum": ["automatic", "confirmed"] },
+                "source": { "$ref": "#/$defs/sourceRecord" }
               }
             },
             "claim": {

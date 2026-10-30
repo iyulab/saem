@@ -83,6 +83,20 @@ public class LookupAnswerJsonTests
     }
 
     /// <summary>D-86 ⑤: a hop that crossed an identity says who held the two one, by name; a relation's hop says nothing of it.</summary>
+    /// <summary>A hop can cite the row the person read there, with when; a hop that cites none says nothing of it, and the schema names the same record shape a claim's source has.</summary>
+    [Fact]
+    public void A_hop_cites_the_row_the_person_read_there_when_it_says_so()
+    {
+        var cited = new Hop("supplied_by", Order, Supplier) { Source = new SourceRecord("erp", "items", "I-200") { ReadAt = new DateTimeOffset(2026, 10, 30, 3, 4, 5, TimeSpan.Zero) } };
+        var json = Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [cited])]));
+
+        Assert.Contains("\"source\":{\"system\":\"erp\",\"table\":\"items\",\"record\":\"I-200\",\"readAt\":\"2026-10-30T03:04:05+00:00\"}", json, StringComparison.Ordinal);
+        Assert.Equal(cited, Assert.IsType<Answered>(Read(json)).Claims[0].Path[0]);
+        Assert.Contains("\"source\":{", json[json.IndexOf("\"path\"", StringComparison.Ordinal)..], StringComparison.Ordinal);
+        Assert.DoesNotContain("\"path\":[{\"relation\":\"supplied_by\",\"from\":{\"type\":\"Order\",\"key\":\"O-1\"},\"to\":{\"type\":\"Supplier\",\"key\":\"S-7\"},\"source\"", Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [new Hop("supplied_by", Order, Supplier)])])), StringComparison.Ordinal);
+        Assert.Equal("#/$defs/sourceRecord", ContractSchema.Answer.GetProperty("$defs").GetProperty("hop").GetProperty("properties").GetProperty("source").GetProperty("$ref").GetString());
+    }
+
     [Fact]
     public void A_hop_across_an_identity_says_who_settled_it_by_name()
     {

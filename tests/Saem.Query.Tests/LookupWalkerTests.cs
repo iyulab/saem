@@ -327,8 +327,8 @@ public class LookupWalkerTests
         Assert.Equal([new SourceRecord("erp", "visible_suppliers", "S-2") { ReadAt = ReadAt }], claim.Sources);
         Assert.Equal(
             [
-                new Hop("orders_item", new EntityKey("WorkOrder", "WO-2"), new EntityKey("Item", "I-200")),
-                new Hop("supplied_by", new EntityKey("Item", "I-200"), new EntityKey("Supplier", "S-2")),
+                new Hop("orders_item", new EntityKey("WorkOrder", "WO-2"), new EntityKey("Item", "I-200")) { Source = Read("mes", "work_orders", "WO-2") },
+                new Hop("supplied_by", new EntityKey("Item", "I-200"), new EntityKey("Supplier", "S-2")) { Source = Read("erp", "visible_items", "I-200") },
             ],
             claim.Path);
     }
@@ -418,8 +418,11 @@ public class LookupWalkerTests
     // g-plant's edges: the work orders that make I-100, as its pass found them.
     private static readonly Partitions Plant = new() { ["g-plant"] = [("orders_item", "I-100", "WO-1"), ("orders_item", "I-100", "WO-3")] };
 
+    // The row a hop cites is the one the person read there: walked backwards, the work order whose field names the item.
     private static Hop Backwards(string item, string workOrder, string partition) =>
-        new("ordered_by", new EntityKey("Item", item), new EntityKey("WorkOrder", workOrder)) { Partition = partition };
+        new("ordered_by", new EntityKey("Item", item), new EntityKey("WorkOrder", workOrder)) { Partition = partition, Source = Read("mes", "work_orders", workOrder) };
+
+    private static SourceRecord Read(string system, string table, string record) => new(system, table, record) { ReadAt = ReadAt };
 
     /// <summary>Walked backwards, a relation answers every entity that leads to the one reached, read as the person, the hop naming its partition.</summary>
     [Fact]
@@ -590,7 +593,7 @@ public class LookupWalkerTests
         var claims = Assert.IsType<Answered>(answer).Claims;
         Assert.Equal(["WO-1", "WO-3"], claims.Select(c => c.Entity.Key));
         Assert.Equal(
-            [new Hop("orders_item", new EntityKey("WorkOrder", "WO-3"), new EntityKey("Item", "I-100")), Backwards("I-100", "WO-1", "g-plant")],
+            [new Hop("orders_item", new EntityKey("WorkOrder", "WO-3"), new EntityKey("Item", "I-100")) { Source = Read("mes", "work_orders", "WO-3") }, Backwards("I-100", "WO-1", "g-plant")],
             claims[0].Path);
     }
 
@@ -602,8 +605,14 @@ public class LookupWalkerTests
         return plant;
     }
 
+    // Crossing an identity cites the row of the entity crossed to, read as the person.
     private static Hop Same(string from, string fromKey, string to, string toKey) =>
-        new("same_item", new EntityKey(from, fromKey), new EntityKey(to, toKey)) { Partition = "g-plant", Identity = IdentityDecision.Automatic };
+        new("same_item", new EntityKey(from, fromKey), new EntityKey(to, toKey))
+        {
+            Partition = "g-plant",
+            Identity = IdentityDecision.Automatic,
+            Source = to == "Material" ? Read("mes", "materials", toKey) : Read("erp", "visible_items", toKey),
+        };
 
     /// <summary>D-86 ①: crossing an identity answers each entity of the other type its partition holds the same, read as the person, the hop saying who held them one.</summary>
     [Fact]
@@ -640,7 +649,7 @@ public class LookupWalkerTests
         var claim = Assert.Single(Assert.IsType<Answered>(answer).Claims);
         Assert.Equal("Hanbit Parts", claim.Value.GetString());
         Assert.Equal(
-            [Same("Material", "M-1", "Item", "I-100"), new Hop("supplied_by", new EntityKey("Item", "I-100"), new EntityKey("Supplier", "S-1"))],
+            [Same("Material", "M-1", "Item", "I-100"), new Hop("supplied_by", new EntityKey("Item", "I-100"), new EntityKey("Supplier", "S-1")) { Source = Read("erp", "visible_items", "I-100") }],
             claim.Path);
     }
 

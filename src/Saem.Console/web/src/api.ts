@@ -83,7 +83,7 @@ export type EntityKey = { type: string; key: string };
 
 export type SourceRecord = { system: string; table: string; record: string; readAt?: string };
 
-export type Hop = { relation: string; from: EntityKey; to: EntityKey; partition?: string };
+export type Hop = { relation: string; from: EntityKey; to: EntityKey; partition?: string; source?: SourceRecord };
 
 export type Claim = { entity: EntityKey; field: string; value: unknown; sources: SourceRecord[]; path: Hop[]; fieldKind?: string };
 

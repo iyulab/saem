@@ -210,7 +210,8 @@ public sealed class LookupWalker
                 {
                     // The field holds the next entity's key as the next type spells keys.
                     var nextKey = to.Normalize(via);
-                    next.Add(new Branch(nextKey, [.. branch.Hops, new Hop(step.Name, new EntityKey(at.Name, row.Key), new EntityKey(to.Name, nextKey))], null));
+                    var followed = new Hop(step.Name, new EntityKey(at.Name, row.Key), new EntityKey(to.Name, nextKey)) { Source = Read(at, row) };
+                    next.Add(new Branch(nextKey, [.. branch.Hops, followed], null));
                 }
             }
 
@@ -310,6 +311,7 @@ public sealed class LookupWalker
                     Partition = partition,
                     PartitionAsOf = report.AsOf,
                     Identity = step.Identity?.Decision,
+                    Source = Read(from, row),
                 };
                 next.Add(new Branch(from.Normalize(row.Key), [.. branch.Hops, back], row));
             }
@@ -389,6 +391,10 @@ public sealed class LookupWalker
             FieldKind = type.Kinds?.TryGetValue(field, out var kind) == true ? kind : null,
         })]);
     }
+
+    /// <summary>The record <paramref name="row"/> is, as read from its source just now.</summary>
+    private SourceRecord Read(EntityTypeDeclaration type, SourceRow row) =>
+        new(type.System, type.Table, RecordOf(type, row)) { ReadAt = _time.GetUtcNow() };
 
     private static string RecordOf(EntityTypeDeclaration type, SourceRow row) =>
         type.Record is null ? row.Key : string.Join('/', type.Record.Select(column => Text(row.Values[column]) ?? ""));

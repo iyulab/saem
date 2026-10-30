@@ -372,6 +372,16 @@ public sealed record Hop(string Relation, EntityKey From, EntityKey To)
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IdentityDecision? Identity { get; init; }
+
+    /// <summary>
+    /// The row the person read at this hop, as the person: for a relation, the row that holds the field naming the
+    /// entity at the other end — so it is the record of <see cref="From"/> when the relation was followed forwards, and of
+    /// <see cref="To"/> when it was walked backwards; for an identity, the row of the entity crossed to. It is what the
+    /// source showed this person a moment ago, never what an edge built ahead of time recorded: that may have changed since,
+    /// and the person may no longer be allowed to open it. Null where a hop does not say.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceRecord? Source { get; init; }
 }
 
 /// <summary>

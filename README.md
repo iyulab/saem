@@ -340,7 +340,11 @@ its hop says when its group's edges were read from the sources (`partitionAsOf`)
 to are read again as the person, so what is stated of them is current, but one that came to lead there
 after that time has no edge yet and is not among the answers. After a pass that read only changed rows
 (below), the time is that pass's: a row a long transaction wrote with an earlier change time may still
-have no edge until the next whole pass.
+have no edge until the next whole pass. Every hop also cites the row the person read there
+(`source`, with `readAt`): the row that holds the field naming the entity at the other end — the record of the entity
+it was followed from when walked forwards, of the entity it led to when walked backwards — or, across an identity, the
+row of the entity crossed to. It is what the source showed this person a moment ago; the edge that led there is
+never cited, because it may have changed since and the person may no longer be allowed to open what it names.
 
 An answer cites the record it read: by default the row's key, and where a table's rows are copies of
 records kept elsewhere, the columns a type declares as its `record` — joined with `/` when there are
