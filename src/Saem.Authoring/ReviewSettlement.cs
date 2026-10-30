@@ -12,9 +12,10 @@ namespace Saem.Authoring;
 /// </summary>
 /// <param name="Pass">The pass's id — every settlement of its proposals carries it as their batch.</param>
 /// <param name="Added">The declarations the pass proposed (<see cref="DeclarationDraft.Added"/>).</param>
-public sealed record ProposedDeclarations(string Pass, IReadOnlyList<Declaration> Added)
+/// <param name="Generation">What the pass was made with, when the run knows it; proposals kept before it was recorded have none.</param>
+public sealed record ProposedDeclarations(string Pass, IReadOnlyList<Declaration> Added, PassGeneration? Generation = null)
 {
-    /// <summary>The proposals as a JSON object: the pass, and the declarations in the catalog file's form.</summary>
+    /// <summary>The proposals as a JSON object: the pass, the declarations in the catalog file's form, and what the pass was made with.</summary>
     public string ToJson()
     {
         using var buffer = new MemoryStream();
@@ -24,6 +25,12 @@ public sealed record ProposedDeclarations(string Pass, IReadOnlyList<Declaration
             writer.WriteString("pass", Pass);
             writer.WritePropertyName("added");
             JsonSerializer.Serialize(writer, Added, OntologyJson.Default.IReadOnlyListDeclaration);
+            if (Generation is not null)
+            {
+                writer.WritePropertyName("generation");
+                Generation.Write(writer);
+            }
+
             writer.WriteEndObject();
         }
 
@@ -43,7 +50,8 @@ public sealed record ProposedDeclarations(string Pass, IReadOnlyList<Declaration
             throw new JsonException("A pass's proposals are an object with a \"pass\" id and an \"added\" array of declarations.");
         }
 
-        return new ProposedDeclarations(pass.GetString()!, added.Deserialize(OntologyJson.Default.IReadOnlyListDeclaration) ?? []);
+        var generation = root.TryGetProperty("generation", out var made) && made.ValueKind != JsonValueKind.Null ? PassGeneration.Read(made) : null;
+        return new ProposedDeclarations(pass.GetString()!, added.Deserialize(OntologyJson.Default.IReadOnlyListDeclaration) ?? [], generation);
     }
 }
 

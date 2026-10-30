@@ -12,6 +12,12 @@ namespace Saem.Authoring.Cli;
 /// runs, and the review, the draft and the pass's proposals are written — nothing else. Both outputs are checked before anything
 /// is read or any model is asked, so a run that would replace a file it was not told to replace costs nothing.
 /// </summary>
+/// <summary>What the proposer is: its library version and the fingerprints of the prompt wording it was built with.</summary>
+/// <param name="Version">The proposer library's version.</param>
+/// <param name="PromptFingerprint">The fingerprint of the prompt's fixed wording.</param>
+/// <param name="KnownTypesPromptFingerprint">The fingerprint of the wording added when the pass names types in use.</param>
+internal sealed record ProposerFacts(string Version, string PromptFingerprint, string KnownTypesPromptFingerprint);
+
 internal static class AuthorRun
 {
     private static readonly JsonSerializerOptions SourcesJson = new(JsonSerializerDefaults.Web);
@@ -23,6 +29,7 @@ internal static class AuthorRun
     /// <param name="retries">The model calls retried during the pass, filled as the pass runs; the review reports them.</param>
     /// <param name="log">Where progress is written.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
+    /// <param name="proposerFacts">What the proposer is, for the record of what the pass was made with; omitted, the pass records none.</param>
     /// <exception cref="AuthorRunException">An input cannot be read, or an output exists and the run was not told to replace it.</exception>
     public static async Task RunAsync(
         AuthorOptions options,
@@ -31,7 +38,8 @@ internal static class AuthorRun
         IStructureSource structures,
         IReadOnlyCollection<ModelCallRetry> retries,
         TextWriter log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ProposerFacts? proposerFacts = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(retries);
@@ -45,7 +53,8 @@ internal static class AuthorRun
             }
         }
 
-        var pass = ReviewSettlement.PassId(DateTimeOffset.UtcNow);
+        var ranAt = DateTimeOffset.UtcNow;
+        var pass = ReviewSettlement.PassId(ranAt);
         var sources = await ReadSourcesAsync(options.SourcesPath, cancellationToken).ConfigureAwait(false);
         var existing = await ReadCatalogAsync(options.CatalogPath, cancellationToken).ConfigureAwait(false);
         await log.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
@@ -54,9 +63,18 @@ internal static class AuthorRun
         var drafted = await new DeclarationAuthoring(proposer, records, structures)
             .DraftAsync(sources, existing, options.RecordsPerSubject, cancellationToken).ConfigureAwait(false);
 
-        await File.WriteAllTextAsync(options.ReviewPath, drafted.ToReview() + RetriesSection(retries), cancellationToken).ConfigureAwait(false);
+        var generation = proposerFacts is null
+            ? null
+            : new PassGeneration(
+                options.Model,
+                proposerFacts.Version,
+                proposerFacts.PromptFingerprint,
+                existing.OfType<EntityTypeDeclaration>().Any() ? proposerFacts.KnownTypesPromptFingerprint : null,
+                ranAt,
+                retries.Count);
+        await File.WriteAllTextAsync(options.ReviewPath, drafted.ToReview() + (generation?.ToReviewSection() ?? "") + RetriesSection(retries), cancellationToken).ConfigureAwait(false);
         await File.WriteAllTextAsync(options.DraftPath, drafted.Draft.ToJson(), cancellationToken).ConfigureAwait(false);
-        await File.WriteAllTextAsync(options.ProposalsPath, new ProposedDeclarations(pass, drafted.Draft.Added).ToJson(), cancellationToken).ConfigureAwait(false);
+        await File.WriteAllTextAsync(options.ProposalsPath, new ProposedDeclarations(pass, drafted.Draft.Added, generation).ToJson(), cancellationToken).ConfigureAwait(false);
         await log.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
             $"{drafted.Draft.Added.Count} declarations drafted, {drafted.Draft.Notes.Count} not declared, {retries.Count} model calls retried. " +
             $"Review: {options.ReviewPath} · draft: {options.DraftPath} · proposals: {options.ProposalsPath}")).ConfigureAwait(false);

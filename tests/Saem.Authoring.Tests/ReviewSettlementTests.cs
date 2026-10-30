@@ -103,5 +103,50 @@ public sealed class ReviewSettlementTests
         Assert.Equal(Proposed.Pass, read.Pass);
         Assert.Equal(Proposed.Added.Select(ReviewSettlement.Canonical), read.Added.Select(ReviewSettlement.Canonical));
         Assert.Throws<JsonException>(() => ProposedDeclarations.Parse("""{"added":[]}"""));
+        Assert.Null(read.Generation);
+    }
+
+    [Fact]
+    public void What_a_pass_was_made_with_is_kept_with_its_proposals_and_read_back()
+    {
+        var generation = new PassGeneration("qwen-27b", "0.23.0", "a1b2c3d4", "e5f6a7b8", new DateTimeOffset(2026, 10, 30, 3, 4, 5, TimeSpan.Zero), 2);
+
+        var read = ProposedDeclarations.Parse((Proposed with { Generation = generation }).ToJson());
+
+        Assert.Equal(generation, read.Generation);
+        Assert.Equal(Proposed.Pass, read.Pass);
+    }
+
+    [Fact]
+    public void A_pass_without_known_types_keeps_no_fingerprint_for_them()
+    {
+        var generation = new PassGeneration("m", "1.0.0", "a1b2c3d4", null, DateTimeOffset.UnixEpoch, 0);
+
+        var json = (Proposed with { Generation = generation }).ToJson();
+
+        Assert.DoesNotContain("knownTypesPromptFingerprint", json, StringComparison.Ordinal);
+        Assert.Null(ProposedDeclarations.Parse(json).Generation!.KnownTypesPromptFingerprint);
+    }
+
+    [Theory]
+    [InlineData("""{"model":"m"}""")]
+    [InlineData("""{"model":"m","proposerVersion":"1","promptFingerprint":"f","startedAt":"not a time","modelCallsRetried":0}""")]
+    [InlineData("""{"model":"m","proposerVersion":"1","promptFingerprint":"f","startedAt":"2026-10-30T00:00:00Z","modelCallsRetried":-1}""")]
+    [InlineData("""{"model":" ","proposerVersion":"1","promptFingerprint":"f","startedAt":"2026-10-30T00:00:00Z","modelCallsRetried":0}""")]
+    [InlineData("""[]""")]
+    public void A_generation_that_is_not_what_was_written_is_refused(string generation) =>
+        Assert.Throws<JsonException>(() => ProposedDeclarations.Parse($$"""{"pass":"p","added":[],"generation":{{generation}}}"""));
+
+    [Fact]
+    public void The_review_says_what_the_draft_was_made_with()
+    {
+        var section = new PassGeneration("qwen-27b", "0.23.0", "a1b2c3d4", "e5f6a7b8", new DateTimeOffset(2026, 10, 30, 3, 4, 5, TimeSpan.Zero), 2).ToReviewSection();
+
+        Assert.Contains("## Generated with", section, StringComparison.Ordinal);
+        Assert.Contains("- model: qwen-27b", section, StringComparison.Ordinal);
+        Assert.Contains("- proposer: 0.23.0", section, StringComparison.Ordinal);
+        Assert.Contains("- prompt: a1b2c3d4 + known types e5f6a7b8", section, StringComparison.Ordinal);
+        Assert.Contains("- started: 2026-10-30T03:04:05Z", section, StringComparison.Ordinal);
+        Assert.Contains("- model calls retried: 2", section, StringComparison.Ordinal);
     }
 }

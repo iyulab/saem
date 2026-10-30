@@ -125,6 +125,47 @@ public sealed class AuthorCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task A_run_records_what_it_was_made_with_in_its_proposals_and_its_review()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var facts = new ProposerFacts("0.23.0", "a1b2c3d4", "e5f6a7b8");
+        var options = await PrepareAsync(catalog: """[{"kind":"entityType","name":"Item","system":"erp","table":"items","key":"item_code","fields":{"name":"item_name"}}]""");
+        ModelCallRetry[] retried = [new(new ModelRequest("p"), 1, new TimeoutException("slow"))];
+
+        await AuthorRun.RunAsync(options, new Proposer(), new Sampler(), new NoStructures(), retried, TextWriter.Null, ct, facts);
+
+        var generation = ProposedDeclarations.Parse(await File.ReadAllTextAsync(options.ProposalsPath, ct)).Generation;
+        Assert.NotNull(generation);
+        Assert.Equal((options.Model, "0.23.0", "a1b2c3d4", "e5f6a7b8", 1), (generation.Model, generation.ProposerVersion, generation.PromptFingerprint, generation.KnownTypesPromptFingerprint, generation.ModelCallsRetried));
+        var review = await File.ReadAllTextAsync(options.ReviewPath, ct);
+        Assert.Contains("## Generated with", review, StringComparison.Ordinal);
+        Assert.Contains($"- model: {options.Model}", review, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_catalog_that_declares_no_types_means_no_known_types_wording_in_the_record()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var options = await PrepareAsync(catalog: null);
+
+        await AuthorRun.RunAsync(options, new Proposer(), new Sampler(), new NoStructures(), [], TextWriter.Null, ct, new ProposerFacts("0.23.0", "a1b2c3d4", "e5f6a7b8"));
+
+        Assert.Null(ProposedDeclarations.Parse(await File.ReadAllTextAsync(options.ProposalsPath, ct)).Generation!.KnownTypesPromptFingerprint);
+    }
+
+    [Fact]
+    public async Task A_run_over_a_proposer_it_knows_nothing_about_records_no_generation()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var options = await PrepareAsync(catalog: null);
+
+        await AuthorRun.RunAsync(options, new Proposer(), new Sampler(), new NoStructures(), [], TextWriter.Null, ct);
+
+        Assert.Null(ProposedDeclarations.Parse(await File.ReadAllTextAsync(options.ProposalsPath, ct)).Generation);
+        Assert.DoesNotContain("## Generated with", await File.ReadAllTextAsync(options.ReviewPath, ct), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_run_keeps_its_proposals_and_settle_records_what_the_review_took()
     {
         var ct = TestContext.Current.CancellationToken;

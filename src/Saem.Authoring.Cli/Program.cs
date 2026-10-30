@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Reflection;
 using Eyu.Core.Inference;
 using Eyu.Core.Inference.Http;
 using Eyu.Core.Judgment;
@@ -66,7 +67,7 @@ var connector = new FormbaseConnector(formbase, options.FormbaseNamespace, optio
 
 try
 {
-    await AuthorRun.RunAsync(options, proposer, connector, connector, retries, Console.Out, cancellation.Token);
+    await AuthorRun.RunAsync(options, proposer, connector, connector, retries, Console.Out, cancellation.Token, DescribeProposer());
     return 0;
 }
 catch (Exception e) when (e is AuthorRunException or OntologyDeclarationException or FormbaseConnectorException or HttpRequestException or FormatException
@@ -130,4 +131,15 @@ static async Task<int> Diff(string[] args)
         Console.Error.WriteLine(e.Message);
         return 2;
     }
+}
+
+static ProposerFacts DescribeProposer()
+{
+    var assembly = typeof(SinglePassOntologyProposer).Assembly;
+
+    // The informational version carries the build's commit after a '+'; the version is what precedes it.
+    var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
+        ?? assembly.GetName().Version?.ToString()
+        ?? "unknown";
+    return new ProposerFacts(version, SinglePassOntologyProposer.PromptFingerprint, SinglePassOntologyProposer.KnownTypesPromptFingerprint);
 }
