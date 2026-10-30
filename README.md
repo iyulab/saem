@@ -638,7 +638,8 @@ asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` 
 `Saem:Console:CheckReport` (the last `saem-materialize check --report` file, optional),
 `Saem:Console:Executors:<group>` (the address and secret of the group's `saem-materialize serve`, optional),
 `Saem:Console:Draft` and `Saem:Console:Confirmations` (the draft a builder confirms and the file each confirmation is
-recorded in — set together, optional).
+recorded in — set together, optional) and `Saem:Console:Proposals` (the proposals file `saem-author --proposals`
+wrote for that draft — needs the draft, optional).
 
 A builder confirms a catalog draft in the console rather than by copying a file. `GET /api/catalog/draft` reads
 the draft (the file `saem-author --draft` wrote, after its review) against the catalog in force: both versions, and
@@ -651,6 +652,17 @@ the new catalog and tries again — when the draft changed since it was read (`s
 add (`nothing-to-confirm`), or when it breaks something and the builder has not acknowledged it (`breaking`); a draft
 the ontology refuses is `422`. The console needs write access to the catalog file and the confirmations file; the lock
 covers the console's own confirmations, not an edit made to the file by other means in the same instant.
+
+With the pass's proposals set, a builder can review them one by one first. `GET /api/authoring/review` reads each
+proposal against the draft — taken (the draft holds it as proposed), edited (it holds it changed, both shown) or left
+(it holds none) — with what the pass was made with. `POST /api/authoring/review` with `{ "draft": …, "take": […],
+"leave": […] }` — the draft version the builder saw and proposal ids such as `entityType:Supplier` — puts the taken
+declarations in the draft file and removes the left ones, whole or not at all. The draft file is the whole state of the
+review: nothing else records what was decided, and confirming the draft is what puts it in force. It is refused when the
+draft changed since it was read (`409`, `stale-draft`), when an id is not one of the pass's proposals, and when the review
+would leave the draft inconsistent — leaving a type a kept relation joins, say (`422`, `inconsistent`). Taking a proposal
+the draft already holds edited does not overwrite the edit. The same lock as confirming applies, and the console needs
+write access to the draft file.
 
 `GET /api/overview` says what is waiting at a glance: the catalog in force, how many declarations of each
 kind it holds, and the last check — when it ran, whether every declaration held, and whether it checked

@@ -3,6 +3,7 @@ import { api, signInAddress, type Answer, type Caller, type EntityKey } from "./
 import { CatalogView } from "./CatalogView";
 import { CheckView } from "./CheckView";
 import { DraftView } from "./DraftView";
+import { ReviewView } from "./ReviewView";
 import { GroupsView } from "./GroupsView";
 import { JudgmentsView } from "./JudgmentsView";
 import { OverviewView } from "./OverviewView";
@@ -11,11 +12,12 @@ import { OverviewView } from "./OverviewView";
 const GraphView = lazy(() => import("./GraphView").then((m) => ({ default: m.GraphView })));
 const LocalGraphView = lazy(() => import("./LocalGraphView").then((m) => ({ default: m.LocalGraphView })));
 
-type Screen = "overview" | "catalog" | "draft" | "graph" | "local" | "check" | "groups" | "judgments";
+type Screen = "overview" | "catalog" | "review" | "draft" | "graph" | "local" | "check" | "groups" | "judgments";
 
 const screens: ReadonlyArray<{ screen: Screen; title: string; builders?: boolean }> = [
   { screen: "overview", title: "Overview" },
   { screen: "catalog", title: "Catalog" },
+  { screen: "review", title: "Review", builders: true },
   { screen: "draft", title: "Draft", builders: true },
   { screen: "graph", title: "Knowledge graph" },
   { screen: "local", title: "Local graph", builders: true },
@@ -69,6 +71,7 @@ export function App() {
       <main>
         {screen === "overview" && <OverviewView onOpenCheck={me.value.roles.includes("builder") ? () => setScreen("check") : undefined} />}
         {screen === "catalog" && <CatalogView />}
+        {screen === "review" && <ReviewView onOpenDraft={() => setScreen("draft")} />}
         {screen === "draft" && <DraftView />}
         {screen === "check" && <CheckView />}
         {screen === "judgments" && (

@@ -31,6 +31,38 @@ export type CatalogDraft = { inForce: string; draft: string; changes: DraftChang
 
 export type Confirmed = { from: string; to: string; breaking: number };
 
+/** Where the draft holds a proposal: as proposed (taken), changed (edited), or not at all (left). */
+export type ProposalState = "taken" | "edited" | "left";
+
+export type ReviewedProposal = {
+  id: string;
+  kind: string;
+  name: string;
+  state: ProposalState;
+  declaration: Record<string, unknown>;
+  /** For an edited proposal, the declaration as the draft holds it. */
+  current?: Record<string, unknown> | null;
+};
+
+/** What the authoring pass was made with, when it recorded it. */
+export type PassGeneration = {
+  model: string;
+  proposerVersion: string;
+  promptFingerprint: string;
+  knownTypesPromptFingerprint?: string | null;
+  startedAt: string;
+  modelCallsRetried: number;
+};
+
+/** A pass's proposals read against the draft: `draft` is the version a review names. */
+export type AuthoringReview = {
+  pass: string;
+  generation?: PassGeneration | null;
+  inForce: string;
+  draft: string;
+  proposals: ReviewedProposal[];
+};
+
 export type CheckSummary = { checkedAt: string | null; catalogVersion: string | null; current: boolean; holds: boolean; violations: number };
 
 export type Overview = { catalogVersion: string; declarations: Record<string, number>; check: CheckSummary | null };
@@ -145,6 +177,9 @@ export const api = {
   draft: () => ask<CatalogDraft>("/api/catalog/draft"),
   confirm: (seen: Pick<CatalogDraft, "inForce" | "draft">, acknowledgeBreaking: boolean) =>
     ask<Confirmed>("/api/catalog/confirm", change({ base: seen.inForce, draft: seen.draft, acknowledgeBreaking })),
+  review: () => ask<AuthoringReview>("/api/authoring/review"),
+  decide: (draft: string, decision: { take?: string[]; leave?: string[] }) =>
+    ask<AuthoringReview>("/api/authoring/review", change({ draft, ...decision })),
   logout: () => ask<void>("/logout", change()),
   executors: () => ask<Array<{ group: string }>>("/api/executors"),
   jobs: (group: string) => ask<Job[]>(`/api/executors/${encodeURIComponent(group)}/jobs`),
