@@ -107,6 +107,9 @@ public static class SaemConsole
             .Validate(
                 c => (c.Draft.Length > 0) == (c.Confirmations.Length > 0) && !string.Equals(c.Draft, c.Ontology, StringComparison.Ordinal),
                 "Saem:Console:Draft (a file other than the catalog) and Saem:Console:Confirmations are set together or not at all.")
+            .Validate(
+                c => c.Proposals.Length == 0 || c.Draft.Length > 0,
+                "Saem:Console:Proposals are the proposals of the pass that wrote the draft: it needs Saem:Console:Draft.")
             .ValidateOnStart();
         services.AddSingleton<IOntologyCatalog>(provider => new FileOntologyCatalog(provider.GetRequiredService<IOptions<ConsoleCatalogOptions>>().Value.Ontology));
         services.Configure<ConsoleLookupOptions>(console.GetSection("Lookup"));
@@ -282,6 +285,7 @@ public static class SaemConsole
         var api = app.MapGroup("/api").RequireAuthorization(ConsoleRoles.AnyRole);
         CatalogApi.Map(api);
         CatalogConfirmApi.Map(api);
+        AuthoringReviewApi.Map(api);
         OverviewApi.Map(api);
         ExecutorsApi.Map(api);
 

@@ -19,13 +19,11 @@ public sealed record DeclarationDraft(
     IReadOnlyDictionary<string, IReadOnlyList<string>> Evidence,
     IReadOnlyList<DraftNote> Notes)
 {
-    private static readonly JsonSerializerOptions Indented = new(OntologyJson.Default.Options) { WriteIndented = true };
-
     /// <summary>
     /// The declarations in the catalog file's form — the same JSON <see cref="FileOntologyCatalog"/>
     /// reads, indented one declaration per block so that a diff shows each one whole.
     /// </summary>
-    public string ToJson() => JsonSerializer.Serialize(Declarations, Indented.GetTypeInfo(typeof(IReadOnlyList<Declaration>))) + "\n";
+    public string ToJson() => OntologyFile.ToIndentedJson(Declarations);
 }
 
 /// <summary>

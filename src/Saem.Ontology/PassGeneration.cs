@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
-namespace Saem.Authoring;
+namespace Saem.Ontology;
 
 /// <summary>
 /// What one authoring pass was made with: the model asked, the proposer that wrote the prompt, and the

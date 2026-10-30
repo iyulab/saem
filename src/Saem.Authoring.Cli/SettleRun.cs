@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Saem.Ontology;
 
 namespace Saem.Authoring.Cli;
 

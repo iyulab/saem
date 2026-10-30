@@ -63,3 +63,19 @@ public sealed class FileOntologyCatalog : IOntologyCatalog
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web, AllowOutOfOrderMetadataProperties = true, UseStringEnumConverter = true)]
 [JsonSerializable(typeof(IReadOnlyList<Declaration>))]
 public sealed partial class OntologyJson : JsonSerializerContext;
+
+/// <summary>The catalog file's text: the form a person reads and edits, and <see cref="FileOntologyCatalog"/> reads back.</summary>
+public static class OntologyFile
+{
+    private static readonly JsonSerializerOptions Indented = new(OntologyJson.Default.Options) { WriteIndented = true };
+
+    /// <summary>
+    /// The declarations in the catalog file's form, indented one declaration per block so that a diff shows each one
+    /// whole, with a closing newline.
+    /// </summary>
+    public static string ToIndentedJson(IReadOnlyList<Declaration> declarations)
+    {
+        ArgumentNullException.ThrowIfNull(declarations);
+        return JsonSerializer.Serialize(declarations, Indented.GetTypeInfo(typeof(IReadOnlyList<Declaration>))) + "\n";
+    }
+}

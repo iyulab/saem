@@ -16,7 +16,8 @@ namespace Saem.Console;
 internal static class CatalogConfirmApi
 {
     // One console process confirms one catalog; the check and the replacement happen under this.
-    private static readonly SemaphoreSlim OneAtATime = new(1, 1);
+    // The review of a draft writes the same file, so it waits on this too.
+    internal static readonly SemaphoreSlim OneAtATime = new(1, 1);
 
     public static void Map(RouteGroupBuilder api)
     {
@@ -135,7 +136,7 @@ internal static class CatalogConfirmApi
     }
 
     /// <summary>Puts the draft's bytes where the catalog is, whole or not at all.</summary>
-    private static async Task ReplaceAsync(string catalogPath, byte[] bytes, CancellationToken ct)
+    internal static async Task ReplaceAsync(string catalogPath, byte[] bytes, CancellationToken ct)
     {
         var folder = Path.GetDirectoryName(Path.GetFullPath(catalogPath))!;
         var staged = Path.Combine(folder, $".{Path.GetFileName(catalogPath)}.{Guid.NewGuid():N}.confirm");
@@ -171,7 +172,7 @@ internal static class CatalogConfirmApi
             : null;
 
     /// <summary>Reads the catalog in force and the draft, and what separates them.</summary>
-    private static async Task<Seen> Compare(ConsoleCatalogOptions options, CancellationToken ct)
+    internal static async Task<Seen> Compare(ConsoleCatalogOptions options, CancellationToken ct)
     {
         Ontology.Ontology inForce;
         try
@@ -194,11 +195,12 @@ internal static class CatalogConfirmApi
         }
 
         Ontology.Ontology draft;
+        IReadOnlyList<Declaration> draftDeclarations;
         try
         {
-            var declarations = JsonSerializer.Deserialize(bytes, OntologyJson.Default.IReadOnlyListDeclaration)
+            draftDeclarations = JsonSerializer.Deserialize(bytes, OntologyJson.Default.IReadOnlyListDeclaration)
                 ?? throw new OntologyDeclarationException("The draft holds null, not an array of declarations.");
-            draft = Ontology.Ontology.Create(declarations);
+            draft = Ontology.Ontology.Create(draftDeclarations);
         }
         catch (Exception e) when (e is JsonException or NotSupportedException)
         {
@@ -209,18 +211,20 @@ internal static class CatalogConfirmApi
             return new Seen { Problem = TypedResults.Problem(title: "The draft is refused.", detail: string.Join(" ", e.Problems), statusCode: StatusCodes.Status422UnprocessableEntity) };
         }
 
-        return new Seen { InForce = inForce, Draft = draft, DraftBytes = bytes, Changes = OntologyChanges.Between(inForce, draft) };
+        return new Seen { InForce = inForce, Draft = draft, DraftDeclarations = draftDeclarations, DraftBytes = bytes, Changes = OntologyChanges.Between(inForce, draft) };
     }
 
     private sealed record ConfirmAsk(string Base, string Draft, bool AcknowledgeBreaking);
 
-    private sealed class Seen
+    internal sealed class Seen
     {
         public IResult? Problem { get; init; }
 
         public Ontology.Ontology? InForce { get; init; }
 
         public Ontology.Ontology? Draft { get; init; }
+
+        public IReadOnlyList<Declaration>? DraftDeclarations { get; init; }
 
         public byte[]? DraftBytes { get; init; }
 

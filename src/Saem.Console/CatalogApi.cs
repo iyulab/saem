@@ -17,6 +17,12 @@ public sealed class ConsoleCatalogOptions
 
     /// <summary>The file each confirmation is recorded in, one JSON line each (required with <see cref="Draft"/>).</summary>
     public string Confirmations { get; set; } = "";
+
+    /// <summary>
+    /// The proposals of the pass that wrote <see cref="Draft"/> (<c>saem-author --proposals</c>); with it a builder reviews
+    /// the draft proposal by proposal in the console. Empty: the console shows and confirms the draft as a whole only.
+    /// </summary>
+    public string Proposals { get; set; } = "";
 }
 
 /// <summary>
