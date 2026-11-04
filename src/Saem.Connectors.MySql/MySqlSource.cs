@@ -11,6 +11,11 @@ public sealed class MySqlSource
 {
     private readonly string _connectionString;
 
+    // A source that takes a person's token as the login switches the session to the OpenID Connect
+    // method; the driver answers a method it does not implement itself with a registered plugin. Every
+    // other login (a password, say) never reaches it, so registering it changes nothing for them.
+    static MySqlSource() => OidcClientAuthenticationPlugin.Register();
+
     /// <summary>
     /// A source at <paramref name="connectionString"/> — server, port, database, TLS. A user name or
     /// password in it is refused: the login is the person's, given per lookup.
