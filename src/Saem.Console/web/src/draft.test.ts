@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { CatalogDraft } from "./api";
-import { changesAnything, mayConfirm, nextStep, split } from "./draft";
+import { changesAnything, mayConfirm, nextStep, settlementLine, split } from "./draft";
 
 const draft = (changes: CatalogDraft["changes"], same = false): CatalogDraft => ({
   inForce: "aaaa",
   draft: same ? "aaaa" : "bbbb",
   changes,
   breaking: changes.filter((c) => c.kind === "breaking").length,
+});
+
+describe("what a confirmation says of the reviewed pass", () => {
+  it("counts what the review took and what it did not, and says nothing when reviews are not recorded", () => {
+    expect(settlementLine({ pass: "pass-1", recorded: true, proposals: 3, taken: 2 })).toBe("Settled 3 proposals of pass-1: 2 taken, 1 not.");
+    expect(settlementLine({ pass: "pass-1", recorded: false, proposals: 3, taken: 0 })).toBe("pass-1 was settled by an earlier confirmation.");
+    expect(settlementLine(null)).toBeNull();
+  });
 });
 
 describe("a draft against the catalog in force", () => {

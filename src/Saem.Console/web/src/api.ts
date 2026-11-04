@@ -29,7 +29,10 @@ export type DraftChange = { kind: "breaking" | "additive"; declaration: string; 
 /** The draft read against the catalog in force: both versions are what a confirmation names. */
 export type CatalogDraft = { inForce: string; draft: string; changes: DraftChange[]; breaking: number };
 
-export type Confirmed = { from: string; to: string; breaking: number };
+/** What a confirmation made of the reviewed pass: recorded by this one, or already recorded by an earlier one. */
+export type ConfirmedSettlement = { pass: string; recorded: boolean; proposals: number; taken: number };
+
+export type Confirmed = { from: string; to: string; breaking: number; settlement: ConfirmedSettlement | null };
 
 /** Where the draft holds a proposal: as proposed (taken), changed (edited), or not at all (left). */
 export type ProposalState = "taken" | "edited" | "left";

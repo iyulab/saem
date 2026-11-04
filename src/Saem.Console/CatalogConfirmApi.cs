@@ -102,13 +102,23 @@ internal static class CatalogConfirmApi
             return Conflict("breaking", $"The draft has {breaking} breaking change(s); confirm with acknowledgeBreaking: true to let them through.");
         }
 
+        // What the review took of the pass's proposals is read before anything is written: proposals that cannot be read
+        // stop the confirmation rather than leaving a catalog in force whose review is not recorded.
+        var settling = await PrepareSettlement(options, seen.DraftDeclarations!, subject, at, ct);
+        if (settling.Problem is not null)
+        {
+            return settling.Problem;
+        }
+
         try
         {
-            // The record is opened before the catalog is replaced, so a record that cannot be kept stops the confirmation
+            // The records are opened before the catalog is replaced, so a record that cannot be kept stops the confirmation
             // rather than following it.
             var record = new FileStream(options.Confirmations, FileMode.Append, FileAccess.Write, FileShare.Read);
             await using (record.ConfigureAwait(false))
+            await using (settling.ConfigureAwait(false))
             {
+                settling.Open();
                 await ReplaceAsync(options.Ontology, seen.DraftBytes!, ct);
                 var line = new JsonObject
                 {
@@ -122,6 +132,7 @@ internal static class CatalogConfirmApi
                 };
                 await record.WriteAsync(Encoding.UTF8.GetBytes(line.ToJsonString() + "\n"), CancellationToken.None);
                 await record.FlushAsync(CancellationToken.None);
+                await settling.WriteAsync();
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -132,7 +143,81 @@ internal static class CatalogConfirmApi
                 statusCode: StatusCodes.Status500InternalServerError);
         }
 
-        return TypedResults.Ok(new CatalogConfirmed(seen.InForce.Version, seen.Draft.Version, breaking));
+        return TypedResults.Ok(new CatalogConfirmed(seen.InForce.Version, seen.Draft.Version, breaking, settling.Result));
+    }
+
+    /// <summary>
+    /// Reads the pass's proposals against the declarations the confirmation puts in force, and the settled records already
+    /// kept: a pass is recorded once, by the first confirmation that follows its review — a later one finds it there.
+    /// </summary>
+    private static async Task<Settling> PrepareSettlement(ConsoleCatalogOptions options, IReadOnlyList<Declaration> inForce, string settledBy, DateTimeOffset at, CancellationToken ct)
+    {
+        if (options.SettledRecords.Length == 0)
+        {
+            return Settling.None;
+        }
+
+        try
+        {
+            var proposed = ProposedDeclarations.Parse(await File.ReadAllTextAsync(options.Proposals, ct));
+            var kept = File.Exists(options.SettledRecords) ? await File.ReadAllLinesAsync(options.SettledRecords, ct) : [];
+            if (ReviewSettlement.RecordsPass(kept, proposed.Pass))
+            {
+                return Settling.Already(new ConfirmedSettlement(proposed.Pass, false, proposed.Added.Count, 0));
+            }
+
+            var lines = ReviewSettlement.Lines(proposed, inForce, at, settledBy);
+            return Settling.Record(options.SettledRecords, lines, new ConfirmedSettlement(proposed.Pass, true, lines.Count, ReviewSettlement.CountTaken(lines)));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            return Settling.Refused(TypedResults.Problem(
+                title: "The review could not be settled.",
+                detail: $"Saem:Console:Proposals and Saem:Console:SettledRecords must be readable, and the settled records must hold only JSON lines: {e.Message}",
+                statusCode: StatusCodes.Status500InternalServerError));
+        }
+    }
+
+    /// <summary>The settled records one confirmation adds, held until the catalog is replaced.</summary>
+    private sealed class Settling : IAsyncDisposable
+    {
+        public static readonly Settling None = new();
+
+        private string? _path;
+        private IReadOnlyList<string> _lines = [];
+        private FileStream? _file;
+
+        public IResult? Problem { get; private init; }
+
+        public ConfirmedSettlement? Result { get; private init; }
+
+        public static Settling Already(ConfirmedSettlement result) => new() { Result = result };
+
+        public static Settling Record(string path, IReadOnlyList<string> lines, ConfirmedSettlement result) => new() { _path = path, _lines = lines, Result = result };
+
+        public static Settling Refused(IResult problem) => new() { Problem = problem };
+
+        /// <summary>Opens the records for adding, when there is anything to add.</summary>
+        public void Open()
+        {
+            if (_path is not null)
+            {
+                _file = new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read);
+            }
+        }
+
+        public ValueTask DisposeAsync() => _file is null ? ValueTask.CompletedTask : _file.DisposeAsync();
+
+        public async Task WriteAsync()
+        {
+            if (_file is null)
+            {
+                return;
+            }
+
+            await _file.WriteAsync(Encoding.UTF8.GetBytes(string.Concat(_lines.Select(l => l + "\n"))), CancellationToken.None);
+            await _file.FlushAsync(CancellationToken.None);
+        }
     }
 
     /// <summary>Puts the draft's bytes where the catalog is, whole or not at all.</summary>
@@ -246,4 +331,12 @@ public sealed record CatalogDraftView(string InForce, string Draft, IReadOnlyLis
 public sealed record CatalogDraftChange(string Kind, string Declaration, string Change);
 
 /// <summary>The catalog version a confirmation replaced and the one now in force.</summary>
-public sealed record CatalogConfirmed(string From, string To, int Breaking);
+/// <param name="Settlement">What the review took of the pass's proposals, when the console records it (<c>Saem:Console:SettledRecords</c>); null otherwise.</param>
+public sealed record CatalogConfirmed(string From, string To, int Breaking, ConfirmedSettlement? Settlement = null);
+
+/// <summary>What a confirmation made of the pass whose proposals the draft was reviewed from.</summary>
+/// <param name="Pass">The pass.</param>
+/// <param name="Recorded"><c>true</c> when this confirmation added the pass's settled records; <c>false</c> when an earlier one had.</param>
+/// <param name="Proposals">How many proposals the pass made.</param>
+/// <param name="Taken">How many of them the catalog now holds (0 when the pass was recorded earlier).</param>
+public sealed record ConfirmedSettlement(string Pass, bool Recorded, int Proposals, int Taken);

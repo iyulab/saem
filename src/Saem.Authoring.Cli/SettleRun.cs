@@ -90,13 +90,12 @@ internal static class SettleRun
 
         var lines = ReviewSettlement.Lines(proposed, inForce, settledAt, options.SettledBy);
         var text = new StringBuilder();
-        var taken = 0;
         foreach (var line in lines)
         {
             text.Append(line).Append('\n');
-            using var record = JsonDocument.Parse(line);
-            taken += record.RootElement.GetProperty("values").GetProperty("taken").GetString() == "yes" ? 1 : 0;
         }
+
+        var taken = ReviewSettlement.CountTaken(lines);
 
         await File.AppendAllTextAsync(options.RecordsPath, text.ToString(), cancellationToken).ConfigureAwait(false);
         await log.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
@@ -110,27 +109,13 @@ internal static class SettleRun
             return false;
         }
 
-        foreach (var line in await File.ReadAllLinesAsync(path, cancellationToken).ConfigureAwait(false))
+        try
         {
-            if (line.Length == 0)
-            {
-                continue;
-            }
-
-            try
-            {
-                using var record = JsonDocument.Parse(line);
-                if (record.RootElement.TryGetProperty("batch", out var batch) && batch.ValueKind == JsonValueKind.String && batch.GetString() == pass)
-                {
-                    return true;
-                }
-            }
-            catch (JsonException e)
-            {
-                throw new AuthorRunException($"The settled records '{path}' hold a line that is not JSON: {e.Message}", e);
-            }
+            return ReviewSettlement.RecordsPass(await File.ReadAllLinesAsync(path, cancellationToken).ConfigureAwait(false), pass);
         }
-
-        return false;
+        catch (JsonException e)
+        {
+            throw new AuthorRunException($"The settled records '{path}' hold a line that is not JSON: {e.Message}", e);
+        }
     }
 }

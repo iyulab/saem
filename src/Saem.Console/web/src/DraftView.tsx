@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Answer, type CatalogDraft, type Confirmed } from "./api";
-import { mayConfirm, nextStep, split } from "./draft";
+import { mayConfirm, nextStep, settlementLine, split } from "./draft";
 
 /** The draft against the catalog in force: what it adds, what can break, and the confirmation that puts it in force. */
 export function DraftView() {
@@ -54,7 +54,7 @@ export function DraftView() {
       </p>
       {done && (
         <p role="status">
-          Confirmed: the catalog in force is now <code>{done.to}</code> (was <code>{done.from}</code>).
+          Confirmed: the catalog in force is now <code>{done.to}</code> (was <code>{done.from}</code>). {settlementLine(done.settlement)}
         </p>
       )}
       {draft.value.draft === draft.value.inForce ? (

@@ -23,6 +23,12 @@ public sealed class ConsoleCatalogOptions
     /// the draft proposal by proposal in the console. Empty: the console shows and confirms the draft as a whole only.
     /// </summary>
     public string Proposals { get; set; } = "";
+
+    /// <summary>
+    /// The settled records, one JSON line each in the form Gil reads (<c>saem-author settle --records</c>); with it, confirming
+    /// the draft also records what the review took of <see cref="Proposals"/>, once per pass. Empty: nothing is recorded.
+    /// </summary>
+    public string SettledRecords { get; set; } = "";
 }
 
 /// <summary>

@@ -646,9 +646,10 @@ asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` 
 `Saem:Console:Executors:<group>` (the address and secret of the group's `saem-materialize serve`, optional),
 `Saem:Console:Draft` and `Saem:Console:Confirmations` (the draft a builder confirms and the file each confirmation is
 recorded in — set together, optional) and `Saem:Console:Proposals` (the proposals file `saem-author --proposals`
-wrote for that draft — needs the draft, optional).
+wrote for that draft — needs the draft, optional) and `Saem:Console:SettledRecords` (the settled-records file
+`saem-author settle --records` adds to — needs the proposals, optional).
 
-A builder confirms a catalog draft in the console rather than by copying a file. `GET /api/catalog/draft` reads
+A builder confirms a catalog draft in the console rather than by copying a file. With the settled records set, a confirmation also records what the review took of the pass's proposals — one line each in the form `saem-author settle` writes, taken or not, in the name of the person confirming — once per pass: a later confirmation of the same pass finds it already recorded. Proposals that cannot be read stop the confirmation. `GET /api/catalog/draft` reads
 the draft (the file `saem-author --draft` wrote, after its review) against the catalog in force: both versions, and
 each change between them, the ones that can break what was built on the catalog first. `POST /api/catalog/confirm`
 with `{ "base": …, "draft": …, "acknowledgeBreaking": … }` — the versions the builder saw — replaces the catalog

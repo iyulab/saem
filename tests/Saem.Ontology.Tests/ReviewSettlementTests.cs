@@ -2,7 +2,7 @@ using System.Text.Json;
 using Saem.Ontology;
 using Xunit;
 
-namespace Saem.Authoring.Tests;
+namespace Saem.Ontology.Tests;
 
 /// <summary>
 /// A pass's proposals read against the catalog a review left in force, as settled records in the form Gil
@@ -26,6 +26,22 @@ public sealed class ReviewSettlementTests
         ReviewSettlement.Lines(Proposed, inForce, SettledAt, settledBy)
             .Select(line => JsonDocument.Parse(line).RootElement.Clone())
             .ToDictionary(r => r.GetProperty("id").GetString()!);
+
+    [Theory]
+    [InlineData("pass-20261025T010203000Z", true)]
+    [InlineData("pass-20261026T010203000Z", false)]
+    public void A_pass_is_recorded_when_a_line_names_it_as_its_batch(string pass, bool recorded)
+    {
+        var lines = ReviewSettlement.Lines(Proposed, [WorkOrder], SettledAt);
+
+        Assert.Equal(recorded, ReviewSettlement.RecordsPass([.. lines, ""], pass));
+    }
+
+    [Fact]
+    public void A_line_that_is_not_json_is_an_error_not_an_absent_pass()
+    {
+        Assert.ThrowsAny<JsonException>(() => ReviewSettlement.RecordsPass(["{not json"], "pass-x"));
+    }
 
     [Fact]
     public void A_proposal_kept_as_it_was_is_accepted_and_one_changed_is_corrected()

@@ -110,6 +110,9 @@ public static class SaemConsole
             .Validate(
                 c => c.Proposals.Length == 0 || c.Draft.Length > 0,
                 "Saem:Console:Proposals are the proposals of the pass that wrote the draft: it needs Saem:Console:Draft.")
+            .Validate(
+                c => c.SettledRecords.Length == 0 || c.Proposals.Length > 0,
+                "Saem:Console:SettledRecords records what the review took of the pass's proposals: it needs Saem:Console:Proposals.")
             .ValidateOnStart();
         services.AddSingleton<IOntologyCatalog>(provider => new FileOntologyCatalog(provider.GetRequiredService<IOptions<ConsoleCatalogOptions>>().Value.Ontology));
         services.Configure<ConsoleLookupOptions>(console.GetSection("Lookup"));

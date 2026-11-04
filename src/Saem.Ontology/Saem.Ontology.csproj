@@ -11,4 +11,8 @@
     <ProjectReference Include="..\Saem.Contracts\Saem.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Saem.Ontology.Tests" />
+  </ItemGroup>
+
 </Project>

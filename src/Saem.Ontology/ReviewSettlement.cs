@@ -2,9 +2,8 @@ using System.Globalization;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using Saem.Ontology;
 
-namespace Saem.Authoring;
+namespace Saem.Ontology;
 
 /// <summary>
 /// What a person did with a pass's proposals, as settled records in the form Gil reads
@@ -163,6 +162,45 @@ public static class ReviewSettlement
                     break;
             }
         }
+    }
+
+    /// <summary>Whether any of the settled-record <paramref name="lines"/> belongs to the batch <paramref name="pass"/>.</summary>
+    /// <exception cref="JsonException">A line is not JSON.</exception>
+    public static bool RecordsPass(IEnumerable<string> lines, string pass)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        ArgumentNullException.ThrowIfNull(pass);
+
+        foreach (var line in lines)
+        {
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            using var record = JsonDocument.Parse(line);
+            if (record.RootElement.TryGetProperty("batch", out var batch) && batch.ValueKind == JsonValueKind.String && batch.GetString() == pass)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>How many of the settled-record <paramref name="lines"/> are of a proposal the review took (<c>taken</c> is <c>yes</c>).</summary>
+    public static int CountTaken(IEnumerable<string> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+
+        var taken = 0;
+        foreach (var line in lines)
+        {
+            using var record = JsonDocument.Parse(line);
+            taken += record.RootElement.GetProperty("values").GetProperty("taken").GetString() == "yes" ? 1 : 0;
+        }
+
+        return taken;
     }
 
     /// <summary>A pass id from the time it ran — sortable, and the same text on every machine.</summary>
