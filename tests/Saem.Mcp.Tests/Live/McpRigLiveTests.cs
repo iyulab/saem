@@ -113,6 +113,11 @@ public sealed class McpRigLiveTests : IAsyncLifetime
         var hops = claim.GetProperty("path").EnumerateArray().ToList();
         Assert.Equal(["WorkOrder", "Item", "Supplier"], [hops[0].GetProperty("from").GetProperty("type").GetString(), hops[0].GetProperty("to").GetProperty("type").GetString(), hops[1].GetProperty("to").GetProperty("type").GetString()]);
 
+        // Each hop carries the row the person just read to take it: the work order in mes, then the item in erp.
+        Assert.Equal(
+            [("mes", "work_orders", "WO-2"), ("erp", "visible_items", "I-200")],
+            hops.Select(h => (h.GetProperty("source").GetProperty("system").GetString(), h.GetProperty("source").GetProperty("table").GetString(), h.GetProperty("source").GetProperty("record").GetString())));
+
         // bob may see WO-2 in mes, but not its item in erp: refused at the hop into erp, naming erp.
         var refusal = forBob.StructuredContent!.Value.GetProperty("refusal");
         Assert.Equal(1, refusal.GetProperty("atHop").GetInt32());
