@@ -79,7 +79,7 @@ export function ReviewView({ onOpenDraft }: { onOpenDraft: () => void }) {
         {taking.length > 0 && (
           <>
             <button disabled={working} onClick={() => decide({ take: taking })}>
-              Take all {taking.length} left
+              Take back all left ({taking.length})
             </button>{" "}
           </>
         )}
