@@ -32,6 +32,13 @@ public sealed class SourceOptions
     public Dictionary<string, string> MySql { get; } = new(StringComparer.Ordinal);
 
     /// <summary>
+    /// MySQL sources that take the person's token as the login, by the system name the ontology declares. The
+    /// source's account for a person is named by the token's subject (<see cref="MySqlTokenSourceOptions"/>), so
+    /// it needs no per-person configuration either.
+    /// </summary>
+    public Dictionary<string, MySqlTokenSourceOptions> MySqlToken { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// MorphDB sources, by the system name the ontology declares. Each is read with a token exchanged
     /// for its audience (<see cref="TokenExchange"/>), so it needs no per-person configuration.
     /// </summary>
@@ -48,8 +55,9 @@ public sealed class SourceOptions
 
     /// <summary>
     /// The interim password logins, by system and then by person. The person's token cannot yet reach
-    /// a PostgreSQL or MySQL source (the drivers do not speak <c>OAUTHBEARER</c>), so each person logs in
-    /// with a login of their own that the source maps to their role.
+    /// a PostgreSQL source (the driver does not speak <c>OAUTHBEARER</c>), and a MySQL source takes it only
+    /// when it is configured under <see cref="MySqlToken"/>; so each person logs in with a login of their own
+    /// that the source maps to their role.
     /// </summary>
     // TODO(upstream: npgsql/npgsql#6156): replace with token exchange for PostgreSQL once the driver can present a bearer token.
     public Dictionary<string, Dictionary<string, PasswordLogin>> PasswordLogins { get; } = new(StringComparer.Ordinal);
@@ -68,6 +76,20 @@ public sealed class MorphDbSourceOptions
     public string Audience { get; set; } = "";
 }
 
+/// <summary>
+/// One MySQL source that logs a person in with a token exchanged for it (the server's OpenID Connect login):
+/// where it is, and the audience its tokens must carry. The account a session logs in as is named by the
+/// token's subject — the source's account for that person is created for that subject.
+/// </summary>
+public sealed class MySqlTokenSourceOptions
+{
+    /// <summary>The connection string without a login: server, port, database, TLS.</summary>
+    public string ConnectionString { get; set; } = "";
+
+    /// <summary>The audience the source accepts.</summary>
+    public string Audience { get; set; } = "";
+}
+
 /// <summary>A login to one source: the user name and the password.</summary>
 public sealed class PasswordLogin
 {
@@ -80,7 +102,8 @@ public sealed class PasswordLogin
 
 /// <summary>
 /// Logs each person in to each configured source the way that source can: MorphDB with a token exchanged
-/// from the request's, PostgreSQL and MySQL with the person's own password login. A person without a
+/// from the request's, a MySQL source configured for tokens the same way, PostgreSQL and the other MySQL sources with
+/// the person's own password login. A person without a
 /// login for a password source gets no opener for it, so a lookup that reaches that system fails rather
 /// than reading as someone else.
 /// </summary>
@@ -90,6 +113,7 @@ internal sealed class ConfiguredSourceLogins : ISourceLogins
 
     private readonly Dictionary<string, Login> _passwordSources = new(StringComparer.Ordinal);
     private readonly Dictionary<string, (MorphDbSource Source, string Audience)> _tokenSources = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (MySqlSource Source, string Audience)> _mySqlTokenSources = new(StringComparer.Ordinal);
     private readonly SourceOptions _options;
     private readonly TokenExchange? _exchange;
 
@@ -118,7 +142,17 @@ internal sealed class ConfiguredSourceLogins : ISourceLogins
             Add(system, () => _tokenSources.TryAdd(system, (new MorphDbSource(http, morphDb.ProjectId), morphDb.Audience)));
         }
 
-        if (_tokenSources.Count > 0)
+        foreach (var (system, mySql) in _options.MySqlToken)
+        {
+            if (string.IsNullOrWhiteSpace(mySql.ConnectionString) || string.IsNullOrWhiteSpace(mySql.Audience))
+            {
+                throw new InvalidOperationException($"The MySQL source '{system}' takes a token: name its connection string and the audience its tokens must carry.");
+            }
+
+            Add(system, () => _mySqlTokenSources.TryAdd(system, (new MySqlSource(mySql.ConnectionString), mySql.Audience)));
+        }
+
+        if (_tokenSources.Count > 0 || _mySqlTokenSources.Count > 0)
         {
             _exchange = new TokenExchange(httpClients.CreateClient(nameof(TokenExchange)), _options.TokenExchange);
         }
@@ -126,7 +160,7 @@ internal sealed class ConfiguredSourceLogins : ISourceLogins
 
     private void Add(string system, Func<bool> add)
     {
-        if (_passwordSources.ContainsKey(system) || _tokenSources.ContainsKey(system) || !add())
+        if (_passwordSources.ContainsKey(system) || _tokenSources.ContainsKey(system) || _mySqlTokenSources.ContainsKey(system) || !add())
         {
             throw new InvalidOperationException($"The source system '{system}' is configured twice; a system is one source.");
         }
@@ -148,6 +182,12 @@ internal sealed class ConfiguredSourceLogins : ISourceLogins
         foreach (var (system, (source, audience)) in _tokenSources)
         {
             openers.Add(system, source.As(ct => _exchange!.ForAsync(token, audience, ct)));
+        }
+
+        foreach (var (system, (source, audience)) in _mySqlTokenSources)
+        {
+            // The account is the person's subject; the token is fetched when the session opens, because it is short-lived.
+            openers.Add(system, source.As(person.Subject, ct => _exchange!.ForAsync(token, audience, ct), SessionName(lookupId)));
         }
 
         return new PersonSessions(openers);

@@ -128,6 +128,50 @@ public class SourceLoginsTests
     }
 
     [Fact]
+    public async Task A_mysql_token_source_is_logged_in_to_with_a_token_exchanged_for_its_audience()
+    {
+        var recorder = new Recorder((_, _) => Json(new { access_token = "exchanged-for-erp" }));
+        var options = new SourceOptions { TokenExchange = Exchange };
+        // Nothing listens there: the session cannot open, but the exchange comes first and is what this shows.
+        options.MySqlToken["erp"] = new MySqlTokenSourceOptions { ConnectionString = "Server=127.0.0.1;Port=1;Database=erp", Audience = "erp-aud" };
+        var logins = new ConfiguredSourceLogins(Options.Create(options), new Clients(recorder));
+
+        var sessions = logins.SessionsFor(new Person("alice", null), new PresentedToken("alice-token"), "lookup-1");
+        await Assert.ThrowsAnyAsync<Exception>(async () => await sessions.OpenAsync("erp", TestContext.Current.CancellationToken));
+
+        var (exchange, body) = Assert.Single(recorder.Requests);
+        Assert.Equal("issuer.test", exchange.RequestUri!.Host);
+        Assert.Contains("audience=erp-aud", body, StringComparison.Ordinal);
+        Assert.Contains("subject_token=alice-token", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_mysql_token_source_without_an_audience_a_connection_or_an_exchange_is_refused_at_start()
+    {
+        var noAudience = new SourceOptions { TokenExchange = Exchange };
+        noAudience.MySqlToken["erp"] = new MySqlTokenSourceOptions { ConnectionString = "Server=erp;Database=erp" };
+        Assert.Throws<InvalidOperationException>(() => new ConfiguredSourceLogins(Options.Create(noAudience), new Clients(new HttpClientHandler())));
+
+        var noConnection = new SourceOptions { TokenExchange = Exchange };
+        noConnection.MySqlToken["erp"] = new MySqlTokenSourceOptions { Audience = "a" };
+        Assert.Throws<InvalidOperationException>(() => new ConfiguredSourceLogins(Options.Create(noConnection), new Clients(new HttpClientHandler())));
+
+        var noExchange = new SourceOptions();
+        noExchange.MySqlToken["erp"] = new MySqlTokenSourceOptions { ConnectionString = "Server=erp;Database=erp", Audience = "a" };
+        Assert.Throws<InvalidOperationException>(() => new ConfiguredSourceLogins(Options.Create(noExchange), new Clients(new HttpClientHandler())));
+    }
+
+    [Fact]
+    public void A_mysql_system_that_takes_a_password_and_a_token_is_refused()
+    {
+        var twice = new SourceOptions { TokenExchange = Exchange };
+        twice.MySql["erp"] = "Server=erp;Database=erp";
+        twice.MySqlToken["erp"] = new MySqlTokenSourceOptions { ConnectionString = "Server=erp;Database=erp", Audience = "a" };
+
+        Assert.Throws<InvalidOperationException>(() => new ConfiguredSourceLogins(Options.Create(twice), new Clients(new HttpClientHandler())));
+    }
+
+    [Fact]
     public void A_system_configured_as_two_sources_is_refused()
     {
         var twice = new SourceOptions { TokenExchange = Exchange };

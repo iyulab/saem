@@ -541,9 +541,11 @@ person's behalf (RFC 8693). A request without a valid token gets `401` with a po
 (RFC 9728 protected resource metadata). Each person then logs in to each source the way that source
 can. A MorphDB source takes the person's token itself: the server exchanges the token it was called
 with for one meant for that source (RFC 8693 token exchange at the same issuer, as saem's own client),
-and the source checks it. PostgreSQL and MySQL sources take a password login configured per person,
-until their drivers can present a token. The token the request presented is kept only for the
-exchange and never logged.
+and the source checks it. A MySQL source that runs an OpenID Connect login (Percona Server's
+`auth_openid_connect`) is configured under `MySqlToken` and is read the same way: the exchanged token
+is the session's login, and the account is named by the token's subject. PostgreSQL sources, and MySQL
+sources not configured for tokens, take a password login configured per person (PostgreSQL until its
+driver can present a token). The token the request presented is kept only for the exchange and never logged.
 
 Each lookup gets an id — the request's W3C trace id when it has one — which the server logs with the
 person and the agent, and which each source session carries as its name (`application_name=saem/<id>`
@@ -570,6 +572,7 @@ acts under (`delegation`: the agent's token's `jti` and `iss`, as the issuer nam
     "Sources": {
       "Postgres": { "mes": "Host=mes;Database=postgres;SSL Mode=Require" },
       "MySql": { "erp": "Server=erp;Database=erp;SslMode=Required" },
+      "MySqlToken": { "ledger": { "ConnectionString": "Server=ledger;Database=ledger;SslMode=Required", "Audience": "ledger" } },
       "MorphDb": { "forms": { "Url": "https://forms.example/", "ProjectId": "…", "Audience": "morphdb" } },
       "TokenExchange": { "TokenEndpoint": "https://issuer.example/realm/token", "ClientId": "saem", "ClientSecret": "…" },
       "PasswordLogins": {
