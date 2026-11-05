@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, type Answer, type EntityKey, type Job } from "./api";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { api, type Answer, type Catalog, type EntityKey, type Job, type PairCandidate } from "./api";
+import { compare, sideOf, type CompareRow } from "./compare";
 import { awaiting, latestCandidates, pairKey, runningJob } from "./jobs";
+import { fieldsOf } from "./localGraph";
 
 const POLL_MS = 2000;
 
 /**
  * The pairs a person is yet to judge, from a group's executor: an identity a person settles lists what its rule found,
- * and a builder says each pair is one thing or two. The console shows IRIs and scores only — it reads no record, and a
- * judgment is filed by the executor in the name of the one who asked. The group's things change on its next pass.
+ * and a builder says each pair is one thing or two. The executor's list holds IRIs and scores only. "Compare" reads the two
+ * entities' declared fields as the person judging — the way "Look" does, with the same lookup and the same rights — and
+ * lays them side by side; what they cannot read they do not see. A judgment is filed by the executor in the name of the
+ * one who asked. The group's things change on its next pass.
  */
 export function JudgmentsView({ onOpenLocal }: { onOpenLocal: (entity: EntityKey) => void }) {
   const [groups, setGroups] = useState<Answer<Array<{ group: string }>> | null>(null);
@@ -61,6 +65,8 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
   const [jobs, setJobs] = useState<Answer<Job[]> | null>(null);
   const [judged, setJudged] = useState<ReadonlySet<string>>(new Set());
   const [refused, setRefused] = useState<string | null>(null);
+  const [compared, setCompared] = useState<ReadonlyMap<string, Comparison>>(new Map());
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
 
   const load = useCallback(() => api.jobs(group).then(setJobs), [group]);
   useEffect(() => {
@@ -96,6 +102,54 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
       }
       load();
     });
+  };
+
+  const setComparison = (key: string, value: Comparison | null) =>
+    setCompared((before) => {
+      const next = new Map(before);
+      if (value === null) {
+        next.delete(key);
+      } else {
+        next.set(key, value);
+      }
+      return next;
+    });
+
+  const side = (c: PairCandidate) => {
+    const key = pairKey(c);
+    if (compared.has(key)) {
+      setComparison(key, null);
+      return;
+    }
+    setComparison(key, "reading");
+    void (async () => {
+      let declared = catalog;
+      if (declared === null) {
+        const answer = await api.catalog();
+        if (!answer.ok) {
+          setComparison(key, { problem: "problem" in answer ? answer.problem : "The catalog could not be read." });
+          return;
+        }
+        declared = answer.value;
+        setCatalog(declared);
+      }
+      const [one, other] = [c.firstEntity, c.secondEntity];
+      if (one === null || other === null) {
+        setComparison(key, { problem: "One of the two is under no declared type, so its fields cannot be read." });
+        return;
+      }
+      const [first, second] = await Promise.all([
+        api.lookup({ start: one, path: [], read: fieldsOf(declared, one.type) }),
+        api.lookup({ start: other, path: [], read: fieldsOf(declared, other.type) }),
+      ]);
+      if (!first.ok || !second.ok) {
+        const failed = !first.ok ? first : second;
+        setComparison(key, { problem: "problem" in failed ? failed.problem : "The lookup was refused." });
+        return;
+      }
+      const fields = [...new Set([...fieldsOf(declared, one.type), ...fieldsOf(declared, other.type)])];
+      setComparison(key, { rows: compare(fields, sideOf(first.value, one), sideOf(second.value, other)) });
+    })();
   };
 
   const judge = (c: (typeof left)[number], same: boolean) => {
@@ -145,7 +199,8 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
                 </thead>
                 <tbody>
                   {left.map((c) => (
-                    <tr key={pairKey(c)}>
+                    <Fragment key={pairKey(c)}>
+                    <tr>
                       <td>{c.identity}</td>
                       <td><Entity iri={c.first} entity={c.firstEntity} onOpen={onOpenLocal} /></td>
                       <td><Entity iri={c.second} entity={c.secondEntity} onOpen={onOpenLocal} /></td>
@@ -156,9 +211,20 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
                         </button>{" "}
                         <button className="button" disabled={running !== undefined} onClick={() => judge(c, false)}>
                           Different
+                        </button>{" "}
+                        <button className="link" title="Read both as yourself and lay their fields side by side" onClick={() => side(c)}>
+                          {compared.has(pairKey(c)) ? "Hide" : "Compare"}
                         </button>
                       </td>
                     </tr>
+                    {compared.has(pairKey(c)) && (
+                      <tr>
+                        <td colSpan={5}>
+                          <Side comparison={compared.get(pairKey(c))!} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -184,5 +250,43 @@ function Entity({ iri, entity, onOpen }: { iri: string; entity: EntityKey | null
         </>
       )}
     </>
+  );
+}
+
+/** What comparing a pair came to: still reading, why it could not be read, or the fields side by side. */
+type Comparison = "reading" | { problem: string } | { rows: CompareRow[] };
+
+/** The two entities' declared fields in two columns, differences marked — what this person can read of each, no more. */
+function Side({ comparison }: { comparison: Comparison }) {
+  if (comparison === "reading") {
+    return <p className="muted">Reading both as you…</p>;
+  }
+  if ("problem" in comparison) {
+    return <p role="alert">{comparison.problem}</p>;
+  }
+  if (comparison.rows.length === 0) {
+    return <p className="muted">Neither declares a field to read.</p>;
+  }
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>One entity</th>
+          <th>The other</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {comparison.rows.map((r) => (
+          <tr key={r.field} className={r.verdict === "different" ? "differs" : undefined}>
+            <th scope="row">{r.field}</th>
+            <td>{r.one ?? <span className="muted">—</span>}</td>
+            <td>{r.other ?? <span className="muted">—</span>}</td>
+            <td className="muted">{r.verdict === "same" ? "same" : r.verdict === "different" ? "differs" : "one side only — empty, or not readable by you"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

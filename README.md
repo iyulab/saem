@@ -482,7 +482,9 @@ people; whoever holds a secret may ask in anyone's name. The console is told whe
 listens by `Saem:Console:Executors:<group>:Address` and `…:Secret`, and shows a builder what the executor
 printed — except for a `check`, whose lines and report it shows without the records they cite.
 A builder reads the pairs a person is yet to judge on the console's Judgments screen — IRIs and scores, no
-record — and files each as the same thing or two; the group's things change on its next pass.
+record — and files each as the same thing or two; the group's things change on its next pass. *Compare* lays the two
+entities' declared fields side by side, read as the person judging with the same lookup the local graph uses, so a
+value they cannot read is absent from the comparison, not filled in.
 
 `Saem.Connectors.Postgres` and `Saem.Connectors.MySql` are the first such sources. Where a database is
 the system's interface, reading it over its own protocol, as the person, *is* talking to it over its

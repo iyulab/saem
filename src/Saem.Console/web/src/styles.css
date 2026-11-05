@@ -76,3 +76,4 @@ tr.worse th, tr.worse td { color: #c2411b; }
 td pre { margin: 8px 0; padding: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-size: 0.85em; overflow: auto; }
 
 textarea { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; padding: 8px; font-family: var(--mono, monospace); font-size: 0.85em; background: var(--bg); color: inherit; border: 1px solid var(--line); border-radius: 6px; }
+tr.differs td, tr.differs th { background: color-mix(in srgb, var(--accent) 10%, transparent); }
