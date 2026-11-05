@@ -147,6 +147,90 @@ public sealed class AuthoringReviewApiTests : IAsyncLifetime
         Assert.Equal("stale-draft", refused.View.GetProperty("code").GetString());
     }
 
+    private static JsonElement Declared(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
+    // D-92 ②: editing a proposal is the same kind of write as taking or leaving one — the draft file, behind the same lock.
+    [Fact]
+    public async Task Editing_a_proposal_puts_the_builders_declaration_in_its_place_in_the_draft_and_shows_it_edited_with_both()
+    {
+        using var builder = Builder();
+        var view = await Read(builder);
+        var renamed = Declared(Shift.Replace("shifts", "work_shifts", StringComparison.Ordinal));
+
+        var edited = await Review(builder, view.Draft, new { edit = new Dictionary<string, JsonElement> { ["entityType:Shift"] = renamed } });
+
+        Assert.Equal(HttpStatusCode.OK, edited.Status);
+        Assert.Equal("edited", State(edited.View, "entityType:Shift"));
+        Assert.Equal("taken", State(edited.View, "entityType:Equipment"));
+        var shift = edited.View.GetProperty("proposals").EnumerateArray().Single(p => p.GetProperty("id").GetString() == "entityType:Shift");
+        Assert.Equal("shifts", shift.GetProperty("declaration").GetProperty("table").GetString());
+        Assert.Equal("work_shifts", shift.GetProperty("current").GetProperty("table").GetString());
+        Assert.NotEqual(view.Draft, edited.View.GetProperty("draft").GetString());
+        var kept = JsonSerializer.Deserialize(await File.ReadAllTextAsync(_draft, TestContext.Current.CancellationToken), OntologyJson.Default.IReadOnlyListDeclaration)!;
+        Assert.Equal(["Line", "Equipment", "Shift", "on_line"], kept.Select(d => d.Name));
+        Assert.Equal($"[{Line}]", await File.ReadAllTextAsync(_server.OntologyFile, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Editing_a_proposal_the_draft_lacks_takes_it_in_as_the_builder_wrote_it()
+    {
+        using var builder = Builder();
+        var view = await Read(builder);
+        var left = await Review(builder, view.Draft, new { leave = ShiftId });
+
+        var edited = await Review(builder, left.View.GetProperty("draft").GetString()!, new { edit = new Dictionary<string, JsonElement> { ["entityType:Shift"] = Declared(Shift.Replace("shifts", "work_shifts", StringComparison.Ordinal)) } });
+
+        Assert.Equal("edited", State(edited.View, "entityType:Shift"));
+        Assert.Contains("work_shifts", await File.ReadAllTextAsync(_draft, TestContext.Current.CancellationToken), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_edit_that_changes_nothing_leaves_the_proposal_taken()
+    {
+        using var builder = Builder();
+        var view = await Read(builder);
+
+        var same = await Review(builder, view.Draft, new { edit = new Dictionary<string, JsonElement> { ["entityType:Shift"] = Declared(Shift) } });
+
+        Assert.Equal(HttpStatusCode.OK, same.Status);
+        Assert.Equal("taken", State(same.View, "entityType:Shift"));
+        Assert.Equal(view.Draft, same.View.GetProperty("draft").GetString());
+    }
+
+    [Theory]
+    [InlineData("""{ "kind": "entityType", "name": "Other", "system": "mes", "table": "t", "key": "k", "fields": { "a": "a" } }""", HttpStatusCode.BadRequest, "other-declaration")]
+    [InlineData("""{ "kind": "nonsense", "name": "Shift" }""", HttpStatusCode.UnprocessableEntity, "unreadable-edit")]
+    [InlineData("""{ "kind": "relation", "name": "on_line", "from": "Equipment", "via": "line", "to": "Nowhere" }""", HttpStatusCode.UnprocessableEntity, "inconsistent")]
+    public async Task An_edit_that_is_not_a_declaration_of_that_proposal_or_would_leave_the_draft_inconsistent_is_not_made(string written, HttpStatusCode status, string code)
+    {
+        using var builder = Builder();
+        var view = await Read(builder);
+        var before = await File.ReadAllTextAsync(_draft, TestContext.Current.CancellationToken);
+        var id = code == "inconsistent" ? "relation:on_line" : "entityType:Shift";
+
+        var refused = await Review(builder, view.Draft, new { edit = new Dictionary<string, JsonElement> { [id] = Declared(written) } });
+
+        Assert.Equal(status, refused.Status);
+        Assert.Equal(code, refused.View.GetProperty("code").GetString());
+        Assert.Equal(before, await File.ReadAllTextAsync(_draft, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task An_edit_is_refused_against_a_draft_that_moved_and_cannot_also_leave_the_same_proposal()
+    {
+        using var builder = Builder();
+        var view = await Read(builder);
+        var edit = new Dictionary<string, JsonElement> { ["entityType:Shift"] = Declared(Shift.Replace("shifts", "work_shifts", StringComparison.Ordinal)) };
+
+        var both = await Review(builder, view.Draft, new { edit, leave = ShiftId });
+        await File.WriteAllTextAsync(_draft, $"[{Line},{Equipment},{OnLine}]", TestContext.Current.CancellationToken);
+        var stale = await Review(builder, view.Draft, new { edit });
+
+        Assert.Equal("contradiction", both.View.GetProperty("code").GetString());
+        Assert.Equal(HttpStatusCode.Conflict, stale.Status);
+        Assert.Equal("stale-draft", stale.View.GetProperty("code").GetString());
+    }
+
     [Theory]
     [InlineData("""{ "draft": "v", "take": ["entityType:Nobody"] }""", HttpStatusCode.BadRequest, "unknown-proposal")]
     [InlineData("""{ "draft": "v", "take": ["entityType:Shift"], "leave": ["entityType:Shift"] }""", HttpStatusCode.BadRequest, "contradiction")]

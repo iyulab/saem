@@ -181,7 +181,7 @@ export const api = {
   confirm: (seen: Pick<CatalogDraft, "inForce" | "draft">, acknowledgeBreaking: boolean) =>
     ask<Confirmed>("/api/catalog/confirm", change({ base: seen.inForce, draft: seen.draft, acknowledgeBreaking })),
   review: () => ask<AuthoringReview>("/api/authoring/review"),
-  decide: (draft: string, decision: { take?: string[]; leave?: string[] }) =>
+  decide: (draft: string, decision: { take?: string[]; leave?: string[]; edit?: Record<string, Record<string, unknown>> }) =>
     ask<AuthoringReview>("/api/authoring/review", change({ draft, ...decision })),
   logout: () => ask<void>("/logout", change()),
   executors: () => ask<Array<{ group: string }>>("/api/executors"),

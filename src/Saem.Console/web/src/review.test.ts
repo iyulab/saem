@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthoringReview, ProposalState, ReviewedProposal } from "./api";
-import { action, decisionFor, discardsEdit, readAgain, takeAll, tally } from "./review";
+import { action, decisionFor, discardsEdit, editFor, editableText, parseEdit, readAgain, takeAll, tally, unchanged } from "./review";
 
 const proposal = (name: string, state: ProposalState): ReviewedProposal => ({
   id: `entityType:${name}`,
@@ -42,5 +42,30 @@ describe("reviewing a pass's proposals against the draft", () => {
     expect(readAgain("stale-draft")).toBe(true);
     expect(readAgain("inconsistent")).toBe(false);
     expect(readAgain(undefined)).toBe(false);
+  });
+
+  it("starts an edit from what the draft holds, or from the proposal when the draft holds none", () => {
+    const held = { ...proposal("A", "edited"), current: { kind: "entityType", name: "A", table: "changed" } };
+    expect(JSON.parse(editableText(held))).toEqual({ kind: "entityType", name: "A", table: "changed" });
+    expect(JSON.parse(editableText(proposal("B", "left")))).toEqual({ kind: "entityType", name: "B" });
+  });
+
+  it("reads what the builder wrote as one declaration or says why not", () => {
+    expect(parseEdit('{ "kind": "entityType", "name": "A" }')).toEqual({ ok: true, declaration: { kind: "entityType", name: "A" } });
+    const bad = parseEdit("{ nope");
+    expect(bad.ok).toBe(false);
+    expect(parseEdit("[1]")).toEqual({ ok: false, problem: "A declaration is one JSON object." });
+    expect(parseEdit("null")).toEqual({ ok: false, problem: "A declaration is one JSON object." });
+  });
+
+  it("asks the console to hold the written declaration in the proposal's place", () => {
+    expect(editFor(proposal("A", "taken"), { kind: "entityType", name: "A", table: "t" })).toEqual({ edit: { "entityType:A": { kind: "entityType", name: "A", table: "t" } } });
+  });
+
+  it("sees when saving would change nothing", () => {
+    const p = proposal("A", "taken");
+    expect(unchanged(p, editableText(p))).toBe(true);
+    expect(unchanged(p, '{ "kind": "entityType", "name": "A", "table": "t" }')).toBe(false);
+    expect(unchanged(p, "{ nope")).toBe(false);
   });
 });

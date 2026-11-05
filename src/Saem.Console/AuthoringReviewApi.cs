@@ -27,7 +27,7 @@ internal static class AuthoringReviewApi
             {
                 return TypedResults.Problem(
                     title: "The review is refused.",
-                    detail: "Send draft, the draft version the builder saw, and take and/or leave, arrays of proposal ids such as entityType:Supplier.",
+                    detail: "Send draft, the draft version the builder saw, and take and/or leave, arrays of proposal ids such as entityType:Supplier, and/or edit, an object from a proposal id to the declaration to hold in its place.",
                     statusCode: StatusCodes.Status400BadRequest);
             }
 
@@ -58,7 +58,7 @@ internal static class AuthoringReviewApi
         }
 
         var proposed = loaded.Proposals!.Added.ToDictionary(ProposedDeclarations.IdOf, StringComparer.Ordinal);
-        if (ask.Take.Concat(ask.Leave).FirstOrDefault(id => !proposed.ContainsKey(id)) is { } unknown)
+        if (ask.Take.Concat(ask.Leave).Concat(ask.Edit.Keys).FirstOrDefault(id => !proposed.ContainsKey(id)) is { } unknown)
         {
             return TypedResults.Problem(
                 title: "The review is refused.",
@@ -67,11 +67,11 @@ internal static class AuthoringReviewApi
                 extensions: new Dictionary<string, object?> { ["code"] = "unknown-proposal" });
         }
 
-        if (ask.Take.Intersect(ask.Leave, StringComparer.Ordinal).FirstOrDefault() is { } both)
+        if (ask.Take.Concat(ask.Edit.Keys).Intersect(ask.Leave, StringComparer.Ordinal).FirstOrDefault() is { } both)
         {
             return TypedResults.Problem(
                 title: "The review is refused.",
-                detail: $"'{both}' is both taken and left.",
+                detail: $"'{both}' is both kept (taken or edited) and left.",
                 statusCode: StatusCodes.Status400BadRequest,
                 extensions: new Dictionary<string, object?> { ["code"] = "contradiction" });
         }
@@ -91,6 +91,43 @@ internal static class AuthoringReviewApi
         foreach (var id in ask.Take.Where(id => !held.Contains(id)))
         {
             declarations.Add(proposed[id]);
+        }
+
+        // An edit holds the declaration the builder wrote in the proposal's place: where the draft has it, or last when it has none.
+        foreach (var (id, written) in ask.Edit)
+        {
+            Declaration edited;
+            try
+            {
+                edited = ReadDeclaration(written);
+            }
+            catch (Exception e) when (e is JsonException or NotSupportedException or InvalidOperationException)
+            {
+                return TypedResults.Problem(
+                    title: "The edit is refused.",
+                    detail: $"'{id}' is not a declaration the catalog can read: {e.Message}",
+                    statusCode: StatusCodes.Status422UnprocessableEntity,
+                    extensions: new Dictionary<string, object?> { ["code"] = "unreadable-edit" });
+            }
+
+            if (ProposedDeclarations.IdOf(edited) != id)
+            {
+                return TypedResults.Problem(
+                    title: "The edit is refused.",
+                    detail: $"An edit keeps the proposal's kind and name: this is {ProposedDeclarations.IdOf(edited)}, not {id}.",
+                    statusCode: StatusCodes.Status400BadRequest,
+                    extensions: new Dictionary<string, object?> { ["code"] = "other-declaration" });
+            }
+
+            var at = declarations.FindIndex(d => ProposedDeclarations.IdOf(d) == id);
+            if (at < 0)
+            {
+                declarations.Add(edited);
+            }
+            else
+            {
+                declarations[at] = edited;
+            }
         }
 
         Ontology.Ontology reviewed;
@@ -192,12 +229,24 @@ internal static class AuthoringReviewApi
             return null;
         }
 
-        if (Ids(request, "take") is not { } take || Ids(request, "leave") is not { } leave || take.Count + leave.Count == 0)
+        if (Ids(request, "take") is not { } take || Ids(request, "leave") is not { } leave || Edits(request) is not { } edit || take.Count + leave.Count + edit.Count == 0)
         {
             return null;
         }
 
-        return new ReviewAsk(version, take, leave);
+        return new ReviewAsk(version, take, leave, edit);
+
+        static Dictionary<string, JsonElement>? Edits(JsonElement owner)
+        {
+            if (!owner.TryGetProperty("edit", out var value))
+            {
+                return [];
+            }
+
+            return value.ValueKind == JsonValueKind.Object && value.EnumerateObject().All(p => p.Value.ValueKind == JsonValueKind.Object && p.Name.Length > 0)
+                ? value.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone(), StringComparer.Ordinal)
+                : null;
+        }
 
         static List<string>? Ids(JsonElement owner, string name)
         {
@@ -215,7 +264,14 @@ internal static class AuthoringReviewApi
         }
     }
 
-    private sealed record ReviewAsk(string Draft, List<string> Take, List<string> Leave);
+    private sealed record ReviewAsk(string Draft, List<string> Take, List<string> Leave, Dictionary<string, JsonElement> Edit);
+
+    /// <summary>A declaration as the catalog file writes it.</summary>
+    /// <exception cref="JsonException">The text is not a declaration.</exception>
+    private static Declaration ReadDeclaration(JsonElement written) =>
+        JsonSerializer.Deserialize($"[{written.GetRawText()}]", OntologyJson.Default.IReadOnlyListDeclaration) is [var declaration]
+            ? declaration
+            : throw new JsonException("Send one declaration.");
 
     private sealed class Loaded
     {

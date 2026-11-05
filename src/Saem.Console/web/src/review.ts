@@ -21,3 +21,29 @@ export const takeAll = (review: AuthoringReview) => ({ take: review.proposals.fi
 
 /** Whether a refusal of a review asks the builder to read the draft again: it moved. */
 export const readAgain = (code: string | undefined) => code === "stale-draft";
+
+/** The text an edit starts from: the declaration the draft holds, or the proposed one when the draft holds none. */
+export const editableText = (proposal: ReviewedProposal) => JSON.stringify(proposal.current ?? proposal.declaration, null, 2);
+
+/** What the builder wrote read as one declaration, or why it cannot be sent: the console checks the rest (the kind and name stay, the catalog stays consistent). */
+export const parseEdit = (text: string): { ok: true; declaration: Record<string, unknown> } | { ok: false; problem: string } => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, problem: `That is not valid JSON: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, problem: "A declaration is one JSON object." };
+  }
+  return { ok: true, declaration: parsed as Record<string, unknown> };
+};
+
+/** The review's request for an edit of one proposal. */
+export const editFor = (proposal: ReviewedProposal, declaration: Record<string, unknown>) => ({ edit: { [proposal.id]: declaration } });
+
+/** Whether the text still reads as the declaration it started from, so saving would change nothing. */
+export const unchanged = (proposal: ReviewedProposal, text: string) => {
+  const read = parseEdit(text);
+  return read.ok && JSON.stringify(read.declaration) === JSON.stringify(proposal.current ?? proposal.declaration);
+};

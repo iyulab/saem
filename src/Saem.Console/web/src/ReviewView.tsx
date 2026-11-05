@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Answer, type AuthoringReview, type ReviewedProposal } from "./api";
-import { action, decisionFor, discardsEdit, readAgain, takeAll, tally } from "./review";
+import { action, decisionFor, discardsEdit, editFor, editableText, parseEdit, readAgain, takeAll, tally, unchanged } from "./review";
 
 /**
  * The declarations an authoring pass proposed, one by one against the draft: take one the draft lacks, leave one it holds.
@@ -34,16 +34,17 @@ export function ReviewView({ onOpenDraft }: { onOpenDraft: () => void }) {
 
   const seen = review.value;
   const counts = tally(seen);
-  const decide = async (decision: { take?: string[]; leave?: string[] }) => {
+  const decide = async (decision: Parameters<typeof api.decide>[1]): Promise<boolean> => {
     setWorking(true);
     const answer = await api.decide(seen.draft, decision);
     setWorking(false);
     if (answer.ok) {
       setRefusal(null);
       setReview(answer);
-      return;
+      return true;
     }
     setRefusal({ problem: "problem" in answer ? answer.problem : "The review was refused.", code: "code" in answer ? answer.code : undefined });
+    return false;
   };
 
   const taking = takeAll(seen).take;
@@ -71,7 +72,7 @@ export function ReviewView({ onOpenDraft }: { onOpenDraft: () => void }) {
       <table>
         <tbody>
           {seen.proposals.map((p) => (
-            <ProposalRow key={p.id} proposal={p} busy={working} onDecide={() => decide(decisionFor(p))} />
+            <ProposalRow key={p.id} proposal={p} busy={working} onDecide={() => decide(decisionFor(p))} onEdit={(declaration) => decide(editFor(p, declaration))} />
           ))}
         </tbody>
       </table>
@@ -100,9 +101,33 @@ export function ReviewView({ onOpenDraft }: { onOpenDraft: () => void }) {
   );
 }
 
-function ProposalRow({ proposal, busy, onDecide }: { proposal: ReviewedProposal; busy: boolean; onDecide: () => void }) {
+function ProposalRow({
+  proposal,
+  busy,
+  onDecide,
+  onEdit,
+}: {
+  proposal: ReviewedProposal;
+  busy: boolean;
+  onDecide: () => void;
+  onEdit: (declaration: Record<string, unknown>) => Promise<boolean>;
+}) {
   const leaving = action(proposal) === "leave";
+  const [text, setText] = useState<string | null>(null);
+  const [unreadable, setUnreadable] = useState<string | null>(null);
+  const save = async () => {
+    const read = parseEdit(text ?? "");
+    if (!read.ok) {
+      setUnreadable(read.problem);
+      return;
+    }
+    setUnreadable(null);
+    if (await onEdit(read.declaration)) {
+      setText(null);
+    }
+  };
   return (
+    <>
     <tr>
       <th scope="row">
         {proposal.kind} <code>{proposal.name}</code>
@@ -121,8 +146,29 @@ function ProposalRow({ proposal, busy, onDecide }: { proposal: ReviewedProposal;
       <td>
         <button disabled={busy} onClick={onDecide}>
           {leaving ? "Leave" : "Take"}
+        </button>{" "}
+        <button className="link" disabled={busy || text !== null} onClick={() => setText(editableText(proposal))}>
+          Edit
         </button>
       </td>
     </tr>
+    {text !== null && (
+      <tr>
+        <td colSpan={4}>
+          <label>
+            The declaration the draft will hold for <code>{proposal.id}</code> — its kind and name stay; the console checks the catalog is still consistent.
+            <textarea aria-label={`Declaration of ${proposal.id}`} rows={12} value={text} onChange={(e) => { setText(e.target.value); setUnreadable(null); }} spellCheck={false} />
+          </label>
+          {unreadable && <p role="alert">{unreadable}</p>}
+          <button disabled={busy || unchanged(proposal, text)} onClick={save}>
+            Save the edit
+          </button>{" "}
+          <button className="link" disabled={busy} onClick={() => { setText(null); setUnreadable(null); }}>
+            Cancel
+          </button>
+        </td>
+      </tr>
+    )}
+    </>
   );
 }

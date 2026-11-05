@@ -664,8 +664,11 @@ covers the console's own confirmations, not an edit made to the file by other me
 With the pass's proposals set, a builder can review them one by one first. `GET /api/authoring/review` reads each
 proposal against the draft — taken (the draft holds it as proposed), edited (it holds it changed, both shown) or left
 (it holds none) — with what the pass was made with. `POST /api/authoring/review` with `{ "draft": …, "take": […],
-"leave": […] }` — the draft version the builder saw and proposal ids such as `entityType:Supplier` — puts the taken
-declarations in the draft file and removes the left ones, whole or not at all. The draft file is the whole state of the
+"leave": […], "edit": { … } }` — the draft version the builder saw, proposal ids such as `entityType:Supplier`, and for
+`edit` an object from a proposal id to the declaration to hold in its place — puts the taken declarations in the draft
+file, removes the left ones and replaces the edited ones, whole or not at all. An edit keeps the proposal's kind and name
+(`400`, `other-declaration`), must be a declaration the catalog can read (`422`, `unreadable-edit`), and the console screen
+offers it as a JSON editor on each proposal. The draft file is the whole state of the
 review: nothing else records what was decided, and confirming the draft is what puts it in force. It is refused when the
 draft changed since it was read (`409`, `stale-draft`), when an id is not one of the pass's proposals, and when the review
 would leave the draft inconsistent — leaving a type a kept relation joins, say (`422`, `inconsistent`). Taking a proposal
