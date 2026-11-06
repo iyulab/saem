@@ -87,3 +87,6 @@ export const unchanged = (proposal: ReviewedProposal, text: string) => {
   const read = parseEdit(text);
   return read.ok && JSON.stringify(read.declaration) === JSON.stringify(proposal.current ?? proposal.declaration);
 };
+
+/** Whether the draft the review names is already the catalog in force: the review is finished and nothing waits to be confirmed. */
+export const alreadyInForce = (review: AuthoringReview) => review.draft === review.inForce;

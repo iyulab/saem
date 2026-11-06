@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Answer, type AuthoringReview, type ReviewedProposal } from "./api";
-import { action, decisionFor, describe, discardsEdit, editFor, editableText, kindLabel, parseEdit, readAgain, stateLabel, takeAll, tally, unchanged } from "./review";
+import { action, alreadyInForce, decisionFor, describe, discardsEdit, editFor, editableText, kindLabel, parseEdit, readAgain, stateLabel, takeAll, tally, unchanged } from "./review";
 
 /**
  * The declarations an authoring pass proposed, one by one against the draft: take one the draft lacks, leave one it holds.
  * The draft file is the whole state of the review — what is taken here is what the Draft screen then confirms.
  */
-export function ReviewView({ onOpenDraft }: { onOpenDraft: () => void }) {
+export function ReviewView({ onOpenDraft, onOpenCatalog }: { onOpenDraft: () => void; onOpenCatalog?: () => void }) {
   const [review, setReview] = useState<Answer<AuthoringReview> | null>(null);
   const [working, setWorking] = useState(false);
   const [refusal, setRefusal] = useState<{ problem: string; code?: string } | null>(null);
@@ -48,14 +48,23 @@ export function ReviewView({ onOpenDraft }: { onOpenDraft: () => void }) {
   };
 
   const taking = takeAll(seen).take;
+  // After a confirmation the draft is the catalog in force: the review reads as finished, not as a first step to start again.
+  const finished = alreadyInForce(seen);
   return (
     <section>
-      <p className="step">Step 1 of 2 · Review what was proposed</p>
+      <p className="step">{finished ? "Reviewed · The draft is in force" : "Step 1 of 2 · Review what was proposed"}</p>
       <h1>Review</h1>
-      <p className="lead">
-        An authoring pass read your forms and proposed how to describe them. Every proposal starts as <strong>included</strong>: it goes into the draft and takes effect
-        only when you confirm it in the next step. Leave out what is wrong, edit what is nearly right, then continue.
-      </p>
+      {finished ? (
+        <p className="lead">
+          This review is finished: the draft you confirmed is in force, and questions are answered with it. You can still change your mind — leave out or edit a proposal here,
+          and the change waits for you to confirm it in the next step.
+        </p>
+      ) : (
+        <p className="lead">
+          An authoring pass read your forms and proposed how to describe them. Every proposal starts as <strong>included</strong>: it goes into the draft and takes effect
+          only when you confirm it in the next step. Leave out what is wrong, edit what is nearly right, then continue.
+        </p>
+      )}
       <p className="tally">
         <strong>{counts.taken}</strong> included · <strong>{counts.edited}</strong> edited · <strong>{counts.left}</strong> left out
       </p>
@@ -67,9 +76,15 @@ export function ReviewView({ onOpenDraft }: { onOpenDraft: () => void }) {
         </tbody>
       </table>
       <p className="actions">
-        <button className="button" onClick={onOpenDraft}>
-          Continue: check and confirm
-        </button>{" "}
+        {finished && onOpenCatalog ? (
+          <button className="button" onClick={onOpenCatalog}>
+            See what is now declared
+          </button>
+        ) : (
+          <button className="button" onClick={onOpenDraft}>
+            Continue: check and confirm
+          </button>
+        )}{" "}
         {taking.length > 0 && (
           <>
             <button disabled={working} onClick={() => decide({ take: taking })}>

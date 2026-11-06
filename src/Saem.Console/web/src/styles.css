@@ -114,3 +114,11 @@ td .says, td.says { color: var(--fg); }
 details > table { margin-top: 4px; }
 details > table { table-layout: fixed; }
 details > table th { width: 11em; white-space: normal; overflow-wrap: anywhere; }
+
+/* Screens a first-time reader does not need sit behind one "More" in the bar. */
+nav details.more { margin: 0; padding: 0; border: 0; display: flex; align-items: center; gap: 4px; }
+nav details.more > summary { font-weight: 400; padding: 6px 10px; border-radius: 6px; list-style: none; color: var(--muted); }
+nav details.more > summary::-webkit-details-marker { display: none; }
+nav details.more > summary::after { content: " \25BE"; }
+nav details.more[open] > summary::after { content: " \25B8"; }
+details.ask { margin: 16px 0; }

@@ -65,6 +65,7 @@ export function DraftView({ onOpenReview, onOpenCatalog }: { onOpenReview?: () =
           </span>
         </p>
       )}
+      {done && <p className="muted">To ask it a question, open “How to ask this catalog a question” on the Catalog screen.</p>}
       {done && (
         <p className="actions">
           {onOpenCatalog && (

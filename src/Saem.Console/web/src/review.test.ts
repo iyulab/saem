@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthoringReview, ProposalState, ReviewedProposal } from "./api";
-import { action, decisionFor, describe as describeDeclaration, discardsEdit, editFor, editableText, kindLabel, parseEdit, readAgain, stateLabel, takeAll, tally, unchanged } from "./review";
+import { action, alreadyInForce, decisionFor, describe as describeDeclaration, discardsEdit, editFor, editableText, kindLabel, parseEdit, readAgain, stateLabel, takeAll, tally, unchanged } from "./review";
 
 const proposal = (name: string, state: ProposalState): ReviewedProposal => ({
   id: `entityType:${name}`,
@@ -92,5 +92,14 @@ describe("saying a proposal in words a person who reads forms understands", () =
   it("names kinds and states plainly", () => {
     expect([kindLabel("entityType"), kindLabel("relation"), kindLabel("mystery")]).toEqual(["Kind of thing", "Link", "mystery"]);
     expect([stateLabel("taken"), stateLabel("edited"), stateLabel("left")]).toEqual(["included", "edited", "left out"]);
+  });
+});
+
+describe("a review whose draft is already in force", () => {
+  it("reads as finished only while the draft names the catalog in force", () => {
+    const seen = review(proposal("items", "taken"));
+
+    expect(alreadyInForce({ ...seen, draft: "v2", inForce: "v2" })).toBe(true);
+    expect(alreadyInForce({ ...seen, draft: "v3", inForce: "v2" })).toBe(false);
   });
 });

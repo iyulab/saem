@@ -7,24 +7,11 @@ import { ReviewView } from "./ReviewView";
 import { GroupsView } from "./GroupsView";
 import { JudgmentsView } from "./JudgmentsView";
 import { OverviewView } from "./OverviewView";
+import { tabsFor, type Screen } from "./screens";
 
 // The graph library is most of the page's weight: it loads when a graph screen is first opened, not before.
 const GraphView = lazy(() => import("./GraphView").then((m) => ({ default: m.GraphView })));
 const LocalGraphView = lazy(() => import("./LocalGraphView").then((m) => ({ default: m.LocalGraphView })));
-
-type Screen = "overview" | "catalog" | "review" | "draft" | "graph" | "local" | "check" | "groups" | "judgments";
-
-const screens: ReadonlyArray<{ screen: Screen; title: string; builders?: boolean }> = [
-  { screen: "overview", title: "Overview" },
-  { screen: "catalog", title: "Catalog" },
-  { screen: "review", title: "Review", builders: true },
-  { screen: "draft", title: "Draft", builders: true },
-  { screen: "graph", title: "Knowledge graph" },
-  { screen: "local", title: "Local graph", builders: true },
-  { screen: "check", title: "Check", builders: true },
-  { screen: "groups", title: "Groups", builders: true },
-  { screen: "judgments", title: "Judgments", builders: true },
-];
 
 /** The console: who is signed in, the screens their role opens, and the screen in front of them. */
 export function App() {
@@ -43,23 +30,34 @@ export function App() {
     return <SignedOut status={me.status} problem={"problem" in me ? me.problem : undefined} />;
   }
 
+  const { main, more } = tabsFor(me.value.roles);
+  const moreActive = more.some((s) => s.screen === screen);
+  const tab = (s: { screen: Screen; title: string }) => (
+    <button
+      key={s.screen}
+      className={s.screen === screen ? "tab active" : "tab"}
+      onClick={() => {
+        setLocalFrom(undefined);
+        setScreen(s.screen);
+      }}
+    >
+      {s.title}
+    </button>
+  );
+
   return (
     <div className="shell">
       <header className="bar">
         <strong className="brand">saem console</strong>
         <nav>
-          {screens.filter((s) => !s.builders || me.value.roles.includes("builder")).map((s) => (
-            <button
-              key={s.screen}
-              className={s.screen === screen ? "tab active" : "tab"}
-              onClick={() => {
-                setLocalFrom(undefined);
-                setScreen(s.screen);
-              }}
-            >
-              {s.title}
-            </button>
-          ))}
+          {main.map(tab)}
+          {more.length > 0 && (
+            // Remounted when the screen in front moves in or out of the group, so it opens for a screen it holds and closes otherwise.
+            <details key={moreActive ? "open" : "closed"} className="more" open={moreActive}>
+              <summary>More</summary>
+              {more.map(tab)}
+            </details>
+          )}
         </nav>
         <span className="who">
           {me.value.subject} · {me.value.roles.join(", ")}
@@ -71,7 +69,7 @@ export function App() {
       <main>
         {screen === "overview" && <OverviewView onOpenCheck={me.value.roles.includes("builder") ? () => setScreen("check") : undefined} />}
         {screen === "catalog" && <CatalogView />}
-        {screen === "review" && <ReviewView onOpenDraft={() => setScreen("draft")} />}
+        {screen === "review" && <ReviewView onOpenDraft={() => setScreen("draft")} onOpenCatalog={() => setScreen("catalog")} />}
         {screen === "draft" && <DraftView onOpenReview={() => setScreen("review")} onOpenCatalog={() => setScreen("catalog")} />}
         {screen === "check" && <CheckView />}
         {screen === "judgments" && (

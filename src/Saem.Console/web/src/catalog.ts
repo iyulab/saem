@@ -32,3 +32,21 @@ export function summary(d: Declaration): string {
       return "";
   }
 }
+
+/**
+ * A lookup that would work against these declarations, for a person who has never asked this catalog anything: it starts at a
+ * kind of thing, follows a declared link when there is one, and reads a field of where it ends. Null when nothing is declared to ask.
+ */
+export function askExample(declarations: readonly Declaration[]): { start: { type: string; key: string }; path: string[]; read: string[] } | null {
+  const types = declarations.filter((d) => d.kind === "entityType");
+  const relation = declarations.find((d) => d.kind === "relation" && types.some((t) => t.name === d.from));
+  const start = relation ? types.find((t) => t.name === relation.from) : types[0];
+  if (!start) return null;
+  const end = (relation && types.find((t) => t.name === relation.to)) || start;
+  const fields = end.fields !== null && typeof end.fields === "object" ? Object.keys(end.fields as Record<string, unknown>) : [];
+  return {
+    start: { type: start.name, key: "the key of one row" },
+    path: relation ? [relation.name] : [],
+    read: fields.slice(0, 1),
+  };
+}
