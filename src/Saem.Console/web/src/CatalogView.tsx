@@ -35,7 +35,13 @@ export function CatalogView() {
               {s.declarations.map((d) => (
                 <tr key={d.name}>
                   <th scope="row">{d.name}</th>
-                  <td>{summary(d)}</td>
+                  <td>
+                    {summary(d)}
+                    <details>
+                      <summary>Show the declaration</summary>
+                      <pre>{JSON.stringify(d, null, 2)}</pre>
+                    </details>
+                  </td>
                 </tr>
               ))}
             </tbody>

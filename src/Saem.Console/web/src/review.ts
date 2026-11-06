@@ -1,4 +1,44 @@
-import type { AuthoringReview, ReviewedProposal } from "./api";
+import type { AuthoringReview, ProposalState, ReviewedProposal } from "./api";
+
+/** What a person reads a declaration's kind as; a kind this page does not know is shown under its own name. */
+export const kindLabel = (kind: string): string =>
+  ({
+    entityType: "Kind of thing",
+    relation: "Link",
+    identity: "Same-thing rule",
+    linkage: "Matching rule",
+    grouping: "Group",
+  })[kind] ?? kind;
+
+/** What a person reads a proposal's place in the draft as. */
+export const stateLabel = (state: ProposalState): string => ({ taken: "included", edited: "edited", left: "left out" })[state];
+
+/**
+ * One sentence saying what a declaration claims, from its own fields — for a person who reads forms, not catalog files.
+ * The declaration itself stays one click away.
+ */
+export function describe(declaration: Record<string, unknown>): string {
+  const text = (key: string) => (typeof declaration[key] === "string" ? (declaration[key] as string) : undefined);
+  const fields =
+    declaration.fields !== null && typeof declaration.fields === "object" && !Array.isArray(declaration.fields)
+      ? Object.keys(declaration.fields as Record<string, unknown>)
+      : [];
+  switch (declaration.kind) {
+    case "entityType": {
+      const where = [text("system"), text("table")].filter(Boolean).join(".");
+      const key = text("key");
+      return (
+        `Each row of ${where || "a source"} is one “${text("name")}”` +
+        (key ? `, identified by ${key}` : "") +
+        (fields.length > 0 ? `. It has the fields ${fields.join(", ")}.` : ".")
+      );
+    }
+    case "relation":
+      return `“${text("from")}” points to “${text("to")}” through its ${text("via") ?? "link"} field.`;
+    default:
+      return `Declares a ${kindLabel(String(declaration.kind))} called “${text("name") ?? ""}”.`;
+  }
+}
 
 /** How many proposals the draft holds as proposed, changed, and not at all. */
 export const tally = (review: AuthoringReview) => ({

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Answer, type AuthoringReview, type ReviewedProposal } from "./api";
-import { action, decisionFor, discardsEdit, editFor, editableText, parseEdit, readAgain, takeAll, tally, unchanged } from "./review";
+import { action, decisionFor, describe, discardsEdit, editFor, editableText, kindLabel, parseEdit, readAgain, stateLabel, takeAll, tally, unchanged } from "./review";
 
 /**
  * The declarations an authoring pass proposed, one by one against the draft: take one the draft lacks, leave one it holds.
@@ -50,24 +50,14 @@ export function ReviewView({ onOpenDraft }: { onOpenDraft: () => void }) {
   const taking = takeAll(seen).take;
   return (
     <section>
+      <p className="step">Step 1 of 2 · Review what was proposed</p>
       <h1>Review</h1>
-      <p className="muted">
-        Pass <code>{seen.pass}</code> · in force <code>{seen.inForce}</code> · draft <code>{seen.draft}</code>
+      <p className="lead">
+        An authoring pass read your forms and proposed how to describe them. Every proposal starts as <strong>included</strong>: it goes into the draft and takes effect
+        only when you confirm it in the next step. Leave out what is wrong, edit what is nearly right, then continue.
       </p>
-      {seen.generation && (
-        <p className="muted">
-          Made with {seen.generation.model} · proposer {seen.generation.proposerVersion} · prompt <code>{seen.generation.promptFingerprint}</code>
-          {seen.generation.knownTypesPromptFingerprint ? (
-            <>
-              {" + "}
-              <code>{seen.generation.knownTypesPromptFingerprint}</code>
-            </>
-          ) : null}
-          {seen.generation.modelCallsRetried > 0 ? ` · ${seen.generation.modelCallsRetried} model call(s) retried` : null}
-        </p>
-      )}
-      <p>
-        {counts.taken} taken · {counts.edited} edited · {counts.left} left
+      <p className="tally">
+        <strong>{counts.taken}</strong> included · <strong>{counts.edited}</strong> edited · <strong>{counts.left}</strong> left out
       </p>
       <table>
         <tbody>
@@ -76,21 +66,39 @@ export function ReviewView({ onOpenDraft }: { onOpenDraft: () => void }) {
           ))}
         </tbody>
       </table>
-      <p>
+      <p className="actions">
+        <button className="button" onClick={onOpenDraft}>
+          Continue: check and confirm
+        </button>{" "}
         {taking.length > 0 && (
           <>
             <button disabled={working} onClick={() => decide({ take: taking })}>
-              Take back all left ({taking.length})
+              Include everything again ({taking.length})
             </button>{" "}
           </>
         )}
         <button className="link" onClick={read}>
           Read again
-        </button>{" "}
-        <button className="link" onClick={onOpenDraft}>
-          Go to the draft to confirm
         </button>
       </p>
+      <details className="tech">
+        <summary>Technical details</summary>
+        <p className="muted">
+          Pass <code>{seen.pass}</code> · catalog in force <code>{seen.inForce}</code> · draft <code>{seen.draft}</code>
+        </p>
+        {seen.generation && (
+          <p className="muted">
+            Made with {seen.generation.model} · proposer {seen.generation.proposerVersion} · prompt <code>{seen.generation.promptFingerprint}</code>
+            {seen.generation.knownTypesPromptFingerprint ? (
+              <>
+                {" + "}
+                <code>{seen.generation.knownTypesPromptFingerprint}</code>
+              </>
+            ) : null}
+            {seen.generation.modelCallsRetried > 0 ? ` · ${seen.generation.modelCallsRetried} model call(s) retried` : null}
+          </p>
+        )}
+      </details>
       {refusal && (
         <div role="alert">
           <p>{refusal.problem}</p>
@@ -130,22 +138,23 @@ function ProposalRow({
     <>
     <tr>
       <th scope="row">
-        {proposal.kind} <code>{proposal.name}</code>
+        <span className="kind">{kindLabel(proposal.kind)}</span>
+        <br />
+        <code>{proposal.name}</code>
       </th>
+      <td className="says">{describe(proposal.current ?? proposal.declaration)}</td>
       <td>
-        <span className={`state ${proposal.state}`}>{proposal.state}</span>
-        {discardsEdit(proposal) && <span className="muted"> · leaving it discards your edit</span>}
-      </td>
-      <td>
+        <span className={`state ${proposal.state}`}>{stateLabel(proposal.state)}</span>
+        {discardsEdit(proposal) && <span className="muted"> · leaving it out discards your edit</span>}
         <details>
-          <summary>{proposal.state === "edited" ? "As proposed · as the draft holds it" : "Declaration"}</summary>
+          <summary>{proposal.state === "edited" ? "Show the proposal and your edit" : "Show the declaration"}</summary>
           <pre>{JSON.stringify(proposal.declaration, null, 2)}</pre>
           {proposal.state === "edited" && proposal.current ? <pre>{JSON.stringify(proposal.current, null, 2)}</pre> : null}
         </details>
       </td>
       <td>
         <button disabled={busy} onClick={onDecide}>
-          {leaving ? "Leave" : "Take"}
+          {leaving ? "Leave out" : "Include"}
         </button>{" "}
         <button className="link" disabled={busy || text !== null} onClick={() => setText(editableText(proposal))}>
           Edit

@@ -77,3 +77,22 @@ td pre { margin: 8px 0; padding: 8px; background: var(--bg); border: 1px solid v
 
 textarea { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; padding: 8px; font-family: var(--mono, monospace); font-size: 0.85em; background: var(--bg); color: inherit; border: 1px solid var(--line); border-radius: 6px; }
 tr.differs td, tr.differs th { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+/* Reading the review and the draft as a person who has not seen the catalog file. */
+.step { margin: 0 0 4px; color: var(--muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; }
+.lead { max-width: 70ch; line-height: 1.5; }
+.tally { font-size: 1.05em; }
+.kind { color: var(--muted); font-size: 0.85em; font-weight: 400; }
+td.says { max-width: 46ch; line-height: 1.45; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 20px 0; }
+button { font: inherit; padding: 6px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: default; }
+button.link { border: 0; background: none; color: var(--accent); padding: 6px 10px; }
+button.button, .actions .button { border: 0; background: var(--accent); color: var(--bg); padding: 10px 20px; font-weight: 600; }
+details.tech { margin-top: 28px; border: 0; padding: 0; color: var(--muted); }
+details.tech summary { font-weight: 400; font-size: 0.9em; }
+.state.taken { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.state.left { text-decoration: line-through; }
+td details { margin: 8px 0 0; }
+td details summary { font-weight: 400; font-size: 0.9em; color: var(--accent); }
+p.done { padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--panel); max-width: 70ch; }

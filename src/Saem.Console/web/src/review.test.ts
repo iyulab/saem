@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthoringReview, ProposalState, ReviewedProposal } from "./api";
-import { action, decisionFor, discardsEdit, editFor, editableText, parseEdit, readAgain, takeAll, tally, unchanged } from "./review";
+import { action, decisionFor, describe as describeDeclaration, discardsEdit, editFor, editableText, kindLabel, parseEdit, readAgain, stateLabel, takeAll, tally, unchanged } from "./review";
 
 const proposal = (name: string, state: ProposalState): ReviewedProposal => ({
   id: `entityType:${name}`,
@@ -67,5 +67,30 @@ describe("reviewing a pass's proposals against the draft", () => {
     expect(unchanged(p, editableText(p))).toBe(true);
     expect(unchanged(p, '{ "kind": "entityType", "name": "A", "table": "t" }')).toBe(false);
     expect(unchanged(p, "{ nope")).toBe(false);
+  });
+});
+
+describe("saying a proposal in words a person who reads forms understands", () => {
+  it("says what a type stands on, how it is identified and what it holds", () => {
+    expect(
+      describeDeclaration({ kind: "entityType", name: "items", system: "forms", table: "items", key: "item_code", fields: { item_name: "item_name", owner: "owner" } }),
+    ).toBe("Each row of forms.items is one “items”, identified by item_code. It has the fields item_name, owner.");
+  });
+
+  it("says where a relation leads", () => {
+    expect(describeDeclaration({ kind: "relation", name: "item", from: "work_orders", via: "item_code", to: "items" })).toBe(
+      "“work_orders” points to “items” through its item_code field.",
+    );
+  });
+
+  it("does not fail on a type with nothing but a name, nor on a kind it does not know", () => {
+    expect(describeDeclaration({ kind: "entityType", name: "A" })).toBe("Each row of a source is one “A”.");
+    expect(describeDeclaration({ kind: "grouping", name: "g" })).toBe("Declares a Group called “g”.");
+    expect(describeDeclaration({ kind: "mystery", name: "m" })).toBe("Declares a mystery called “m”.");
+  });
+
+  it("names kinds and states plainly", () => {
+    expect([kindLabel("entityType"), kindLabel("relation"), kindLabel("mystery")]).toEqual(["Kind of thing", "Link", "mystery"]);
+    expect([stateLabel("taken"), stateLabel("edited"), stateLabel("left")]).toEqual(["included", "edited", "left out"]);
   });
 });

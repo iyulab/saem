@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Answer, type CatalogDraft, type Confirmed } from "./api";
 import { mayConfirm, nextStep, settlementLine, split } from "./draft";
+import { kindLabel } from "./review";
 
 /** The draft against the catalog in force: what it adds, what can break, and the confirmation that puts it in force. */
 export function DraftView() {
@@ -48,13 +49,18 @@ export function DraftView() {
 
   return (
     <section>
+      <p className="step">Step 2 of 2 · Confirm the draft</p>
       <h1>Draft</h1>
-      <p className="muted">
-        In force <code>{draft.value.inForce}</code> · draft <code>{draft.value.draft}</code>
+      <p className="lead">
+        This is what changes if you confirm: the catalog in force is replaced by the draft, and questions are answered with it from then on. Nothing changes until you
+        press <strong>Confirm the draft</strong>. To change a proposal, go back to the review.
       </p>
       {done && (
-        <p role="status">
-          Confirmed: the catalog in force is now <code>{done.to}</code> (was <code>{done.from}</code>). {settlementLine(done.settlement)}
+        <p role="status" className="done">
+          <strong>Confirmed.</strong> The draft is now in force: questions are answered with it from now on. {settlementLine(done.settlement)}{" "}
+          <span className="muted">
+            (Version <code>{done.to}</code>, was <code>{done.from}</code>.)
+          </span>
         </p>
       )}
       {draft.value.draft === draft.value.inForce ? (
@@ -62,7 +68,7 @@ export function DraftView() {
       ) : (
         <>
           <Changes title="Can break what was built on the catalog" changes={breaking} strong />
-          <Changes title="Only adds vocabulary" changes={additive} />
+          <Changes title="Only adds to what is declared" changes={additive} />
           {draft.value.breaking > 0 && (
             <label className="block">
               <input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} /> I have read the {draft.value.breaking} breaking
@@ -70,7 +76,7 @@ export function DraftView() {
             </label>
           )}
           <p>
-            <button disabled={!mayConfirm(draft.value, acknowledged) || confirming} onClick={confirm}>
+            <button className="button" disabled={!mayConfirm(draft.value, acknowledged) || confirming} onClick={confirm}>
               Confirm the draft
             </button>{" "}
             <button className="link" onClick={read}>
@@ -87,6 +93,12 @@ export function DraftView() {
           )}
         </div>
       )}
+      <details className="tech">
+        <summary>Technical details</summary>
+        <p className="muted">
+          In force <code>{draft.value.inForce}</code> · draft <code>{draft.value.draft}</code>
+        </p>
+      </details>
     </section>
   );
 }
@@ -104,7 +116,7 @@ function Changes({ title, changes, strong }: { title: string; changes: Array<{ d
         <tbody>
           {changes.map((c) => (
             <tr key={`${c.declaration} ${c.change}`}>
-              <th scope="row">{c.declaration}</th>
+              <th scope="row">{plainDeclaration(c.declaration)}</th>
               <td>{c.change}</td>
             </tr>
           ))}
@@ -112,4 +124,10 @@ function Changes({ title, changes, strong }: { title: string; changes: Array<{ d
       </table>
     </details>
   );
+}
+
+/** "entityType items" as a person reads it: the kind in words, then the name. A name that does not split is shown as it is. */
+function plainDeclaration(declaration: string): string {
+  const at = declaration.indexOf(" ");
+  return at < 0 ? declaration : `${kindLabel(declaration.slice(0, at))} · ${declaration.slice(at + 1)}`;
 }
