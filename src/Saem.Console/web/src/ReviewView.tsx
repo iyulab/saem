@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Answer, type AuthoringReview, type ReviewedProposal } from "./api";
-import { action, alreadyInForce, decisionFor, describe, discardsEdit, editFor, editableText, kindLabel, parseEdit, readAgain, stateLabel, takeAll, tally, unchanged } from "./review";
+import { action, alreadyInForce, decisionFor, describe, discardsEdit, editFor, editableText, fieldRows, kindLabel, parseEdit, readAgain, rowsProblem, stateLabel, takeAll, tally, unchanged, withFields, type FieldRow } from "./review";
 
 /**
  * The declarations an authoring pass proposed, one by one against the draft: take one the draft lacks, leave one it holds.
@@ -137,7 +137,23 @@ function ProposalRow({
 }) {
   const leaving = action(proposal) === "leave";
   const [text, setText] = useState<string | null>(null);
+  const [rows, setRows] = useState<FieldRow[] | null>(null);
   const [unreadable, setUnreadable] = useState<string | null>(null);
+  const base = proposal.current ?? proposal.declaration;
+  // A kind of thing is edited as a choice of fields; anything else, and anyone who wants every detail, edits the declaration as text.
+  const startEdit = () => {
+    const offered = fieldRows(base);
+    if (offered) {
+      setRows(offered);
+    } else {
+      setText(editableText(proposal));
+    }
+  };
+  const saveRows = async () => {
+    if (rows && (await onEdit(withFields(base, rows)))) {
+      setRows(null);
+    }
+  };
   const save = async () => {
     const read = parseEdit(text ?? "");
     if (!read.ok) {
@@ -171,11 +187,50 @@ function ProposalRow({
         <button disabled={busy} onClick={onDecide}>
           {leaving ? "Leave out" : "Include"}
         </button>{" "}
-        <button className="link" disabled={busy || text !== null} onClick={() => setText(editableText(proposal))}>
+        <button className="link" disabled={busy || text !== null || rows !== null} onClick={startEdit}>
           Edit
         </button>
       </td>
     </tr>
+    {rows !== null && (
+      <tr>
+        <td colSpan={4}>
+          <p>
+            Choose which fields of <code>{proposal.name}</code> people can ask for. A field you uncheck is taken out of the declaration; where the values come from stays as the pass read it.
+          </p>
+          <table>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.name}>
+                  <td>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={r.keep}
+                        aria-label={`Keep ${r.name}`}
+                        onChange={(e) => setRows(rows.map((x) => (x.name === r.name ? { ...x, keep: e.target.checked } : x)))}
+                      />{" "}
+                      {r.name}
+                    </label>
+                  </td>
+                  <td className="muted">read from <code>{r.column}</code></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rowsProblem(rows) && <p className="muted">{rowsProblem(rows)}</p>}
+          <button disabled={busy || rowsProblem(rows) !== null} onClick={saveRows}>
+            Save the edit
+          </button>{" "}
+          <button className="link" disabled={busy} onClick={() => { setText(JSON.stringify(withFields(base, rows), null, 2)); setRows(null); }}>
+            Edit the declaration as text instead
+          </button>{" "}
+          <button className="link" disabled={busy} onClick={() => setRows(null)}>
+            Cancel
+          </button>
+        </td>
+      </tr>
+    )}
     {text !== null && (
       <tr>
         <td colSpan={4}>

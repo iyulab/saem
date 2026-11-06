@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthoringReview, ProposalState, ReviewedProposal } from "./api";
-import { action, alreadyInForce, decisionFor, describe as describeDeclaration, discardsEdit, editFor, editableText, kindLabel, parseEdit, readAgain, stateLabel, takeAll, tally, unchanged } from "./review";
+import { action, alreadyInForce, decisionFor, fieldRows, rowsProblem, withFields, describe as describeDeclaration, discardsEdit, editFor, editableText, kindLabel, parseEdit, readAgain, stateLabel, takeAll, tally, unchanged } from "./review";
 
 const proposal = (name: string, state: ProposalState): ReviewedProposal => ({
   id: `entityType:${name}`,
@@ -101,5 +101,47 @@ describe("a review whose draft is already in force", () => {
 
     expect(alreadyInForce({ ...seen, draft: "v2", inForce: "v2" })).toBe(true);
     expect(alreadyInForce({ ...seen, draft: "v3", inForce: "v2" })).toBe(false);
+  });
+});
+
+describe("editing which fields a kind of thing keeps", () => {
+  const items = {
+    kind: "entityType",
+    name: "items",
+    system: "forms",
+    table: "items",
+    key: "item_code",
+    fields: { item_name: "item_name", owner: "owner_col" },
+    kinds: { item_name: "text", owner: "text" },
+  };
+
+  it("offers a row per field with the column it is read from, and nothing for other kinds", () => {
+    expect(fieldRows(items)).toEqual([
+      { name: "item_name", column: "item_name", keep: true },
+      { name: "owner", column: "owner_col", keep: true },
+    ]);
+    expect(fieldRows({ kind: "relation", name: "r", from: "a", to: "b" })).toBeNull();
+    expect(fieldRows({ ...items, fields: {} })).toBeNull();
+  });
+
+  it("drops an unchecked field and the kind declared for it, and changes nothing else", () => {
+    const rows = fieldRows(items)!.map((r) => (r.name === "owner" ? { ...r, keep: false } : r));
+
+    expect(withFields(items, rows)).toEqual({ ...items, fields: { item_name: "item_name" }, kinds: { item_name: "text" } });
+  });
+
+  it("leaves a declaration without kinds without kinds", () => {
+    const { kinds: _kinds, ...bare } = items;
+    const rows = fieldRows(bare)!.map((r) => (r.name === "owner" ? { ...r, keep: false } : r));
+
+    expect(withFields(bare, rows)).toEqual({ ...bare, fields: { item_name: "item_name" } });
+  });
+
+  it("cannot be saved while nothing is dropped or while nothing is kept", () => {
+    const rows = fieldRows(items)!;
+
+    expect(rowsProblem(rows)).toBe("Nothing is changed yet.");
+    expect(rowsProblem(rows.map((r) => ({ ...r, keep: false })))).toBe("Keep at least one field.");
+    expect(rowsProblem([{ ...rows[0], keep: false }, rows[1]])).toBeNull();
   });
 });

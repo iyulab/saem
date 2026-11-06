@@ -90,3 +90,27 @@ export const unchanged = (proposal: ReviewedProposal, text: string) => {
 
 /** Whether the draft the review names is already the catalog in force: the review is finished and nothing waits to be confirmed. */
 export const alreadyInForce = (review: AuthoringReview) => review.draft === review.inForce;
+
+/** One field of a kind of thing in the edit form: what it is called, the column it is read from, and whether the declaration keeps it. */
+export type FieldRow = { name: string; column: string; keep: boolean };
+
+/** The rows an edit form offers for a declaration: the fields of a kind of thing. Null for anything else, which is edited as text. */
+export function fieldRows(declaration: Record<string, unknown>): FieldRow[] | null {
+  if (declaration.kind !== "entityType" || declaration.fields === null || typeof declaration.fields !== "object" || Array.isArray(declaration.fields)) {
+    return null;
+  }
+  const rows = Object.entries(declaration.fields as Record<string, unknown>).map(([name, column]) => ({ name, column: String(column), keep: true }));
+  return rows.length > 0 ? rows : null;
+}
+
+/** The declaration with only the kept fields — and without the kinds declared for the fields it dropped, which would name fields that are no longer there. */
+export function withFields(declaration: Record<string, unknown>, rows: readonly FieldRow[]): Record<string, unknown> {
+  const kept = new Set(rows.filter((r) => r.keep).map((r) => r.name));
+  const only = (all: unknown) => Object.fromEntries(Object.entries(all as Record<string, unknown>).filter(([name]) => kept.has(name)));
+  const kinds = declaration.kinds !== null && typeof declaration.kinds === "object" ? { kinds: only(declaration.kinds) } : {};
+  return { ...declaration, fields: only(declaration.fields), ...kinds };
+}
+
+/** Why the form cannot be saved yet: nothing would be left to ask, or nothing was changed. Null when it can. */
+export const rowsProblem = (rows: readonly FieldRow[]): string | null =>
+  rows.every((r) => !r.keep) ? "Keep at least one field." : rows.every((r) => r.keep) ? "Nothing is changed yet." : null;
