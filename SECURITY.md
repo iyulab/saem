@@ -15,8 +15,11 @@ public issue.
 
 ## Scope
 
-saem is pre-implementation (see [README](README.md)); there is no running code to have a runtime
-vulnerability yet. This policy exists so the reporting path is in place before that changes.
+The parts that run are in scope: the MCP server (`/mcp`), the administration console, the materialization executor
+(`saem-materialize serve`) and the `saem-author` tool. Reports about anything that lets a caller read what its token does not
+allow, get past authentication, run a job without an executor secret, or send data somewhere it was not configured to go are
+the ones this policy exists for. How each part decides who may do what is in the [README](README.md) (the MCP server and
+administration console sections, and the executor under materialization).
 
 ## Supported versions
 

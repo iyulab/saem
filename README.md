@@ -298,6 +298,12 @@ is replaced only with `--overwrite`. A subject is sampled from the most recent e
 default, so a form revised since it was first filled in is read as it stands now; `--sample oldest`
 reads from the start instead.
 
+**What the pass reads, sends and writes.** Authoring is an administrator's act, not a person's lookup: the pass reads the
+sampled records with the administrator's own Formbase key (`SAEM_FORMBASE_TOKEN`), whatever any one person may see,
+sends those records to the model endpoint you name, and the review and the proposals files carry them too (the records each
+declaration was drawn from). Choose the model endpoint as you would choose where the records themselves may be stored, keep
+the files where only the administrator reads them, and do not commit them to a repository others read.
+
 ```sh
 # sources.json: { "items": { "system": "forms", "table": "items", "keyField": "item_code", "record": ["fb_doc_id"] } }
 SAEM_MODEL_API_KEY=… saem-author --formbase http://localhost:8080 --sources sources.json \
