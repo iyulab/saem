@@ -336,6 +336,27 @@ public sealed class LookupToolTests : IAsyncLifetime
         Assert.Contains("exactly one of the two", Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("path")]
+    [InlineData("read")]
+    public async Task A_name_left_empty_in_the_path_or_the_read_is_said_to_be_the_shape_of_a_lookup_not_a_source_failure(string where)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var alice = await _server.ClientAsync(TestServer.Token("alice"), ct);
+
+        var result = await alice.CallToolAsync("lookup", new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = "WorkOrder", ["key"] = "WO-3" },
+            ["path"] = where == "path" ? new string?[] { null } : Array.Empty<string>(),
+            ["read"] = where == "read" ? new string?[] { null } : ReadName,
+        }, cancellationToken: ct);
+
+        Assert.True(result.IsError);
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
+        Assert.Contains("A lookup names 'start'", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("source failed", text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_call_outside_the_vocabulary_is_a_tool_error_not_a_refusal()
     {

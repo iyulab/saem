@@ -98,7 +98,9 @@ internal sealed partial class LookupTool
             return Error($"The arguments are not a lookup: {e.Message}");
         }
 
-        if (call?.Start is null || call.Path is null || call.Read is null)
+        // A name left out of the path or the read (a JSON null, or an empty string) names no relation and no field: said as the shape of
+        // a lookup, not discovered later as a source that failed.
+        if (call?.Start is null || call.Path is null || call.Read is null || call.Path.Any(Unnamed) || call.Read.Any(Unnamed))
         {
             return Error("A lookup names 'start' (type, and key or where), 'path' (relations, possibly none) and 'read' (fields).");
         }
@@ -302,6 +304,8 @@ internal sealed partial class LookupTool
         };
         return JsonSerializer.SerializeToElement(schema, McpJson.Default.JsonObject);
     }
+
+    private static bool Unnamed(string? name) => string.IsNullOrWhiteSpace(name);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "lookup {LookupId} for {Person} failed at a source")]
     private partial void LogLookupFailed(Exception exception, string lookupId, string person);
