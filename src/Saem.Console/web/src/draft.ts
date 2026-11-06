@@ -16,8 +16,8 @@ export const mayConfirm = (draft: CatalogDraft, acknowledged: boolean) => change
 export function settlementLine(settlement: ConfirmedSettlement | null): string | null {
   if (settlement === null) return null;
   return settlement.recorded
-    ? `Settled ${settlement.proposals} proposals of ${settlement.pass}: ${settlement.taken} taken, ${settlement.proposals - settlement.taken} not.`
-    : `${settlement.pass} was settled by an earlier confirmation.`;
+    ? `Your review was recorded: ${settlement.taken} of ${settlement.proposals} proposals included, ${settlement.proposals - settlement.taken} left out.`
+    : "Your review had already been recorded by an earlier confirmation.";
 }
 
 /** What a builder does next once the console refuses a confirmation with this code; every refusal but `breaking` asks for a fresh read. */

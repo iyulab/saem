@@ -11,8 +11,8 @@ const draft = (changes: CatalogDraft["changes"], same = false): CatalogDraft => 
 
 describe("what a confirmation says of the reviewed pass", () => {
   it("counts what the review took and what it did not, and says nothing when reviews are not recorded", () => {
-    expect(settlementLine({ pass: "pass-1", recorded: true, proposals: 3, taken: 2 })).toBe("Settled 3 proposals of pass-1: 2 taken, 1 not.");
-    expect(settlementLine({ pass: "pass-1", recorded: false, proposals: 3, taken: 0 })).toBe("pass-1 was settled by an earlier confirmation.");
+    expect(settlementLine({ pass: "pass-1", recorded: true, proposals: 3, taken: 2 })).toBe("Your review was recorded: 2 of 3 proposals included, 1 left out.");
+    expect(settlementLine({ pass: "pass-1", recorded: false, proposals: 3, taken: 0 })).toBe("Your review had already been recorded by an earlier confirmation.");
     expect(settlementLine(null)).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Answer, type Overview } from "./api";
-import { kinds } from "./catalog";
+import { declaredSentence } from "./overview";
 
 /** What is waiting at a glance: the catalog in force and the last check of it against the sources. */
 export function OverviewView({ onOpenCheck }: { onOpenCheck?: () => void }) {
@@ -23,21 +23,25 @@ export function OverviewView({ onOpenCheck }: { onOpenCheck?: () => void }) {
       <h1>Overview</h1>
       <div className="cards">
         <article className="card">
-          <h2>Catalog in force</h2>
-          <p>
-            <code>{catalogVersion}</code>
+          <h2>What is declared</h2>
+          <p className="big">{declaredSentence(declarations)}</p>
+          <p className="muted">
+            Version <code>{catalogVersion}</code>
           </p>
-          <ul className="counts">
-            {kinds.map((k) => (
-              <li key={k.kind}>
-                <strong>{declarations[k.kind] ?? 0}</strong> {k.title.toLowerCase()}
-              </li>
-            ))}
-          </ul>
         </article>
         <article className={check && (!check.holds || !check.current) ? "card attention" : "card"}>
-          <h2>Last check against the sources</h2>
-          {check === null && <p className="muted">No check report. A builder runs <code>saem-materialize check --report</code> with their own account; the console shows its findings.</p>}
+          <h2>Checked against the sources?</h2>
+          {check === null && (
+            <>
+              <p className="big">Not checked yet</p>
+              <details>
+                <summary>How a check is run</summary>
+                <p className="muted">
+                  A builder runs <code>saem-materialize check --report</code> with their own account; the console then shows its findings here.
+                </p>
+              </details>
+            </>
+          )}
           {check !== null && (
             <>
               <p>

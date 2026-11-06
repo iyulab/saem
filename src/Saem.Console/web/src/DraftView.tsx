@@ -4,7 +4,7 @@ import { mayConfirm, nextStep, settlementLine, split } from "./draft";
 import { kindLabel } from "./review";
 
 /** The draft against the catalog in force: what it adds, what can break, and the confirmation that puts it in force. */
-export function DraftView() {
+export function DraftView({ onOpenReview, onOpenCatalog }: { onOpenReview?: () => void; onOpenCatalog?: () => void }) {
   const [draft, setDraft] = useState<Answer<CatalogDraft> | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -49,12 +49,14 @@ export function DraftView() {
 
   return (
     <section>
-      <p className="step">Step 2 of 2 · Confirm the draft</p>
+      <p className="step">{done ? "Done · The draft is in force" : "Step 2 of 2 · Confirm the draft"}</p>
       <h1>Draft</h1>
-      <p className="lead">
-        This is what changes if you confirm: the catalog in force is replaced by the draft, and questions are answered with it from then on. Nothing changes until you
-        press <strong>Confirm the draft</strong>. To change a proposal, go back to the review.
-      </p>
+      {!done && (
+        <p className="lead">
+          This is what changes if you confirm: the catalog in force is replaced by the draft, and questions are answered with it from then on. Nothing changes until you
+          press <strong>Confirm the draft</strong>. To change a proposal, go back to the review.
+        </p>
+      )}
       {done && (
         <p role="status" className="done">
           <strong>Confirmed.</strong> The draft is now in force: questions are answered with it from now on. {settlementLine(done.settlement)}{" "}
@@ -63,8 +65,22 @@ export function DraftView() {
           </span>
         </p>
       )}
+      {done && (
+        <p className="actions">
+          {onOpenCatalog && (
+            <button className="button" onClick={onOpenCatalog}>
+              See what is now declared
+            </button>
+          )}
+          {onOpenReview && (
+            <button className="link" onClick={onOpenReview}>
+              Back to the review
+            </button>
+          )}
+        </p>
+      )}
       {draft.value.draft === draft.value.inForce ? (
-        <p>The draft declares what the catalog in force already declares.</p>
+        <p>{done ? "Nothing is left to confirm: the draft and the catalog in force are the same." : "Nothing to confirm: the draft declares what the catalog in force already declares."}</p>
       ) : (
         <>
           <Changes title="Can break what was built on the catalog" changes={breaking} strong />

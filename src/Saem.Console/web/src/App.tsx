@@ -72,7 +72,7 @@ export function App() {
         {screen === "overview" && <OverviewView onOpenCheck={me.value.roles.includes("builder") ? () => setScreen("check") : undefined} />}
         {screen === "catalog" && <CatalogView />}
         {screen === "review" && <ReviewView onOpenDraft={() => setScreen("draft")} />}
-        {screen === "draft" && <DraftView />}
+        {screen === "draft" && <DraftView onOpenReview={() => setScreen("review")} onOpenCatalog={() => setScreen("catalog")} />}
         {screen === "check" && <CheckView />}
         {screen === "judgments" && (
           <JudgmentsView

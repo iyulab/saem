@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Answer, type Catalog } from "./api";
-import { byKind, summary } from "./catalog";
+import { byKind } from "./catalog";
+import { describe } from "./review";
 
 /** The declarations in force, kind by kind, as a catalog file holds them. */
 export function CatalogView() {
@@ -36,7 +37,7 @@ export function CatalogView() {
                 <tr key={d.name}>
                   <th scope="row">{d.name}</th>
                   <td>
-                    {summary(d)}
+                    <span className="says">{describe(d)}</span>
                     <details>
                       <summary>Show the declaration</summary>
                       <pre>{JSON.stringify(d, null, 2)}</pre>
