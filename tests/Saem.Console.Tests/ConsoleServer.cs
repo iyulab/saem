@@ -31,6 +31,11 @@ internal sealed class ConsoleServer : IAsyncDisposable
 
     public Uri Address => new(_app.Urls.First() + "/");
 
+    /// <summary>Every route the console maps, as the host registers them.</summary>
+    public IReadOnlyList<Microsoft.AspNetCore.Routing.RouteEndpoint> Endpoints =>
+        _app.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints
+            .OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>().ToList();
+
     /// <summary>
     /// The console with the identity and roles settings only — no source and no store is configured, so whatever it
     /// serves it serves without either (saem D-89).

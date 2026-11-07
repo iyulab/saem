@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
 using Xunit;
 
 namespace Saem.Console.Tests;
@@ -35,6 +37,54 @@ public sealed class ConsoleAccessTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("api/me", TestContext.Current.CancellationToken)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync("api/me", TestContext.Current.CancellationToken)).StatusCode);
+    }
+
+    /// <summary>
+    /// "No token is unauthorized" held to the routes as the host maps them, not to the one named above: a route that
+    /// answers a caller presenting nothing is an unlisted member of the public surface. The two a browser needs before
+    /// it has a session — sign in and sign out — are the only routes that are not behind a token.
+    /// </summary>
+    [Fact]
+    public async Task Every_mapped_route_but_sign_in_and_sign_out_is_unauthorized_without_a_token()
+    {
+        using var anonymous = _server.Client();
+        var answered = new List<string>();
+        var probed = 0;
+        foreach (var endpoint in _server.Endpoints)
+        {
+            var path = string.Concat(endpoint.RoutePattern.PathSegments.Select(segment =>
+                "/" + string.Concat(segment.Parts.Select(part => part switch
+                {
+                    RoutePatternLiteralPart literal => literal.Content,
+                    RoutePatternParameterPart => "probe",
+                    _ => string.Empty,
+                }))));
+            if (path is "/login" or "/logout")
+            {
+                continue;
+            }
+
+            foreach (var method in endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods ?? ["GET"])
+            {
+                using var request = new HttpRequestMessage(new HttpMethod(method), path.TrimStart('/'));
+                if (method is "POST" or "PUT" or "PATCH")
+                {
+                    // The console's own header, so the request is held by the token and not by the browser guard ahead of it.
+                    request.Headers.Add(ConsoleAuthentication.RequestHeader, "1");
+                    request.Content = JsonContent.Create(new { });
+                }
+
+                var response = await anonymous.SendAsync(request, TestContext.Current.CancellationToken);
+                probed++;
+                if (response.StatusCode != HttpStatusCode.Unauthorized)
+                {
+                    answered.Add($"{method} {endpoint.RoutePattern.RawText} -> {(int)response.StatusCode}");
+                }
+            }
+        }
+
+        Assert.True(probed >= 10, $"the console maps more than a handful of route and method pairs; a walk that found {probed} is not walking the host");
+        Assert.Empty(answered);
     }
 
     [Fact]
