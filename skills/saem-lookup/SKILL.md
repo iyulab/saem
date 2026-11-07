@@ -25,7 +25,9 @@ item, read the item's name field. One lookup answers it; do not walk step by ste
   the record that named the next entity is part of why the answer is what it is.
 - `kind: refused` - the walk found nothing visible to this person, and says where. **A refusal never means the thing does not
   exist**: it may be missing or merely not visible to this person, and saem cannot tell which. Report exactly that; never
-  convert a refusal into "there is no such record", and never fill the gap from memory.
+  convert a refusal into "there is no such record", and never fill the gap from memory. When the records were filed only a
+  moment ago, a source that projects them (a form store, say) may not have brought them forward yet: if you can reach that
+  source's own status, check it before reporting the refusal, and say so when you cannot.
 - An error that says a type, relation or field is not declared means the ontology does not cover the question. Say it is outside
   what saem knows; do not rephrase until something matches by accident.
 - Ask something the declared data cannot answer (a price nobody filed, a supplier nobody linked) and the honest answer is "this
