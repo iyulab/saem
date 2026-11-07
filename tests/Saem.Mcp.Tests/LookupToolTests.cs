@@ -61,7 +61,8 @@ public sealed class LookupToolTests : IAsyncLifetime
         var tool = Assert.Single(await client.ListToolsAsync(cancellationToken: ct));
 
         Assert.Equal("lookup", tool.Name);
-        Assert.Contains("WorkOrder (item, note: freeText)", tool.Description, StringComparison.Ordinal);
+        Assert.Contains("WorkOrder (item, note: freeText) — key: wo_no", tool.Description, StringComparison.Ordinal);
+        Assert.Contains("Item (name) — key: item_code", tool.Description, StringComparison.Ordinal);
         Assert.Contains("producesItem: WorkOrder -> Item", tool.Description, StringComparison.Ordinal);
         var types = tool.JsonSchema.GetProperty("properties").GetProperty("start").GetProperty("properties").GetProperty("type").GetProperty("enum");
         Assert.Equal(["Item", "WorkOrder"], types.EnumerateArray().Select(e => e.GetString()));
