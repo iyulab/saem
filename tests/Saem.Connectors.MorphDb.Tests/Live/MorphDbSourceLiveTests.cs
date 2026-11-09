@@ -83,13 +83,20 @@ public sealed class MorphDbSourceLiveTests : IAsyncLifetime
         using var issuer = new HttpClient();
         var own = await TokenAsync(issuer, new()
         {
-            ["grant_type"] = "client_credentials", ["client_id"] = person, ["client_secret"] = "rig",
-            ["scope"] = "saem", ["audience"] = "saem",
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = person,
+            ["client_secret"] = "rig",
+            ["scope"] = "saem",
+            ["audience"] = "saem",
         }, ct);
         return await TokenAsync(issuer, new()
         {
-            ["grant_type"] = "urn:ietf:params:oauth:grant-type:token-exchange", ["client_id"] = "saem", ["client_secret"] = "rig",
-            ["subject_token_type"] = "urn:ietf:params:oauth:token-type:jwt", ["subject_token"] = own, ["audience"] = "morphdb",
+            ["grant_type"] = "urn:ietf:params:oauth:grant-type:token-exchange",
+            ["client_id"] = "saem",
+            ["client_secret"] = "rig",
+            ["subject_token_type"] = "urn:ietf:params:oauth:token-type:jwt",
+            ["subject_token"] = own,
+            ["audience"] = "morphdb",
         }, ct);
     }
 
@@ -165,8 +172,11 @@ public sealed class MorphDbSourceLiveTests : IAsyncLifetime
         using var issuer = new HttpClient();
         var meantForSaem = await TokenAsync(issuer, new()
         {
-            ["grant_type"] = "client_credentials", ["client_id"] = "alice", ["client_secret"] = "rig",
-            ["scope"] = "saem", ["audience"] = "saem",
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = "alice",
+            ["client_secret"] = "rig",
+            ["scope"] = "saem",
+            ["audience"] = "saem",
         }, ct);
 
         await using var session = await new MorphDbSource(_http, _project).As(_ => ValueTask.FromResult(meantForSaem))(ct);

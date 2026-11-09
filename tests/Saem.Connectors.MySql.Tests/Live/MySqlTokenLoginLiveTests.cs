@@ -33,8 +33,11 @@ public class MySqlTokenLoginLiveTests
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
-                ["grant_type"] = "client_credentials", ["client_id"] = person, ["client_secret"] = "unused",
-                ["scope"] = "openid", ["audience"] = audience,
+                ["grant_type"] = "client_credentials",
+                ["client_id"] = person,
+                ["client_secret"] = "unused",
+                ["scope"] = "openid",
+                ["audience"] = audience,
             }),
         };
         request.Headers.Host = "issuer:8080";

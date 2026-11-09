@@ -50,10 +50,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # The live tests are left out of the default compilation, so the build job never sees them.
-      # Compiling them here catches a live test that no longer builds; running them needs a Formbase
-      # instance, which CI does not have. MSBuild reads environment variables as properties, which
-      # is also how `dotnet format` (no -p:) comes to check those files.
+      # Compiling them here catches a live test that no longer builds; running them needs a Formbase,
+      # MorphDB or identity-provider instance, which CI does not have. MSBuild reads environment
+      # variables as properties, which is also how `dotnet format` (no -p:) comes to check those files.
+      # Every optional-compilation flag a test project declares is set here, so the formatting gate
+      # sees all the code, not the part the default build happens to compile.
       IncludeFormbaseLiveTests: 'true'
+      IncludeMorphDbLiveTests: 'true'
+      IncludeRigLiveTests: 'true'
+      IncludeAuthoringLiveTests: 'true'
 
     steps:
       - name: Checkout
