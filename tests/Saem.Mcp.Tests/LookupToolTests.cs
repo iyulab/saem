@@ -27,6 +27,9 @@ public sealed class LookupToolTests : IAsyncLifetime
         """;
 
     private static readonly string[] ReadName = ["name"];
+    private static readonly string[] ReadNote = ["note"];
+    private static readonly string[] OtherKeys = ["WO-9"];
+    private static readonly string[] NoPath = [];
 
     private TestServer _server = null!;
 
@@ -51,6 +54,57 @@ public sealed class LookupToolTests : IAsyncLifetime
         ["path"] = path,
         ["read"] = read,
     };
+
+    /// <summary>
+    /// The tool's input schema says <c>additionalProperties: false</c> at every level, so the server holds a call to it: a
+    /// member the call does not declare is an error naming it, not an input read as if it were not there. A model
+    /// that adds a limit, or a comparison the lookup does not have, would otherwise be answered as though it had
+    /// been honored.
+    /// </summary>
+    [Theory]
+    [InlineData("limit")]
+    [InlineData("filter")]
+    public async Task A_member_the_call_does_not_declare_is_an_error_naming_it(string stray)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var alice = await _server.ClientAsync(TestServer.Token("alice"), ct);
+        var call = Call("WorkOrder", "WO-3", [], ["note"]);
+        call[stray] = 1;
+
+        var result = await alice.CallToolAsync("lookup", call, cancellationToken: ct);
+
+        Assert.True(result.IsError);
+        Assert.Contains(stray, Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_member_the_start_or_the_field_match_does_not_declare_is_an_error_naming_it()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var alice = await _server.ClientAsync(TestServer.Token("alice"), ct);
+
+        var inStart = await alice.CallToolAsync("lookup", new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = "WorkOrder", ["key"] = "WO-3", ["keys"] = OtherKeys },
+            ["path"] = NoPath,
+            ["read"] = ReadNote,
+        }, cancellationToken: ct);
+        var inMatch = await alice.CallToolAsync("lookup", new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?>
+            {
+                ["type"] = "WorkOrder",
+                ["where"] = new Dictionary<string, object?> { ["field"] = "note", ["value"] = "x", ["operator"] = "contains" },
+            },
+            ["path"] = NoPath,
+            ["read"] = ReadNote,
+        }, cancellationToken: ct);
+
+        Assert.True(inStart.IsError);
+        Assert.Contains("keys", Assert.IsType<TextContentBlock>(Assert.Single(inStart.Content)).Text, StringComparison.Ordinal);
+        Assert.True(inMatch.IsError);
+        Assert.Contains("operator", Assert.IsType<TextContentBlock>(Assert.Single(inMatch.Content)).Text, StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task The_one_tool_lists_the_declared_vocabulary()

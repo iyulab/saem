@@ -18,6 +18,12 @@ public sealed record EntityKey(string Type, string Key);
 /// <param name="Start">The entity the walk starts from — by its key, or by a field's value.</param>
 /// <param name="Path">The relations to follow, in order; empty reads the start entity itself.</param>
 /// <param name="Read">The fields to read on the entity the walk ends at.</param>
+/// <remarks>
+/// A call is read strictly: a member it does not declare (a limit, a comparison the lookup does not have) is an error
+/// naming it, as the tool's input schema says (<c>additionalProperties: false</c>), not an input read as if it were absent.
+/// The same holds for <see cref="LookupStart"/> and <see cref="FieldMatch"/>.
+/// </remarks>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record LookupCall(LookupStart Start, IReadOnlyList<string> Path, IReadOnlyList<string> Read);
 
 /// <summary>
@@ -25,6 +31,7 @@ public sealed record LookupCall(LookupStart Start, IReadOnlyList<string> Path, I
 /// declared fields. A field may hold the same value on several entities; then the lookup answers with the
 /// <see cref="Candidates"/> the person can see, and the caller starts again from one of them by key.
 /// </summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record LookupStart
 {
     /// <param name="type">The entity type, as the ontology declares it.</param>
@@ -66,6 +73,7 @@ public sealed record LookupStart
 /// <summary>A declared field and the value an entity holds in it, compared as the source compares it.</summary>
 /// <param name="Field">The field, as the entity type declares it.</param>
 /// <param name="Value">The value, as text.</param>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record FieldMatch(string Field, string Value);
 
 /// <summary>
