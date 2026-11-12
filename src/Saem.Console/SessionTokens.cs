@@ -26,7 +26,7 @@ internal sealed class SessionTokens(ConsoleIssuer issuer, TimeProvider time)
     /// <summary>How long a renewal is kept for another request that spent the same refresh token.</summary>
     internal static readonly TimeSpan Shared = TimeSpan.FromMinutes(1);
 
-    private readonly ConcurrentDictionary<string, (DateTimeOffset At, Task<Renewed?> Renewal)> _renewals = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, (DateTimeOffset At, Task<Outcome> Renewal)> _renewals = new(StringComparer.Ordinal);
 
     /// <summary>The cookie's validation: renew what is about to expire, or end the session.</summary>
     public async Task ValidateAsync(CookieValidatePrincipalContext context)
@@ -39,10 +39,23 @@ internal sealed class SessionTokens(ConsoleIssuer issuer, TimeProvider time)
             return;
         }
 
-        var renewed = properties.GetTokenValue("refresh_token") is { Length: > 0 } refresh
+        var outcome = properties.GetTokenValue("refresh_token") is { Length: > 0 } refresh
             ? await RenewAsync(refresh).ConfigureAwait(false)
-            : null;
-        if (renewed is null)
+            : Outcome.Refused;
+        if (outcome.NoAnswer)
+        {
+            // The issuer gave no answer, so nothing says the session is over: while the token it holds still lives the session
+            // goes on, and the renewal is tried again after <see cref="Shared"/>. A token that has expired cannot be used, so
+            // the request is turned away — the cookie stays, and the next request renews once the issuer answers.
+            if (expires <= time.GetUtcNow())
+            {
+                context.RejectPrincipal();
+            }
+
+            return;
+        }
+
+        if (outcome.Tokens is not { } renewed)
         {
             context.RejectPrincipal();
             await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme).ConfigureAwait(false);
@@ -61,7 +74,7 @@ internal sealed class SessionTokens(ConsoleIssuer issuer, TimeProvider time)
 
     // Not tied to the request that started it: another request may be waiting on the same renewal, and a renewal the
     // issuer completed but nobody kept would leave the session holding a refresh token the issuer has retired.
-    private Task<Renewed?> RenewAsync(string refreshToken)
+    private Task<Outcome> RenewAsync(string refreshToken)
     {
         var now = time.GetUtcNow();
         foreach (var stale in _renewals.Where(r => now - r.Value.At > Shared).Select(r => r.Key).ToList())
@@ -74,18 +87,30 @@ internal sealed class SessionTokens(ConsoleIssuer issuer, TimeProvider time)
         return _renewals.GetOrAdd(key, _ => (now, RequestAsync(refreshToken, CancellationToken.None))).Renewal;
     }
 
-    private async Task<Renewed?> RequestAsync(string refreshToken, CancellationToken cancellationToken)
+    private async Task<Outcome> RequestAsync(string refreshToken, CancellationToken cancellationToken)
     {
         try
         {
             var issued = await issuer.TokenAsync(new Dictionary<string, string> { ["grant_type"] = "refresh_token", ["refresh_token"] = refreshToken }, cancellationToken).ConfigureAwait(false);
-            return new Renewed(issued.AccessToken, issued.RefreshToken, time.GetUtcNow() + (issued.Lifetime ?? Ahead));
+            return new Outcome(new Renewed(issued.AccessToken, issued.RefreshToken, time.GetUtcNow() + (issued.Lifetime ?? Ahead)), NoAnswer: false);
         }
         catch (IssuerRefusedException)
         {
-            return null;
+            return Outcome.Refused;
+        }
+        catch (IssuerUnavailableException)
+        {
+            return Outcome.Unanswered;
         }
     }
 
     private sealed record Renewed(string AccessToken, string? RefreshToken, DateTimeOffset ExpiresAt);
+
+    /// <summary>What a renewal came to: new tokens, a refusal (no tokens), or no answer from the issuer (kept, like a renewal, for <see cref="Shared"/>).</summary>
+    private sealed record Outcome(Renewed? Tokens, bool NoAnswer)
+    {
+        internal static readonly Outcome Refused = new(null, NoAnswer: false);
+
+        internal static readonly Outcome Unanswered = new(null, NoAnswer: true);
+    }
 }

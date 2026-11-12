@@ -59,7 +59,7 @@ internal sealed class McpConsoleLookups(ConsoleIssuer issuer, IOptions<ConsoleLo
                 : null;
             exchanged = (await issuer.TokenAsync(Exchange(settings, presentedToken, actor), cancellationToken).ConfigureAwait(false)).AccessToken;
         }
-        catch (IssuerRefusedException e)
+        catch (Exception e) when (e is IssuerRefusedException or IssuerUnavailableException)
         {
             throw new LookupUnavailableException(e.Message, e);
         }

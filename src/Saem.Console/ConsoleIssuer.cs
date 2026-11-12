@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -16,22 +17,41 @@ internal sealed class ConsoleIssuer(IHttpClientFactory clients, IOptionsMonitor<
 {
     /// <summary>The token the endpoint issued for <paramref name="form"/>.</summary>
     /// <exception cref="IssuerRefusedException">The issuer refused the request, or answered without an access token.</exception>
+    /// <exception cref="IssuerUnavailableException">The issuer gave no answer: it could not be reached, or it failed (a 5xx, or asking for less).</exception>
     public async Task<IssuedToken> TokenAsync(IReadOnlyDictionary<string, string> form, CancellationToken cancellationToken)
     {
-        var configuration = await oidc.Get(OpenIdConnectDefaults.AuthenticationScheme).ConfigurationManager!.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-        var client = identity.Value;
-        using var request = new HttpRequestMessage(HttpMethod.Post, configuration.TokenEndpoint) { Content = new FormUrlEncodedContent(form) };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(
-            Encoding.UTF8.GetBytes($"{Uri.EscapeDataString(client.ClientId)}:{Uri.EscapeDataString(client.ClientSecret)}")));
-
-        using var http = clients.CreateClient(nameof(ConsoleIssuer));
-        using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var grant = form.TryGetValue("grant_type", out var g) ? g : "token";
-        if (!response.IsSuccessStatusCode)
+        HttpStatusCode status;
+        string body;
+        try
+        {
+            var configuration = await oidc.Get(OpenIdConnectDefaults.AuthenticationScheme).ConfigurationManager!.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+            var client = identity.Value;
+            using var request = new HttpRequestMessage(HttpMethod.Post, configuration.TokenEndpoint) { Content = new FormUrlEncodedContent(form) };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(
+                Encoding.UTF8.GetBytes($"{Uri.EscapeDataString(client.ClientId)}:{Uri.EscapeDataString(client.ClientSecret)}")));
+
+            using var http = clients.CreateClient(nameof(ConsoleIssuer));
+            using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            status = response.StatusCode;
+            body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException or IOException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            // Not an answer: the discovery document or the token endpoint could not be reached in time. The cause is the
+            // transport's own message, which names no secret.
+            throw new IssuerUnavailableException($"The issuer gave no answer to the console's {grant} request: {e.Message}", e);
+        }
+
+        if (status is >= HttpStatusCode.InternalServerError or HttpStatusCode.TooManyRequests)
+        {
+            throw new IssuerUnavailableException($"The issuer could not answer the console's {grant} request ({(int)status}).");
+        }
+
+        if ((int)status is < 200 or > 299)
         {
             // The issuer's error names the reason (invalid_grant, unauthorized_client …) and no secret.
-            throw new IssuerRefusedException($"The issuer refused the console's {grant} request ({(int)response.StatusCode}): {body}");
+            throw new IssuerRefusedException($"The issuer refused the console's {grant} request ({(int)status}): {body}");
         }
 
         using var document = JsonDocument.Parse(body);
@@ -64,6 +84,24 @@ public sealed class IssuerRefusedException : Exception
     }
 
     public IssuerRefusedException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
+/// <summary>The issuer gave no answer — it could not be reached, or it failed. That is not a «no»: nothing was refused.</summary>
+public sealed class IssuerUnavailableException : Exception
+{
+    public IssuerUnavailableException()
+    {
+    }
+
+    public IssuerUnavailableException(string message)
+        : base(message)
+    {
+    }
+
+    public IssuerUnavailableException(string message, Exception innerException)
         : base(message, innerException)
     {
     }

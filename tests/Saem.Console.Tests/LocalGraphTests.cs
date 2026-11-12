@@ -102,6 +102,27 @@ public sealed class LocalGraphTests
         Assert.False(called);
     }
 
+    [Fact]
+    public async Task An_exchange_the_issuer_cannot_answer_asks_nothing_and_is_a_bad_gateway_not_a_server_error()
+    {
+        var called = false;
+        var lookups = new McpConsoleLookups(
+            TestIssuer.For(new ExchangingIssuer(disconnect: true)),
+            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp" }),
+            (_, _, _, _) =>
+            {
+                called = true;
+                return Task.FromResult(default(JsonElement));
+            });
+        await using var server = await ConsoleServer.StartAsync(configure: services => services.AddSingleton<IConsoleLookups>(lookups));
+        using var builder = server.Client(ConsoleServer.Token("alice", ["ontology-builders"]));
+
+        using var response = await builder.PostAsJsonAsync("api/graph/local", Call, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.False(called);
+    }
+
     private sealed class RecordingLookups : IConsoleLookups
     {
         public string? Presented { get; private set; }
@@ -116,7 +137,7 @@ public sealed class LocalGraphTests
         }
     }
 
-    private sealed class ExchangingIssuer(bool refuse = false) : HttpMessageHandler
+    private sealed class ExchangingIssuer(bool refuse = false, bool disconnect = false) : HttpMessageHandler
     {
         public Dictionary<string, string> Form { get; } = [];
 
@@ -134,6 +155,10 @@ public sealed class LocalGraphTests
             }
 
             Grants.Add(Form["grant_type"]);
+            if (disconnect)
+            {
+                throw new HttpRequestException("Connection refused.");
+            }
 
             return refuse
                 ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("""{"error":"unauthorized_client"}""") }

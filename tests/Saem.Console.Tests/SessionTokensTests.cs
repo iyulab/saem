@@ -71,6 +71,51 @@ public sealed class SessionTokensTests
         Assert.Null(without.Principal);
     }
 
+    /// <summary>
+    /// An issuer that gives no answer (a 5xx, a refused connection) has not refused the session: while the access token the
+    /// session holds still lives, the session goes on and the renewal is tried again later. Only an issuer that says no ends it.
+    /// </summary>
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable, false)]
+    [InlineData(HttpStatusCode.InternalServerError, false)]
+    [InlineData(HttpStatusCode.TooManyRequests, false)]
+    [InlineData(null, true)]
+    public async Task An_issuer_that_gives_no_answer_does_not_end_a_session_whose_token_still_lives(HttpStatusCode? status, bool disconnect)
+    {
+        var context = Context(expiresIn: TimeSpan.FromSeconds(30));
+
+        await Tokens(new Issuer(status: status, disconnect: disconnect)).ValidateAsync(context);
+
+        Assert.NotNull(context.Principal);
+        Assert.False(context.ShouldRenew);
+        Assert.Equal("access-1", context.Properties.GetTokenValue("access_token"));
+        Assert.Equal("refresh-1", context.Properties.GetTokenValue("refresh_token"));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadGateway, false)]
+    [InlineData(null, true)]
+    public async Task An_issuer_that_gives_no_answer_cannot_keep_a_session_whose_token_has_expired(HttpStatusCode? status, bool disconnect)
+    {
+        var context = Context(expiresIn: TimeSpan.FromSeconds(-1));
+
+        await Tokens(new Issuer(status: status, disconnect: disconnect)).ValidateAsync(context);
+
+        Assert.Null(context.Principal);
+    }
+
+    [Fact]
+    public async Task A_renewal_that_got_no_answer_is_not_asked_again_by_every_request_of_the_next_minute()
+    {
+        var issuer = new Issuer(status: HttpStatusCode.ServiceUnavailable);
+        var tokens = Tokens(issuer);
+
+        await tokens.ValidateAsync(Context(expiresIn: TimeSpan.FromSeconds(30)));
+        await tokens.ValidateAsync(Context(expiresIn: TimeSpan.FromSeconds(30)));
+
+        Assert.Equal(1, issuer.Requests);
+    }
+
     private static SessionTokens Tokens(Issuer issuer) => new(TestIssuer.For(issuer, clientSecret: "s"), new FixedTime(Now));
 
     private static CookieValidatePrincipalContext Context(TimeSpan expiresIn, string? refreshToken = "refresh-1")
@@ -92,7 +137,7 @@ public sealed class SessionTokensTests
         return new CookieValidatePrincipalContext(http, new AuthenticationScheme(CookieAuthenticationDefaults.AuthenticationScheme, null, typeof(CookieAuthenticationHandler)), new CookieAuthenticationOptions(), ticket);
     }
 
-    private sealed class Issuer(bool refuse = false) : HttpMessageHandler
+    private sealed class Issuer(bool refuse = false, HttpStatusCode? status = null, bool disconnect = false) : HttpMessageHandler
     {
         private int _requests;
 
@@ -110,6 +155,16 @@ public sealed class SessionTokensTests
             }
 
             await Task.Delay(50, cancellationToken);
+            if (disconnect)
+            {
+                throw new HttpRequestException("Connection refused.");
+            }
+
+            if (status is { } failing)
+            {
+                return new HttpResponseMessage(failing) { Content = new StringContent("upstream trouble") };
+            }
+
             return refuse
                 ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("""{"error":"invalid_grant"}""") }
                 : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"access_token":"access-2","refresh_token":"refresh-2","expires_in":300,"token_type":"Bearer"}""") };
