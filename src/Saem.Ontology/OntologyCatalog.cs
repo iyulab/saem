@@ -58,9 +58,10 @@ public sealed class FileOntologyCatalog : IOntologyCatalog
 }
 
 /// <summary>
-/// The declarations on the wire: camelCase members, the kind in <c>kind</c> wherever it appears.
+/// The declarations on the wire: camelCase members, the kind in <c>kind</c> wherever it appears. A member no declaration reads is refused,
+/// not dropped: a typo is not a fact the file does not say.
 /// </summary>
-[JsonSourceGenerationOptions(JsonSerializerDefaults.Web, AllowOutOfOrderMetadataProperties = true, UseStringEnumConverter = true)]
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web, AllowOutOfOrderMetadataProperties = true, UseStringEnumConverter = true, UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(IReadOnlyList<Declaration>))]
 public sealed partial class OntologyJson : JsonSerializerContext;
 

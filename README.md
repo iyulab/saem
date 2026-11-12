@@ -219,7 +219,8 @@ by fields that must hold the same value (`match`) or by a named linkage rule (`l
 and who settles a pair it finds (`decision`: `automatic`, or `confirmed` by a person). A `grouping` — a
 line, a fleet, a team — is nothing but its members: each member type names the field whose value is
 its group's key (`members`), and the declaration has no fields of its own; a file that gives a grouping
-one is refused, since a fact about a group is one a source must hold. Both stand only on declared types
+one is refused, since a fact about a group is one a source must hold — as is any member a declaration does not read
+(`tabel` for `table`): the file is refused and the member named, rather than the typo being dropped. Both stand only on declared types
 and fields, and neither matches on a `freeText` field or a date against a value of another kind. They
 are declared, checked and part of the ontology's version. A materialization pass (below) finds what each
 identity declaring a `match` says is one thing — the entities whose matched fields hold the same values,

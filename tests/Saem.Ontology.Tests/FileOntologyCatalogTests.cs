@@ -179,4 +179,40 @@ public sealed class FileOntologyCatalogTests : IDisposable
         var refused = await Assert.ThrowsAsync<OntologyDeclarationException>(() => new FileOntologyCatalog(_path).GetAsync(TestContext.Current.CancellationToken).AsTask());
         Assert.Contains("fields", refused.Message, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// A declaration is read by name, so a member nobody reads is a typo or a field of another kind, and the person who wrote it believes
+    /// it says something. The file is refused and the member named — for every kind and the objects inside them, not only a grouping.
+    /// </summary>
+    [Theory]
+    [InlineData("\"table\": \"work_orders\"", "\"table\": \"work_orders\", \"tabel\": \"x\"", "tabel")]
+    [InlineData("\"via\": \"item\"", "\"via\": \"item\", \"viaa\": \"item\"", "viaa")]
+    [InlineData("\"decision\": \"confirmed\"", "\"decision\": \"confirmed\", \"decisoin\": \"automatic\"", "decisoin")]
+    [InlineData("\"first\": \"item\", \"second\": \"code\"", "\"first\": \"item\", \"second\": \"code\", \"weight\": 2", "weight")]
+    [InlineData("\"method\": \"exact\"", "\"method\": \"exact\", \"mehtod\": \"jaroWinkler\"", "mehtod")]
+    [InlineData("\"by\": \"line\"", "\"by\": \"line\", \"byy\": \"line\"", "byy")]
+    public async Task A_member_no_declaration_reads_is_refused_and_named_wherever_it_is_written(string from, string to, string member)
+    {
+        const string json = """
+            [
+              { "kind": "entityType", "name": "WorkOrder", "system": "mes", "table": "work_orders", "key": "wo_no",
+                "fields": { "item": "item_code", "line": "line_code" } },
+              { "kind": "entityType", "name": "Item", "system": "erp", "table": "items", "key": "item_code",
+                "fields": { "code": "item_code" } },
+              { "kind": "relation", "name": "orders_item", "from": "WorkOrder", "via": "item", "to": "Item" },
+              { "kind": "identity", "name": "same_item", "first": "WorkOrder", "second": "Item", "decision": "confirmed",
+                "match": [ { "first": "item", "second": "code" } ] },
+              { "kind": "linkage", "name": "item_rule", "compare": [ { "first": "item", "second": "code", "method": "exact" } ] },
+              { "kind": "grouping", "name": "Line", "members": [ { "type": "WorkOrder", "by": "line" } ] }
+            ]
+            """;
+        Assert.Contains(from, json, StringComparison.Ordinal);
+        await File.WriteAllTextAsync(_path, json, TestContext.Current.CancellationToken);
+        await new FileOntologyCatalog(_path).GetAsync(TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(_path, json.Replace(from, to, StringComparison.Ordinal), TestContext.Current.CancellationToken);
+
+        var refused = await Assert.ThrowsAsync<OntologyDeclarationException>(() => new FileOntologyCatalog(_path).GetAsync(TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Contains(member, refused.Message, StringComparison.Ordinal);
+    }
 }
