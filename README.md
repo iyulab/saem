@@ -481,9 +481,11 @@ job at a time. A caller sends `POST /jobs` with `{"kind": …, "requestedBy": "<
 (`arguments` carries a fit's `identity`, and a judgment's `identity`, `first`, `second` and `same`) and reads
 the job at `GET /jobs/{id}`: its state, its exit status and the lines the command prints; `POST
 /jobs/{id}/cancel` stops it. Asking while a job runs is refused (`409`) and names the job in the way. The
-executor reads the catalog and the sources file afresh for every job, holds the last twenty jobs in
-memory only, and does what the one-shot command does with them — the group's store and the report files
-are what remains. A caller presents one of two bearer secrets (`SAEM_EXECUTOR_SECRET`, at least 24
+executor reads the catalog and the sources file afresh for every job (a replaced file is taken up by the next
+job; the secrets are read from the environment when the executor starts, so rotating one takes a restart),
+holds the last twenty jobs in memory only, and does what the one-shot command does with them — the group's
+store and the report files are what remains. "One job at a time" is the executor's own rule: a one-shot
+command run against the same store beside it is not held back, so keep one writer per group store. A caller presents one of two bearer secrets (`SAEM_EXECUTOR_SECRET`, at least 24
 characters, and `SAEM_EXECUTOR_SECRET_NEXT`, accepted too so a secret is replaced without refusing the
 console), and the secret is sent in every request: serve over HTTPS, or over loopback behind a proxy
 that ends TLS. `requestedBy` is the caller's word — the console puts the signed-in person's subject

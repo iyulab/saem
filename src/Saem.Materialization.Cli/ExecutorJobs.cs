@@ -21,12 +21,14 @@ internal sealed class GroupContext(Ontology.Ontology ontology, IReadOnlyDictiona
     }
 }
 
-/// <summary>Opens what a job works on, afresh: a catalog replaced or a secret rotated since the last job is taken up by this one.</summary>
+/// <summary>Opens what a job works on, afresh: a catalog or sources file replaced since the last job is taken up by this one.</summary>
 internal delegate Task<GroupContext> OpenGroup(CancellationToken cancellationToken);
 
 /// <summary>
 /// The jobs an executor does: the commands of a one-shot run, each reading the group's catalog and sources afresh when it
-/// starts, so a catalog replaced or a secret rotated is taken up by the next job without restarting the executor.
+/// starts, so a catalog or sources file replaced is taken up by the next job without restarting the executor.
+/// The secrets are not: a source's password and the store's token are read from the environment, which a running
+/// process cannot see change, so rotating one takes a restart of the executor.
 /// </summary>
 internal static class ExecutorJobs
 {

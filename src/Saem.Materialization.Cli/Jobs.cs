@@ -40,7 +40,8 @@ internal sealed record JobView(
 /// <summary>
 /// The jobs an executor has run, and the one it is running. An executor holds one group's secrets and writes one
 /// group's store, so it does one job at a time: asking for another while one runs is refused, not queued, and the
-/// refusal names the job in the way. Only the last few are kept, in memory — what a job did is in the group's store.
+/// refusal names the job in the way. That is this process's rule: a one-shot command run against the same store
+/// beside it is not held back — one writer per group store at a time is the operator's to keep. Only the last few are kept, in memory — what a job did is in the group's store.
 /// </summary>
 internal sealed partial class JobStore(TimeProvider time, ILogger logger, int keep = 20, int outputLimit = 256 * 1024)
 {
