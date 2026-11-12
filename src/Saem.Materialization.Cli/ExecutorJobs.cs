@@ -95,7 +95,7 @@ internal static class ExecutorJobs
             {
                 var arguments = call.Arguments;
                 var judgment = new JudgeOptions(
-                    run.CatalogPath, run.Store, run.StoreNamespace, run.StoreToken,
+                    run.CatalogPath, run.BaseIri, run.Store, run.StoreNamespace, run.StoreToken,
                     Required(arguments.Identity, "identity"), Required(arguments.First, "first"), Required(arguments.Second, "second"),
                     arguments.Same ?? throw new MaterializeUsageException("same is required for a judgment: true when the pair is one thing, false when it is two."),
                     call.RequestedBy);

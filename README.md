@@ -227,8 +227,9 @@ read as the group — and files it in the group's store beside the edges: a cano
 once and carried from pass to pass (a merge keeps the older id, the part split off gets a new one), a
 cross-reference per member, and the grounds each pair was judged on (the rule, its score, the two entity
 IRIs, who judged, the pass) — no value of any record. A person's judgment of a pair wins over the rule run
-again: `saem-materialize judge --identity <name> --first <iri> --second <iri> --same|--different --by
-<id>` files it in the group's store as a ground of its own (an opaque person id, never a name), and the
+again: `saem-materialize judge --base-iri <iri> --identity <name> --first <iri> --second <iri> --same|--different
+--by <id>` files it in the group's store as a ground of its own (an opaque person id, never a name; the two IRIs
+must be entities of the identity's types under the group's base IRI, or the judgment is refused), and the
 next pass takes it — a pair judged the same is one thing whatever the rule says, a pair judged different
 leaves the rule's thing, both of them. An identity a person settles (`confirmed`) has the rule's pairs as
 candidates only: a thing is issued an id once a person has judged a pair the same.

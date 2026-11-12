@@ -189,7 +189,7 @@ public sealed class MaterializeCliTests
     {
         var formbase = new FakeFormbase();
         var options = JudgeRun.Parse(
-            ["--catalog", "c.json", "--store", "http://store.test", "--identity", "same_order", "--first", "wo/2", "--second", "wo/1", "--different", "--by", "p-3"],
+            ["--catalog", "c.json", "--store", "http://store.test", "--base-iri", "https://example.org/ontology/", "--identity", "same_order", "--first", "https://example.org/ontology/WorkOrder/2", "--second", "https://example.org/ontology/WorkOrder/1", "--different", "--by", "p-3"],
             name => name == "SAEM_STORE_TOKEN" ? "k" : null);
         var duplicates = Ontology.Ontology.Create(
         [
@@ -202,16 +202,18 @@ public sealed class MaterializeCliTests
 
         Assert.Equal((new Uri("http://store.test/"), "k", false), (options.Store, options.StoreToken, options.Same));
         var ground = Assert.Single(formbase.Type("identity_grounds").Rows);
-        Assert.Equal("same_order wo/1 wo/2 person", ground.Key);
+        Assert.Equal("same_order https://example.org/ontology/WorkOrder/1 https://example.org/ontology/WorkOrder/2 person", ground.Key);
         Assert.Equal(("0", "p-3"), ((string?)ground.Body!["score"], (string?)ground.Body["judged_by"]));
-        Assert.Equal("same_order: wo/2 and wo/1 judged two things by p-3; the next pass takes it in.", output.ToString().Trim());
+        Assert.Equal("same_order: https://example.org/ontology/WorkOrder/2 and https://example.org/ontology/WorkOrder/1 judged two things by p-3; the next pass takes it in.", output.ToString().Trim());
     }
 
     [Theory]
-    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--identity", "i", "--first", "a", "--second", "b", "--by", "p" }, "--same or --different is required.")]
-    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--identity", "i", "--first", "a", "--second", "b", "--same", "--different", "--by", "p" }, "--same and --different are given more than once together.")]
-    [InlineData(new[] { "--catalog", "c", "--store", "ftp://s", "--identity", "i", "--first", "a", "--second", "b", "--same", "--by", "p" }, "--store takes an http(s) address, not 'ftp://s'.")]
-    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--identity", "i", "--first", "a", "--second", "b", "--same" }, "--by is required.")]
+    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--base-iri", "https://example.org/", "--identity", "i", "--first", "a", "--second", "b", "--by", "p" }, "--same or --different is required.")]
+    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--base-iri", "https://example.org/", "--identity", "i", "--first", "a", "--second", "b", "--same", "--different", "--by", "p" }, "--same and --different are given more than once together.")]
+    [InlineData(new[] { "--catalog", "c", "--store", "ftp://s", "--base-iri", "https://example.org/", "--identity", "i", "--first", "a", "--second", "b", "--same", "--by", "p" }, "--store takes an http(s) address, not 'ftp://s'.")]
+    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--base-iri", "https://example.org/", "--identity", "i", "--first", "a", "--second", "b", "--same" }, "--by is required.")]
+    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--identity", "i", "--first", "a", "--second", "b", "--same", "--by", "p" }, "--base-iri is required.")]
+    [InlineData(new[] { "--catalog", "c", "--store", "http://s", "--base-iri", "relative/path", "--identity", "i", "--first", "a", "--second", "b", "--same", "--by", "p" }, "--base-iri takes an absolute IRI, not 'relative/path'.")]
     public void A_judge_command_line_that_is_incomplete_is_refused(string[] args, string message)
     {
         Assert.Equal(message, Assert.Throws<MaterializeUsageException>(() => JudgeRun.Parse(args, _ => null)).Message);

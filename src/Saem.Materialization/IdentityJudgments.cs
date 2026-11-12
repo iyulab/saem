@@ -90,6 +90,32 @@ public static class IdentityJudgments
             .OrderBy(c => c.Members[0], StringComparer.Ordinal)];
     }
 
+    /// <summary>
+    /// Refuses a judgment that is not of two entities of the identity: one of each of its two types — two of its
+    /// type, where it is about duplicates — each named by the IRI the group's passes mint under <paramref name="iris"/>.
+    /// A judgment wins over the rule, so one of two IRIs that are no entity (a typo, another group's, the wrong type)
+    /// would stand as a thing of its own; the store files what it is given, so this is asked before it is.
+    /// </summary>
+    /// <exception cref="IdentityStoreException">The pair is not of the identity's types under the base IRI.</exception>
+    public static void Check(Ontology.Ontology ontology, EntityIris iris, PersonJudgment judgment)
+    {
+        ArgumentNullException.ThrowIfNull(ontology);
+        ArgumentNullException.ThrowIfNull(iris);
+        ArgumentNullException.ThrowIfNull(judgment);
+        if (!ontology.Identities.TryGetValue(judgment.Identity, out var identity))
+        {
+            return;   // an undeclared identity is the store's to refuse, with its own words
+        }
+
+        bool Names(string type, string iri) => iris.KeyOf(type, iri) is not null;
+        if (!(Names(identity.First, judgment.First) && Names(identity.Second, judgment.Second)
+            || Names(identity.First, judgment.Second) && Names(identity.Second, judgment.First)))
+        {
+            var types = identity.First == identity.Second ? $"two '{identity.First}' entities" : $"one '{identity.First}' and one '{identity.Second}' entity";
+            throw new IdentityStoreException($"A judgment of '{identity.Name}' is of {types}, each named by its IRI under the group's base IRI; '{judgment.First}' and '{judgment.Second}' are not.");
+        }
+    }
+
     /// <summary>The two IRIs of a pair in ordinal order — the order a pair is filed under, whichever way it was judged.</summary>
     public static (string, string) Pair(string a, string b) => string.CompareOrdinal(a, b) <= 0 ? (a, b) : (b, a);
 }

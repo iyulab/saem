@@ -105,12 +105,39 @@ public sealed class ExecutorJobsTests : IDisposable
         var output = new StringWriter();
 
         var outcome = await kinds["judge"](
-            new JobCall("p-3", new JobArguments("same_order", "wo/2", "wo/1", Same: false)), output, TestContext.Current.CancellationToken);
+            new JobCall("p-3", new JobArguments("same_order", "https://example.org/ontology/WorkOrder/2", "https://example.org/ontology/WorkOrder/1", Same: false)), output, TestContext.Current.CancellationToken);
 
         Assert.True(outcome.Succeeded);
         var ground = Assert.Single(_formbase.Type("identity_grounds").Rows);
         Assert.Equal(("0", "p-3"), ((string?)ground.Body!["score"], (string?)ground.Body["judged_by"]));
-        Assert.Equal("same_order: wo/2 and wo/1 judged two things by p-3; the next pass takes it in.", output.ToString().Trim());
+        Assert.Equal("same_order: https://example.org/ontology/WorkOrder/2 and https://example.org/ontology/WorkOrder/1 judged two things by p-3; the next pass takes it in.", output.ToString().Trim());
+    }
+
+    /// <summary>A judgment names entities of the identity's types under the group's base IRI — a typo is refused, not filed as a thing of its own.</summary>
+    [Fact]
+    public async Task A_judgment_of_iris_that_are_no_entities_of_the_identity_is_refused_and_files_nothing()
+    {
+        var duplicates = Ontology.Ontology.Create(
+        [
+            .. Plant.EntityTypes.Values,
+            new IdentityDeclaration("same_order", "WorkOrder", "WorkOrder", IdentityDecision.Automatic) { Match = [new FieldPair("item", "item")] },
+        ]);
+        var kinds = ExecutorJobs.For(Run, _ => Task.FromResult(new GroupContext(
+            duplicates, new Dictionary<string, SourceOpener>(), new HttpClient(_formbase, disposeHandler: false) { BaseAddress = _formbase.Client.BaseAddress })));
+
+        foreach (var (first, second) in new[]
+        {
+            ("wo/2", "wo/1"),                                                    // no IRIs at all
+            ("https://example.org/ontology/WorkOrder/2", "https://example.org/ontology/Item/I-1"),                                   // an entity of another type
+            ("https://example.org/ontology/WorkOrder/2", "https://elsewhere.example/ontology/WorkOrder/1"), // another group's base
+            ("https://example.org/ontology/WorkOrder/2", "https://example.org/ontology/WorkOrder/"),                                 // no key
+        })
+        {
+            await Assert.ThrowsAsync<IdentityStoreException>(() => kinds["judge"](
+                new JobCall("p-3", new JobArguments("same_order", first, second, Same: true)), new StringWriter(), TestContext.Current.CancellationToken));
+        }
+
+        Assert.Empty(_formbase.Type("identity_grounds").Stream);
     }
 
     [Fact]
