@@ -166,14 +166,13 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     /// </para>
     /// <para>
     /// A repeated section has no documents of its own: its declaration names the parent
-    /// (<c>sectionOf</c>), and its records are cut from the parent's standing documents the way the
-    /// projection cuts its rows — one per item of the section array, the item's members as fields, and
-    /// the parent's value of the key field over an item member of the same name (the parent's record
-    /// identity when the parent has no such field). A row's id is the document's, a slash and the item's
-    /// position, the name the projection gives the row. In a section of values an item that is a value
-    /// is the section's one field beside the key. Up to <paramref name="maxCount"/> parent documents are
-    /// read, and up to <paramref name="maxCount"/> rows returned — the last rows of the parents chosen when
-    /// sampling the most recent records.
+    /// (<c>sectionOf</c>), and its records are the rows Formbase cuts from the parent's standing documents
+    /// the way the projection cuts them and serves with <c>GET /formtypes/{section}/rows</c> — one per item
+    /// of the section array, the item's members as fields, and the parent's value of the key field over an
+    /// item member of the same name. A row's id is the name Formbase gives it to be cited by, taken as given
+    /// (the document's id, a slash and the item's position). A parent whose section cannot be read holds no
+    /// rows. Up to <paramref name="maxCount"/> parent documents are read, and up to <paramref name="maxCount"/>
+    /// rows returned — the last rows of the parents chosen when sampling the most recent records.
     /// </para>
     /// </summary>
     public async Task<IReadOnlyList<RawRecord>> SampleAsync(SubjectRef subject, int maxCount, CancellationToken cancellationToken = default)
@@ -181,20 +180,19 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
         ArgumentOutOfRangeException.ThrowIfNegative(maxCount);
 
         var declaration = await ReadDeclarationAsync(subject, cancellationToken).ConfigureAwait(false);
-        if (declaration?.SectionOf is { } section)
+        if (declaration?.SectionOf is not null)
         {
-            var parent = SubjectRef.Create(section.FormType);
-            var valueField = (declaration.Fields ?? []).Select(f => f.Name).Where(f => f != section.KeyField).ToList() is [var only] ? only : null;
-            var rows = (await StandingAsync(parent, maxCount, cancellationToken).ConfigureAwait(false))
-                .SelectMany(document => Rows(document, section, valueField)
-                    .Select((row, position) => new RawRecord($"{document.DocumentId}/{position.ToString(CultureInfo.InvariantCulture)}", row, subject)));
+            // A section has no documents of its own: Formbase cuts its rows out of the parent's standing documents and names each
+            // one for citation, so a row's name and position are Formbase's and are taken as given.
+            var rows = (await StandingAsync(subject, maxCount, ofSection: true, cancellationToken).ConfigureAwait(false))
+                .SelectMany(document => document.Rows!.Select(row => new RawRecord(row.Name, Flatten(row.Body), subject)));
             return [.. sample == SampleDirection.Newest ? rows.TakeLast(maxCount) : rows.Take(maxCount)];
         }
 
         // A section array is not a field of its parent: its items are the section's records, and the
         // parent's projected table does not carry it.
         var sectionFields = (declaration?.Relations ?? []).Select(r => r.SectionField).OfType<string>().ToHashSet(StringComparer.Ordinal);
-        return [.. (await StandingAsync(subject, maxCount, cancellationToken).ConfigureAwait(false))
+        return [.. (await StandingAsync(subject, maxCount, ofSection: false, cancellationToken).ConfigureAwait(false))
             .Select(document => new RawRecord(
                 document.DocumentId.ToString(),
                 Flatten(document.Body).Where(f => !sectionFields.Contains(f.Key)).ToDictionary(),
@@ -203,52 +201,15 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     }
 
     /// <summary>
-    /// The rows a parent document's section array holds, by position. A missing or non-array section
-    /// holds none, and so does a parent with an item that is neither an object nor, in a section of
-    /// values, a value — the projection skips that parent, and its rows are read nowhere.
-    /// </summary>
-    private static List<Dictionary<string, string?>> Rows(DocumentResponse document, SectionOfResponse section, string? valueField)
-    {
-        if (document.Body.ValueKind != JsonValueKind.Object
-            || !document.Body.TryGetProperty(section.SectionField, out var items)
-            || items.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
-        var key = Flatten(document.Body).TryGetValue(section.KeyField, out var value) ? value : document.RecordKey ?? document.DocumentId.ToString();
-        var rows = new List<Dictionary<string, string?>>();
-        foreach (var item in items.EnumerateArray())
-        {
-            Dictionary<string, string?>? row = item.ValueKind switch
-            {
-                JsonValueKind.Object => Flatten(item),
-                JsonValueKind.Array or JsonValueKind.Null or JsonValueKind.Undefined => null,
-                _ when valueField is not null => new() { [valueField] = item.ValueKind == JsonValueKind.String ? item.GetString() : item.GetRawText() },
-                _ => null,
-            };
-            if (row is null)
-            {
-                return [];
-            }
-
-            row[section.KeyField] = key;
-            rows.Add(row);
-        }
-
-        return rows;
-    }
-
-    /// <summary>
     /// The standing documents of <paramref name="formType"/>, oldest first, up to <paramref name="maxCount"/>
     /// — the fold described on <see cref="SampleAsync"/>, taken from the start of the stream or from its end.
     /// </summary>
-    private Task<List<DocumentResponse>> StandingAsync(SubjectRef formType, int maxCount, CancellationToken cancellationToken) =>
+    private Task<List<DocumentResponse>> StandingAsync(SubjectRef formType, int maxCount, bool ofSection, CancellationToken cancellationToken) =>
         sample == SampleDirection.Newest
-            ? StandingNewestAsync(formType, maxCount, cancellationToken)
-            : StandingOldestAsync(formType, maxCount, cancellationToken);
+            ? StandingNewestAsync(formType, maxCount, ofSection, cancellationToken)
+            : StandingOldestAsync(formType, maxCount, ofSection, cancellationToken);
 
-    private async Task<List<DocumentResponse>> StandingOldestAsync(SubjectRef formType, int maxCount, CancellationToken cancellationToken)
+    private async Task<List<DocumentResponse>> StandingOldestAsync(SubjectRef formType, int maxCount, bool ofSection, CancellationToken cancellationToken)
     {
         // Standing records by position in the stream: the latest document of each key, and every document
         // without one. A later document of a key moves the record to that document's position.
@@ -257,7 +218,7 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
         long after = 0;
         while (standing.Count < maxCount)
         {
-            var page = await ReadPageAsync(formType, after, Math.Min(maxCount - standing.Count, MaxPageSize), cancellationToken).ConfigureAwait(false);
+            var page = await ReadPageAsync(formType, after, Math.Min(maxCount - standing.Count, MaxPageSize), ofSection, cancellationToken).ConfigureAwait(false);
 
             // The whole page is folded, even past maxCount: a later document on it may correct or retire a
             // record already counted.
@@ -298,7 +259,7 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     /// for a key is its latest, so it stands (unless it retires the key) and every older one of that key
     /// is passed over — a retirement met in one stretch hides the key's documents in all the older ones.
     /// </summary>
-    private async Task<List<DocumentResponse>> StandingNewestAsync(SubjectRef formType, int maxCount, CancellationToken cancellationToken)
+    private async Task<List<DocumentResponse>> StandingNewestAsync(SubjectRef formType, int maxCount, bool ofSection, CancellationToken cancellationToken)
     {
         if (maxCount == 0)
         {
@@ -307,14 +268,14 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
 
         // The head is read once and held: documents accepted while the stretches are read are not part of
         // this sample, so the stretches stay disjoint and the sample is one moment of the stream.
-        var high = (await ReadPageAsync(formType, after: 0, limit: 0, cancellationToken).ConfigureAwait(false)).RawHead;
+        var high = (await ReadPageAsync(formType, after: 0, limit: 0, ofSection, cancellationToken).ConfigureAwait(false)).RawHead;
         var standing = new SortedDictionary<long, DocumentResponse>();
         var met = new HashSet<string>(StringComparer.Ordinal);
         var width = (long)Math.Max(maxCount, MinimumStretch);
         while (high > 0)
         {
             var low = Math.Max(0, high - width);
-            var stretch = await ReadStretchAsync(formType, low, high, (int)Math.Min(width, MaxPageSize), cancellationToken).ConfigureAwait(false);
+            var stretch = await ReadStretchAsync(formType, low, high, (int)Math.Min(width, MaxPageSize), ofSection, cancellationToken).ConfigureAwait(false);
             for (var i = stretch.Count - 1; i >= 0; i--)
             {
                 var document = stretch[i];
@@ -343,13 +304,13 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     /// <paramref name="high"/>, oldest first. The stream has no upper bound to ask for, so a page that runs
     /// past <paramref name="high"/> is cut there.
     /// </summary>
-    private async Task<List<DocumentResponse>> ReadStretchAsync(SubjectRef formType, long low, long high, int pageSize, CancellationToken cancellationToken)
+    private async Task<List<DocumentResponse>> ReadStretchAsync(SubjectRef formType, long low, long high, int pageSize, bool ofSection, CancellationToken cancellationToken)
     {
         var documents = new List<DocumentResponse>();
         var after = low;
         while (true)
         {
-            var page = await ReadPageAsync(formType, after, pageSize, cancellationToken).ConfigureAwait(false);
+            var page = await ReadPageAsync(formType, after, pageSize, ofSection, cancellationToken).ConfigureAwait(false);
             documents.AddRange(page.Documents.TakeWhile(d => d.Watermark <= high));
             if (page.Documents.Count == 0 || page.Documents[^1].Watermark >= high)
             {
@@ -360,11 +321,24 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
         }
     }
 
-    private async Task<DocumentPageResponse> ReadPageAsync(SubjectRef formType, long after, int limit, CancellationToken cancellationToken)
+    /// <summary>
+    /// A page of the form type's raw stream — or, for a repeated section (<paramref name="ofSection"/>), of its parent's stream with
+    /// the rows each document holds, which Formbase cuts and names (<c>GET /formtypes/{section}/rows</c>). Both come back as
+    /// documents with a watermark, a record key and a retirement mark, so the one fold reads either.
+    /// </summary>
+    private async Task<DocumentPageResponse> ReadPageAsync(SubjectRef formType, long after, int limit, bool ofSection, CancellationToken cancellationToken)
     {
+        var path = ofSection ? "rows" : "documents";
         using var response = await SendAsync(
-            $"formtypes/{Uri.EscapeDataString(formType.Value)}/documents?after={after.ToString(CultureInfo.InvariantCulture)}&limit={limit.ToString(CultureInfo.InvariantCulture)}",
+            $"formtypes/{Uri.EscapeDataString(formType.Value)}/{path}?after={after.ToString(CultureInfo.InvariantCulture)}&limit={limit.ToString(CultureInfo.InvariantCulture)}",
             cancellationToken).ConfigureAwait(false);
+
+        if (ofSection && response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
+        {
+            throw new FormbaseConnectorException(
+                $"This Formbase instance does not serve a repeated section's rows (GET /formtypes/{{type}}/rows answered {(int)response.StatusCode} for '{formType}'). " +
+                "Reading a section's records needs a Formbase that serves them.");
+        }
 
         if (response.StatusCode == HttpStatusCode.MethodNotAllowed)
         {
@@ -374,8 +348,17 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
         }
 
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
-        return await response.Content.ReadFromJsonAsync<DocumentPageResponse>(Json, cancellationToken).ConfigureAwait(false)
-            ?? throw new FormbaseConnectorException($"Formbase answered a page of '{formType}' with an empty body.");
+        if (!ofSection)
+        {
+            return await response.Content.ReadFromJsonAsync<DocumentPageResponse>(Json, cancellationToken).ConfigureAwait(false)
+                ?? throw new FormbaseConnectorException($"Formbase answered a page of '{formType}' with an empty body.");
+        }
+
+        var rows = await response.Content.ReadFromJsonAsync<SectionRowPageResponse>(Json, cancellationToken).ConfigureAwait(false)
+            ?? throw new FormbaseConnectorException($"Formbase answered a page of '{formType}' rows with an empty body.");
+        return new DocumentPageResponse(
+            [.. rows.Documents.Select(d => new DocumentResponse(d.DocumentId, d.Watermark, default, d.RecordKey, d.Retired) { Rows = d.Rows })],
+            rows.RawHead);
     }
 
     private async Task<HttpResponseMessage> SendAsync(string path, CancellationToken cancellationToken)
@@ -479,7 +462,19 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
 
     /// <param name="RecordKey">The record the document belongs to; absent from instances that predate record keys.</param>
     /// <param name="Retired">Whether the document retires <paramref name="RecordKey"/>; absent means it does not.</param>
-    private sealed record DocumentResponse(Guid DocumentId, long Watermark, JsonElement Body, string? RecordKey = null, bool Retired = false);
+    private sealed record DocumentResponse(Guid DocumentId, long Watermark, JsonElement Body, string? RecordKey = null, bool Retired = false)
+    {
+        /// <summary>The rows the document holds for a repeated section, when it was read as a section's page.</summary>
+        public IReadOnlyList<SectionRowResponse>? Rows { get; init; }
+    }
+
+    private sealed record SectionRowPageResponse(IReadOnlyList<SectionDocumentResponse> Documents, long RawHead);
+
+    /// <param name="Rows">The rows the parent document holds for the section; none when it holds none, its section cannot be read, or it retires a record.</param>
+    private sealed record SectionDocumentResponse(Guid DocumentId, long Watermark, string? RecordKey, bool Retired, IReadOnlyList<SectionRowResponse> Rows);
+
+    /// <param name="Name">What a claim grounded in the row cites: the parent document's id, a slash, the position — Formbase's, taken as given.</param>
+    private sealed record SectionRowResponse(int Position, string Name, JsonElement Body);
 
     private sealed record ProblemResponse(string? Type, string? Detail);
 }

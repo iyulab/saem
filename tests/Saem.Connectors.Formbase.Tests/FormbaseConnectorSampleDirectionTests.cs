@@ -275,10 +275,17 @@ public class FormbaseConnectorSampleDirectionTests
                     : Reply(request, HttpStatusCode.NotFound, """{ "type": "/problems/no-declaration", "status": 404 }"""));
             }
 
-            if (path is not ["formtypes", var formType, "documents"])
+            // A section's rows are served through its parent's stream, as Formbase serves them: each parent document with the
+            // rows it holds, named by the document and the position.
+            var sectionOf = path is ["formtypes", var sectionType, "rows"] && _declarations.TryGetValue(sectionType, out var sectionDeclaration)
+                ? JsonNode.Parse(sectionDeclaration)!["sectionOf"]!
+                : null;
+            if (sectionOf is null && path is not ["formtypes", _, "documents"])
             {
                 throw new InvalidOperationException($"unexpected request {request.RequestUri.PathAndQuery}");
             }
+
+            var formType = sectionOf is null ? path[1] : sectionOf["formType"]!.GetValue<string>();
 
             var query = request.RequestUri.Query.TrimStart('?');
             StreamReads.Add(query);
@@ -292,15 +299,25 @@ public class FormbaseConnectorSampleDirectionTests
             var head = ofType.Count == 0 ? 0 : ofType[^1].Watermark;
             var body = new JsonObject
             {
-                ["documents"] = new JsonArray([.. page.Select(d => (JsonNode)new JsonObject
-                {
-                    ["documentId"] = d.Id,
-                    ["formType"] = d.FormType,
-                    ["watermark"] = d.Watermark,
-                    ["body"] = d.Body?.DeepClone(),
-                    ["recordKey"] = d.Key,
-                    ["retired"] = d.Retired,
-                })]),
+                ["documents"] = new JsonArray([.. page.Select(d => (JsonNode)(sectionOf is null
+                    ? new JsonObject
+                    {
+                        ["documentId"] = d.Id,
+                        ["formType"] = d.FormType,
+                        ["watermark"] = d.Watermark,
+                        ["body"] = d.Body?.DeepClone(),
+                        ["recordKey"] = d.Key,
+                        ["retired"] = d.Retired,
+                    }
+                    : new JsonObject
+                    {
+                        ["documentId"] = d.Id,
+                        ["watermark"] = d.Watermark,
+                        ["recordKey"] = d.Key,
+                        ["retired"] = d.Retired,
+                        ["rows"] = RowsOf(d.Id, d.Body, sectionOf),
+                        ["refusal"] = null,
+                    }))]),
                 ["rawHead"] = head,
             };
 
@@ -311,6 +328,18 @@ public class FormbaseConnectorSampleDirectionTests
             }
 
             return Task.FromResult(Reply(request, HttpStatusCode.OK, body.ToJsonString()));
+        }
+
+        private static JsonArray RowsOf(Guid id, JsonNode? body, JsonNode sectionOf)
+        {
+            var items = body?[sectionOf["sectionField"]!.GetValue<string>()] as JsonArray;
+            var keyField = sectionOf["keyField"]!.GetValue<string>();
+            return new JsonArray([.. (items ?? []).Select((item, position) =>
+            {
+                var row = (JsonObject)item!.DeepClone();
+                row[keyField] = body![keyField]?.DeepClone();
+                return (JsonNode)new JsonObject { ["position"] = position, ["name"] = $"{id}/{position}", ["record"] = $"{id}/{position}", ["body"] = row };
+            })]);
         }
 
         private static HttpResponseMessage Reply(HttpRequestMessage request, HttpStatusCode status, string body) => new(status)

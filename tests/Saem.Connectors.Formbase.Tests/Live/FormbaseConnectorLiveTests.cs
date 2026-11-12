@@ -59,6 +59,45 @@ public class FormbaseConnectorLiveTests
     }
 
     /// <summary>
+    /// A repeated section's rows read across the process boundary: Formbase cuts them from the parent's standing documents and names
+    /// each for citation, and a record the parent corrects leaves only its latest rows — under the document that stands.
+    /// </summary>
+    [Fact]
+    public async Task A_repeated_sections_rows_come_back_named_by_formbase()
+    {
+        using var http = Formbase();
+        var ct = TestContext.Current.CancellationToken;
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var parent = $"orders-{suffix}";
+        var section = $"lines-{suffix}";
+        (await http.PutAsJsonAsync($"formtypes/{section}/declaration", new
+        {
+            tableName = $"t_lines_{suffix}",
+            declarationVersion = 1,
+            fields = new[] { new { name = "orderNo", type = "text", nullable = true }, new { name = "product", type = "text", nullable = true } },
+        }, ct)).EnsureSuccessStatusCode();
+        (await http.PutAsJsonAsync($"formtypes/{parent}/declaration", new
+        {
+            tableName = $"t_orders_{suffix}",
+            declarationVersion = 1,
+            fields = new[] { new { name = "orderNo", type = "text", nullable = true } },
+            relations = new[] { new { name = "lines", kind = "child", target = section, keyField = "orderNo", sectionField = "lines" } },
+        }, ct)).EnsureSuccessStatusCode();
+
+        using var first = await http.PostAsJsonAsync($"formtypes/{parent}/documents?recordKey=order-1", new { orderNo = "A-1", lines = new[] { new { product = "bolt" } } }, ct);
+        using var corrected = await http.PostAsJsonAsync($"formtypes/{parent}/documents?recordKey=order-1", new { orderNo = "A-1", lines = new[] { new { product = "bolt" }, new { product = "nut" } } }, ct);
+        using var plain = await http.PostAsJsonAsync($"formtypes/{parent}/documents", new { orderNo = "A-2", lines = new[] { new { product = "washer" } } }, ct);
+        var correctedId = (await corrected.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct)).GetProperty("documentId").GetGuid();
+        var plainId = (await plain.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct)).GetProperty("documentId").GetGuid();
+
+        var rows = await new FormbaseConnector(http).SampleAsync(SubjectRef.Create(section), 10, ct);
+
+        Assert.Equal([$"{correctedId}/0", $"{correctedId}/1", $"{plainId}/0"], rows.Select(r => r.Id));
+        Assert.Equal(["bolt", "nut", "washer"], rows.Select(r => r.Fields["product"]));
+        Assert.Equal(["A-1", "A-1", "A-2"], rows.Select(r => r.Fields["orderNo"]));
+    }
+
+    /// <summary>
     /// A form revised after a long stretch of the original, read from both ends of its stream: the
     /// earliest records show none of the revision, the most recent show all of it, and the most recent
     /// are the same records on a stream another form type shares.

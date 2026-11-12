@@ -182,11 +182,13 @@ public class FormbaseConnectorTests
             """;
         var formbase = new StubFormbase()
             .Answer("GET", "/formtypes/orderlines/declaration", HttpStatusCode.OK, Declaration)
-            .Answer("GET", "/formtypes/orders/documents?after=0&limit=10", HttpStatusCode.OK, """
+            .Answer("GET", "/formtypes/orderlines/rows?after=0&limit=10", HttpStatusCode.OK, """
                 { "documents": [
-                  { "documentId": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e", "watermark": 1, "body": { "orderNo": "A-7", "lines": [ { "product": "bolt", "orderNo": "X" }, { "product": "nut" } ] } },
-                  { "documentId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "watermark": 2, "body": { "orderNo": "A-8" } },
-                  { "documentId": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "watermark": 3, "body": { "orderNo": "A-9", "lines": [ { "product": "washer" }, 3 ] } }
+                  { "documentId": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e", "watermark": 1, "recordKey": null, "retired": false, "refusal": null, "rows": [
+                    { "position": 0, "name": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e/0", "record": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e/0", "body": { "orderNo": "A-7", "product": "bolt" } },
+                    { "position": 1, "name": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e/1", "record": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e/1", "body": { "orderNo": "A-7", "product": "nut" } } ] },
+                  { "documentId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", "watermark": 2, "recordKey": null, "retired": false, "refusal": null, "rows": [] },
+                  { "documentId": "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f", "watermark": 3, "recordKey": null, "retired": false, "refusal": "row 1 of section 'lines' is a JSON number, not an object", "rows": [] }
                 ], "rawHead": 3 }
                 """);
         var connector = Connector(formbase);
@@ -239,14 +241,62 @@ public class FormbaseConnectorTests
                   "sectionOf": { "formType": "orders", "relation": "tags", "sectionField": "tags", "keyField": "orderNo" }
                 }
                 """)
-            .Answer("GET", "/formtypes/orders/documents?after=0&limit=5", HttpStatusCode.OK, """
-                { "documents": [ { "documentId": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e", "watermark": 1, "body": { "orderNo": "A-7", "tags": [ "rush", "fragile" ] } } ], "rawHead": 1 }
+            .Answer("GET", "/formtypes/ordertags/rows?after=0&limit=5", HttpStatusCode.OK, """
+                { "documents": [ { "documentId": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e", "watermark": 1, "recordKey": null, "retired": false, "refusal": null, "rows": [
+                  { "position": 0, "name": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e/0", "record": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e/0", "body": { "orderNo": "A-7", "tag": "rush" } },
+                  { "position": 1, "name": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e/1", "record": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e/1", "body": { "orderNo": "A-7", "tag": "fragile" } } ] } ], "rawHead": 1 }
                 """);
 
         var records = await Connector(formbase).SampleAsync(tags, 5, TestContext.Current.CancellationToken);
 
         Assert.Equal(["rush", "fragile"], records.Select(r => r.Fields["tag"]));
         Assert.All(records, r => Assert.Equal("A-7", r.Fields["orderNo"]));
+    }
+
+    /// <summary>A row is cited by the name Formbase gives it: this connector does not put one together from a document id and a position.</summary>
+    [Fact]
+    public async Task A_section_row_keeps_the_name_formbase_gave_it()
+    {
+        var formbase = new StubFormbase()
+            .Answer("GET", "/formtypes/ordertags/declaration", HttpStatusCode.OK, """
+                {
+                  "formType": "ordertags", "tableName": "ordertags", "declarationVersion": 1,
+                  "fields": [ { "name": "orderNo", "type": "text", "nullable": true }, { "name": "tag", "type": "text", "nullable": true } ],
+                  "relations": [],
+                  "sectionOf": { "formType": "orders", "relation": "tags", "sectionField": "tags", "keyField": "orderNo" }
+                }
+                """)
+            .Answer("GET", "/formtypes/ordertags/rows?after=0&limit=5", HttpStatusCode.OK, """
+                { "documents": [ { "documentId": "7b0c2f1e-3d4a-4b5c-8d6e-9f0a1b2c3d4e", "watermark": 1, "recordKey": "order-7", "retired": false, "refusal": null, "rows": [
+                  { "position": 4, "name": "cited-as-formbase-says/4", "record": "order-7/4", "body": { "orderNo": "A-7", "tag": "rush" } } ] } ], "rawHead": 1 }
+                """);
+
+        var record = Assert.Single(await Connector(formbase).SampleAsync(SubjectRef.Create("ordertags"), 5, TestContext.Current.CancellationToken));
+
+        Assert.Equal("cited-as-formbase-says/4", record.Id);
+    }
+
+    /// <summary>A Formbase that does not serve a section's rows is said so, not read as a section with none.</summary>
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.MethodNotAllowed)]
+    public async Task An_instance_that_does_not_serve_a_sections_rows_is_named(HttpStatusCode status)
+    {
+        var formbase = new StubFormbase()
+            .Answer("GET", "/formtypes/ordertags/declaration", HttpStatusCode.OK, """
+                {
+                  "formType": "ordertags", "tableName": "ordertags", "declarationVersion": 1,
+                  "fields": [ { "name": "orderNo", "type": "text", "nullable": true }, { "name": "tag", "type": "text", "nullable": true } ],
+                  "relations": [],
+                  "sectionOf": { "formType": "orders", "relation": "tags", "sectionField": "tags", "keyField": "orderNo" }
+                }
+                """)
+            .Answer("GET", "/formtypes/ordertags/rows?after=0&limit=5", status, "");
+
+        var ex = await Assert.ThrowsAsync<FormbaseConnectorException>(() => Connector(formbase).SampleAsync(SubjectRef.Create("ordertags"), 5, TestContext.Current.CancellationToken));
+
+        Assert.Contains("rows", ex.Message);
+        Assert.Contains("ordertags", ex.Message);
     }
 
     [Fact]
