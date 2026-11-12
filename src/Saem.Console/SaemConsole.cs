@@ -99,7 +99,7 @@ public static class SaemConsole
             .Bind(console.GetSection("Identity"))
             .Validate(
                 i => !string.IsNullOrEmpty(i.Authority) && !string.IsNullOrEmpty(i.Audience) && !string.IsNullOrEmpty(i.ClientId),
-                "Saem:Console:Identity names the trusted issuer (Authority), the console's audience (Audience) and its client there (ClientId, ClientSecret).")
+                "Saem:Console:Identity names the trusted issuer (Authority), the console's audience (Audience) and its client there (ClientId, and ClientSecret when the issuer asks the client for one).")
             .ValidateOnStart();
         services.AddOptions<ConsoleCatalogOptions>()
             .Bind(console)
