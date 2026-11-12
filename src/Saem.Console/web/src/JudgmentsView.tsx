@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { api, type Answer, type Catalog, type EntityKey, type Job, type PairCandidate } from "./api";
+import { api, whyNot, type Answer, type Catalog, type EntityKey, type Job, type PairCandidate } from "./api";
 import { compare, sideOf, type CompareRow } from "./compare";
-import { awaiting, judgments, latestCandidates, pairKey, runningJob } from "./jobs";
+import { awaiting, judgedSince, judgments, latestCandidates, pairKey, runningJob, settle, type Settled } from "./jobs";
 import { fieldsOf } from "./localGraph";
 
 const POLL_MS = 2000;
@@ -30,7 +30,7 @@ export function JudgmentsView({ onOpenLocal }: { onOpenLocal: (entity: EntityKey
     return <p>Loading…</p>;
   }
   if (!groups.ok) {
-    return <p role="alert">{"problem" in groups ? groups.problem : "Only builders ask a group's executor."}</p>;
+    return <p role="alert">{whyNot(groups, "Only builders ask a group's executor.")}</p>;
   }
   if (groups.value.length === 0) {
     return (
@@ -62,7 +62,8 @@ export function JudgmentsView({ onOpenLocal }: { onOpenLocal: (entity: EntityKey
 }
 
 function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entity: EntityKey) => void }) {
-  const [jobs, setJobs] = useState<Answer<Job[]> | null>(null);
+  const [settled, setSettled] = useState<Settled | null>(null);
+  const jobs = settled?.jobs ?? null;
   // Each judgment a person filed this session: the pair, and the job that carries it. A pair is judged when that job succeeded, not when it was accepted.
   const [filed, setFiled] = useState<ReadonlyMap<string, string>>(new Map());
   // The latest pairs the executor listed, kept: it remembers only its latest jobs, and a list is not lost because newer jobs pushed it out.
@@ -71,7 +72,7 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
   const [compared, setCompared] = useState<ReadonlyMap<string, Comparison>>(new Map());
   const [catalog, setCatalog] = useState<Catalog | null>(null);
 
-  const load = useCallback(() => api.jobs(group).then(setJobs), [group]);
+  const load = useCallback(() => api.jobs(group).then((answer) => setSettled((before) => settle(before, answer))), [group]);
   useEffect(() => {
     load();
   }, [load]);
@@ -96,19 +97,22 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
     return <p>Loading…</p>;
   }
   if (!jobs.ok) {
-    return <p role="alert">{"problem" in jobs ? jobs.problem : "The executor could not be asked."}</p>;
+    return <p role="alert">{whyNot(jobs, "The executor could not be asked.")}</p>;
   }
 
   const listed = latest ?? kept;
   const outcome = judgments(list, filed);
-  const left = listed ? awaiting(listed.pairs, outcome.done) : [];
+  // Judged since the list was read: what this screen filed that succeeded, and what the executor remembers of any judgment since —
+  // so looking at an entity and coming back does not offer a judged pair again.
+  const judged = new Set([...outcome.done, ...judgedSince(list)]);
+  const left = listed ? awaiting(listed.pairs, judged) : [];
 
   const refresh = () => {
     setRefused(null);
     setFiled(new Map());
     api.startJob(group, "candidates").then((answer) => {
       if (!answer.ok) {
-        setRefused("problem" in answer ? answer.problem : "The console refused.");
+        setRefused(whyNot(answer, "The console refused."));
       }
       load();
     });
@@ -137,7 +141,7 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
       if (declared === null) {
         const answer = await api.catalog();
         if (!answer.ok) {
-          setComparison(key, { problem: "problem" in answer ? answer.problem : "The catalog could not be read." });
+          setComparison(key, { problem: whyNot(answer, "The catalog could not be read.") });
           return;
         }
         declared = answer.value;
@@ -152,9 +156,12 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
         api.lookup({ start: one, path: [], read: fieldsOf(declared, one.type) }),
         api.lookup({ start: other, path: [], read: fieldsOf(declared, other.type) }),
       ]);
-      if (!first.ok || !second.ok) {
-        const failed = !first.ok ? first : second;
-        setComparison(key, { problem: "problem" in failed ? failed.problem : "The lookup was refused." });
+      if (!first.ok) {
+        setComparison(key, { problem: whyNot(first, "The lookup was refused.") });
+        return;
+      }
+      if (!second.ok) {
+        setComparison(key, { problem: whyNot(second, "The lookup was refused.") });
         return;
       }
       const fields = [...new Set([...fieldsOf(declared, one.type), ...fieldsOf(declared, other.type)])];
@@ -169,7 +176,7 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
         // Accepted is not filed: the pair stays listed, as filing, until its job has succeeded.
         setFiled((before) => new Map(before).set(pairKey(c), answer.value.id));
       } else {
-        setRefused("problem" in answer ? answer.problem : "The console refused.");
+        setRefused(whyNot(answer, "The console refused."));
       }
       load();
     });
@@ -177,6 +184,11 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
 
   return (
     <>
+      {settled?.unreached && (
+        <p className="muted" role="status">
+          {settled.unreached} Showing what was last read; asking again.
+        </p>
+      )}
       <div className="start">
         <button className="button" disabled={running !== undefined} onClick={refresh} title="Read the pairs no one has judged from the group's store.">
           {listed ? "Read the pairs again" : "Read the pairs"}
@@ -193,7 +205,7 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
         <>
           <p className="muted">
             Read {new Date(listed.job.finishedAt ?? listed.job.startedAt).toLocaleString()} from the group's store as of its last pass
-            {outcome.done.size > 0 ? ` · ${outcome.done.size} judged since — they join the group's things on its next pass` : ""}.
+            {judged.size > 0 ? ` · ${judged.size} judged since — they join the group's things on its next pass` : ""}.
           </p>
           {left.length === 0 && <p>No pair waits for a person's judgment.</p>}
           {left.length > 0 && (

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Answer, type Catalog, type Job, type JobKind } from "./api";
-import { asks, checkReport, fitIdentities, fitSays, isRunning, runningJob, statusOf, summary, took, violations } from "./jobs";
+import { api, whyNot, type Answer, type Catalog, type Job, type JobKind } from "./api";
+import { asks, checkReport, fitIdentities, fitSays, isRunning, runningJob, settle, type Settled, statusOf, summary, took, violations } from "./jobs";
 
 const POLL_MS = 2000;
 
@@ -28,7 +28,7 @@ export function GroupsView() {
     return <p>Loading…</p>;
   }
   if (!groups.ok) {
-    return <p role="alert">{"problem" in groups ? groups.problem : "Only builders ask a group's executor."}</p>;
+    return <p role="alert">{whyNot(groups, "Only builders ask a group's executor.")}</p>;
   }
   if (groups.value.length === 0) {
     return (
@@ -60,7 +60,8 @@ export function GroupsView() {
 }
 
 function Executor({ group, fits }: { group: string; fits: string[] }) {
-  const [jobs, setJobs] = useState<Answer<Job[]> | null>(null);
+  const [settled, setSettled] = useState<Settled | null>(null);
+  const jobs = settled?.jobs ?? null;
   const [open, setOpen] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ kind: JobKind; identity?: string } | null>(null);
   const [identity, setIdentity] = useState(fits[0] ?? "");
@@ -69,7 +70,7 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
 
   const load = useCallback(() => {
     api.jobs(group).then((answer) => {
-      setJobs(answer);
+      setSettled((before) => settle(before, answer));
       setNow(new Date());
     });
   }, [group]);
@@ -93,7 +94,7 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
       if (answer.ok) {
         setOpen(answer.value.id);
       } else {
-        setRefused("problem" in answer ? answer.problem : "The console refused.");
+        setRefused(whyNot(answer, "The console refused."));
       }
       load();
     });
@@ -103,12 +104,17 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
     return <p>Loading…</p>;
   }
   if (!jobs.ok) {
-    return <p role="alert">{"problem" in jobs ? jobs.problem : "The executor could not be asked."}</p>;
+    return <p role="alert">{whyNot(jobs, "The executor could not be asked.")}</p>;
   }
 
   const shown = list.find((j) => j.id === open) ?? list[0];
   return (
     <>
+      {settled?.unreached && (
+        <p className="muted" role="status">
+          {settled.unreached} Showing what was last read; asking again.
+        </p>
+      )}
       <div className="start">
         {asks.map((a) => (
           <button

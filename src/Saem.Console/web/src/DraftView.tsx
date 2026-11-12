@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Answer, type CatalogDraft, type Confirmed } from "./api";
+import { api, whyNot, type Answer, type CatalogDraft, type Confirmed } from "./api";
 import { mayConfirm, nextStep, settlementLine, split } from "./draft";
 import { kindLabel } from "./review";
 
@@ -23,7 +23,7 @@ export function DraftView({ onOpenReview, onOpenCatalog }: { onOpenReview?: () =
     return <p>Reading the draft…</p>;
   }
   if (!draft.ok) {
-    const problem = "problem" in draft ? draft.problem : "The draft could not be read.";
+    const problem = whyNot(draft, "The draft could not be read.");
     return (
       <section>
         <h1>Draft</h1>
@@ -44,7 +44,7 @@ export function DraftView({ onOpenReview, onOpenCatalog }: { onOpenReview?: () =
       api.draft().then(setDraft);
       return;
     }
-    setRefusal({ problem: "problem" in answer ? answer.problem : "The confirmation was refused.", code: "code" in answer ? answer.code : undefined });
+    setRefusal({ problem: whyNot(answer, "The confirmation was refused."), code: "code" in answer ? answer.code : undefined });
   };
 
   return (

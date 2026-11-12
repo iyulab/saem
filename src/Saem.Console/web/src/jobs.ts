@@ -1,4 +1,4 @@
-import type { Catalog, CheckReport, GroupStatus, Job, JobKind, PairCandidate } from "./api";
+import type { Answer, Catalog, CheckReport, GroupStatus, Job, JobKind, PairCandidate } from "./api";
 
 /** What a builder may ask a group's executor for from the screen, with what each does to the group's store. */
 export const asks: ReadonlyArray<{ kind: JobKind; title: string; writes: boolean; says: string }> = [
@@ -93,3 +93,34 @@ export const fitSays = "Fit the identity's linkage rule to the group's records a
 /** The identities a fit may be asked for: those that name a linkage rule to fit. */
 export const fitIdentities = (catalog: Catalog): string[] =>
   catalog.declarations.filter((d) => d.kind === "identity" && typeof d.linkage === "string" && d.linkage !== "").map((d) => d.name);
+
+/**
+ * The pairs judged since the newest list was read, from the jobs the executor remembers — not from what this screen filed, so a
+ * judgment is not forgotten when the person looks at an entity and comes back, or someone else filed it. The jobs come newest first;
+ * a pair the list was made after is already out of it.
+ */
+export function judgedSince(jobs: readonly Job[]): Set<string> {
+  const judged = new Set<string>();
+  for (const job of jobs) {
+    if (job.kind === "candidates" && candidatesOf(job) !== null) {
+      break;
+    }
+    const { identity, first, second } = job.arguments;
+    if (job.kind === "judge" && job.state === "succeeded" && identity && first && second) {
+      judged.add(pairKey({ identity, first, second }));
+    }
+  }
+  return judged;
+}
+
+/** A screen's jobs as last read, and why they may be older than the executor's: the poll that came after got no answer. */
+export type Settled = { jobs: Answer<Job[]>; unreached: string | null };
+
+/**
+ * What a screen shows after a read: the answer — except that a read that got no answer (the connection dropped, the console
+ * failed) leaves what was last read in place and says so, so a screen that was waiting on a running job keeps waiting and asks again.
+ */
+export function settle(before: Settled | null, answer: Answer<Job[]>): Settled {
+  const silent = !answer.ok && (answer.status === 0 || answer.status >= 500);
+  return silent && before?.jobs.ok === true ? { jobs: before.jobs, unreached: "problem" in answer ? answer.problem : "The console gave no answer." } : { jobs: answer, unreached: null };
+}

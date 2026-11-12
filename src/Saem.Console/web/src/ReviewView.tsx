@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Answer, type AuthoringReview, type ReviewedProposal } from "./api";
+import { api, whyNot, type Answer, type AuthoringReview, type ReviewedProposal } from "./api";
 import { action, alreadyInForce, decisionFor, describe, discardsEdit, editFor, editableText, fieldRows, kindLabel, parseEdit, readAgain, rowsProblem, stateLabel, takeAll, tally, unchanged, withFields, type FieldRow } from "./review";
 
 /**
@@ -22,7 +22,7 @@ export function ReviewView({ onOpenDraft, onOpenCatalog }: { onOpenDraft: () => 
     return <p>Reading the proposals…</p>;
   }
   if (!review.ok) {
-    const problem = "problem" in review ? review.problem : "The proposals could not be read.";
+    const problem = whyNot(review, "The proposals could not be read.");
     return (
       <section>
         <h1>Review</h1>
@@ -43,7 +43,7 @@ export function ReviewView({ onOpenDraft, onOpenCatalog }: { onOpenDraft: () => 
       setReview(answer);
       return true;
     }
-    setRefusal({ problem: "problem" in answer ? answer.problem : "The review was refused.", code: "code" in answer ? answer.code : undefined });
+    setRefusal({ problem: whyNot(answer, "The review was refused."), code: "code" in answer ? answer.code : undefined });
     return false;
   };
 

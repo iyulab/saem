@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Answer, type Catalog } from "./api";
+import { api, whyNot, type Answer, type Catalog } from "./api";
 import { askExample, byKind } from "./catalog";
 import { describe } from "./review";
 
@@ -15,7 +15,7 @@ export function CatalogView() {
     return <p>Loading the catalog…</p>;
   }
   if (!catalog.ok) {
-    return <p role="alert">{"problem" in catalog ? catalog.problem : "The catalog could not be read."}</p>;
+    return <p role="alert">{whyNot(catalog, "The catalog could not be read.")}</p>;
   }
 
   const sections = byKind(catalog.value.declarations);

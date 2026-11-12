@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Answer, type CheckReport } from "./api";
+import { api, whyNot, type Answer, type CheckReport } from "./api";
 
 const subject = (f: { type: string; relation: string | null }) => (f.relation ? `${f.type}.${f.relation}` : f.type);
 
@@ -19,7 +19,7 @@ export function CheckView() {
     return <p>Loading the check…</p>;
   }
   if (!report.ok) {
-    return <p role="alert">{"problem" in report ? report.problem : "Only builders read the check."}</p>;
+    return <p role="alert">{whyNot(report, "Only builders read the check.")}</p>;
   }
 
   const r = report.value;

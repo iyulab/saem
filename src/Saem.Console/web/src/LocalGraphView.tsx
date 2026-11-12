@@ -1,6 +1,6 @@
 import cytoscape from "cytoscape";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type Answer, type Catalog, type EntityKey, type LookupStart } from "./api";
+import { api, whyNot, type Answer, type Catalog, type EntityKey, type LookupStart } from "./api";
 import { noSystem, sizeOf, systemColors } from "./graph";
 import { empty, fieldsOf, idOf, maxDepth, refusalText, step, systemOf, walksFrom, type LocalGraph } from "./localGraph";
 
@@ -37,7 +37,7 @@ export function LocalGraphView({ from }: { from?: EntityKey }) {
                 setSelected(idOf(answer.value.claims[0].entity));
               }
             } else {
-              setProblem("problem" in answer ? answer.problem : answer.status === 403 ? "Only builders walk a local graph." : "Your session has ended — sign in again.");
+              setProblem(whyNot(answer, "Only builders walk a local graph."));
             }
           });
         }
@@ -94,7 +94,7 @@ export function LocalGraphView({ from }: { from?: EntityKey }) {
     return <p>Loading the catalog…</p>;
   }
   if (!catalog.ok) {
-    return <p role="alert">{"problem" in catalog ? catalog.problem : "The catalog could not be read."}</p>;
+    return <p role="alert">{whyNot(catalog, "The catalog could not be read.")}</p>;
   }
   const declared = catalog.value;
 
@@ -104,7 +104,7 @@ export function LocalGraphView({ from }: { from?: EntityKey }) {
     const answer = await api.lookup({ start: from, path: relation === null ? [] : [relation], read: fieldsOf(declared, to) });
     setBusy(false);
     if (!answer.ok) {
-      setProblem("problem" in answer ? answer.problem : answer.status === 403 ? "Only builders walk a local graph." : "Your session has ended — sign in again.");
+      setProblem(whyNot(answer, "Only builders walk a local graph."));
       return;
     }
     setGraph((g) => step(relation === null ? empty() : g, from, relation, answer.value));

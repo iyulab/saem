@@ -1,6 +1,6 @@
 import cytoscape from "cytoscape";
 import { useEffect, useRef, useState } from "react";
-import { api, type Answer, type DeclarationGraph } from "./api";
+import { api, whyNot, type Answer, type DeclarationGraph } from "./api";
 import { elements, neighborhood, systems } from "./graph";
 
 /**
@@ -62,7 +62,7 @@ export function GraphView() {
     return <p>Loading the graph…</p>;
   }
   if (!graph.ok) {
-    return <p role="alert">{"problem" in graph ? graph.problem : "The graph could not be read."}</p>;
+    return <p role="alert">{whyNot(graph, "The graph could not be read.")}</p>;
   }
 
   const node = graph.value.nodes.find((n) => n.name === selected);

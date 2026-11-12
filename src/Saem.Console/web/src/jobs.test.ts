@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Catalog, Job } from "./api";
-import { awaiting, fitIdentities, judgments, statusOf, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
+import type { Answer, Catalog, Job } from "./api";
+import { awaiting, fitIdentities, judgedSince, judgments, settle, statusOf, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
 
 const job = (more: Partial<Job>): Job => ({
   id: "0123456789abcdef0123456789abcdef",
@@ -128,5 +128,41 @@ describe("what became of the judgments a person filed", () => {
 
     expect(result.done.size).toBe(0);
     expect(result.failed.get("pair-a")?.state).toBe("cancelled");
+  });
+});
+
+describe("the pairs judged since the list was read, as the executor remembers them", () => {
+  const judge = (id: string, first: string, second: string, state: Job["state"] = "succeeded") =>
+    job({ id, kind: "judge", state, arguments: { identity: "same_order", first, second, same: true } });
+  const listing = job({ id: "list", kind: "candidates", report: { candidates: [] } });
+
+  it("counts the judgments that succeeded after the newest list, whoever filed them and whichever screen is open", () => {
+    // Newest first, as the executor gives them: two judgments, then the list they came after, then one the list already took in.
+    const done = judgedSince([judge("j2", "b", "a"), judge("j3", "c", "d", "failed"), judge("j1", "x", "y"), listing, judge("j0", "p", "q")]);
+
+    expect([...done]).toEqual([pairKey({ identity: "same_order", first: "a", second: "b" }), pairKey({ identity: "same_order", first: "x", second: "y" })]);
+  });
+
+  it("counts none when the newest job is the list itself", () => {
+    expect(judgedSince([listing, judge("j0", "p", "q")]).size).toBe(0);
+  });
+});
+
+describe("a poll that got no answer", () => {
+  const ok: Answer<Job[]> = { ok: true, value: [job({ id: "a", state: "running", exitCode: null, finishedAt: null })] };
+
+  it("keeps what was last read and says it could not be reached, so the poll goes on", () => {
+    const before = settle(null, ok);
+    const after = settle(before, { ok: false, status: 0, problem: "The console could not be reached." });
+
+    expect(after.jobs).toBe(ok);
+    expect(after.unreached).toMatch(/could not be reached/);
+    expect(settle(after, ok).unreached).toBeNull();
+  });
+
+  it("shows a session that ended or a refusal as it is, and a first read that failed as failed", () => {
+    expect(settle(settle(null, ok), { ok: false, status: 401 }).jobs).toEqual({ ok: false, status: 401 });
+    expect(settle(settle(null, ok), { ok: false, status: 409, problem: "Busy." }).jobs).toEqual({ ok: false, status: 409, problem: "Busy." });
+    expect(settle(null, { ok: false, status: 0, problem: "down" }).jobs).toEqual({ ok: false, status: 0, problem: "down" });
   });
 });

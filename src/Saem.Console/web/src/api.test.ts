@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "./api";
+import { api, whyNot } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -36,5 +36,16 @@ describe("what the console client says when it cannot get an answer", () => {
     answering(new Response(JSON.stringify([{ group: "plant" }]), { status: 200 }));
 
     expect(await api.executors()).toEqual({ ok: true, value: [{ group: "plant" }] });
+  });
+});
+
+describe("what a screen says when the console did not give it a value", () => {
+  it("says the session has ended for a 401, not what a role may not do", () => {
+    expect(whyNot({ ok: false, status: 401 }, "Only builders read the check.")).toMatch(/session has ended/i);
+  });
+
+  it("says what the role may not do for a 403 and the console's own words for a problem it named", () => {
+    expect(whyNot({ ok: false, status: 403 }, "Only builders read the check.")).toBe("Only builders read the check.");
+    expect(whyNot({ ok: false, status: 409, problem: "The draft moved." }, "The draft could not be read.")).toBe("The draft moved.");
   });
 });

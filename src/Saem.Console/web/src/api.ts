@@ -149,6 +149,13 @@ export type Answer<T> =
   | { ok: false; status: 401 | 403 }
   | { ok: false; status: number; problem: string; code?: string };
 
+/**
+ * Why a screen has no value: a problem the console named is said in its words; a 401 is a session that has ended, whatever the
+ * screen is for; a 403 is the screen's own «only builders …» line — a person who was signed in a minute ago is not told they lack a role.
+ */
+export const whyNot = (answer: Exclude<Answer<unknown>, { ok: true }>, whenForbidden: string): string =>
+  "problem" in answer ? answer.problem : answer.status === 401 ? "Your session has ended — sign in again." : whenForbidden;
+
 async function ask<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
   let response: Response;
   try {

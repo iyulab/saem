@@ -108,7 +108,14 @@ function SignedOut({ status, problem }: { status: number; problem?: string }) {
           </a>
         </>
       )}
-      {status === 403 && <p>You are signed in, but none of your groups holds a console role. Ask whoever maps groups to roles.</p>}
+      {status === 403 && (
+        <>
+          <p>You are signed in, but none of your groups holds a console role. Ask whoever maps groups to roles.</p>
+          <button className="link" onClick={() => api.logout().then(() => window.location.assign("/"))}>
+            Sign out
+          </button>
+        </>
+      )}
       {status !== 401 && status !== 403 && <p role="alert">{problem}</p>}
     </main>
   );

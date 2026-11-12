@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Answer, type Overview } from "./api";
+import { api, whyNot, type Answer, type Overview } from "./api";
 import { declaredSentence } from "./overview";
 
 /** What is waiting at a glance: the catalog in force and the last check of it against the sources. */
@@ -14,7 +14,7 @@ export function OverviewView({ onOpenCheck }: { onOpenCheck?: () => void }) {
     return <p>Loading…</p>;
   }
   if (!overview.ok) {
-    return <p role="alert">{"problem" in overview ? overview.problem : "The overview could not be read."}</p>;
+    return <p role="alert">{whyNot(overview, "The overview could not be read.")}</p>;
   }
 
   const { catalogVersion, declarations, check } = overview.value;
