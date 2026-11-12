@@ -45,6 +45,36 @@ public class PostgresSourceLiveTests
         Assert.Equal(System.Text.Json.JsonValueKind.Null, own.Values["note"].ValueKind);
     }
 
+    /// <summary>
+    /// An integer column is compared as the number (so its index decides the rows), and only its canonical spelling names a row: a key
+    /// that is not that spelling answers nothing — not an error, which would abort the session's transaction — and the person's
+    /// row rules still decide what is read.
+    /// </summary>
+    [Fact]
+    public async Task An_integer_column_is_found_by_its_number_and_only_by_the_way_it_spells_it()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await using (var alice = await As("alice")(ct))
+        {
+            Assert.Equal(["WO-3"], (await alice.FindAsync("work_orders", "wo_no", "qty", "10", [], 10, ct)).Select(r => r.Key));
+            Assert.Empty(await alice.FindAsync("work_orders", "wo_no", "qty", "010", [], 10, ct));
+            Assert.Empty(await alice.FindAsync("work_orders", "wo_no", "qty", "ten", [], 10, ct));
+            Assert.Empty(await alice.FindAsync("work_orders", "wo_no", "qty", "99999999999999999999", [], 10, ct));
+
+            // As a key column: the key comes back as the number's text.
+            Assert.Equal("50", Assert.Single(await alice.ReadAsync("work_orders", "qty", "50", ["note"], ct)).Key);
+            Assert.Empty(await alice.ReadAsync("work_orders", "qty", "50.0", [], ct));
+
+            // The session still reads after the keys that were not numbers.
+            Assert.Equal(["WO-1", "WO-3"], (await alice.FindAsync("work_orders", "wo_no", "item_code", "I-100", [], 10, ct)).Select(r => r.Key));
+        }
+
+        await using var bob = await As("bob")(ct);
+        Assert.Empty(await bob.FindAsync("work_orders", "wo_no", "qty", "10", [], 10, ct));
+        Assert.Equal(["WO-1"], (await bob.FindAsync("work_orders", "wo_no", "qty", "50", [], 10, ct)).Select(r => r.Key));
+    }
+
     /// <summary>A find by a field reads the rows that hold the value under the person's own rules, in key order, up to the limit.</summary>
     [Fact]
     public async Task A_find_by_a_field_reads_only_the_rows_the_person_may_see()

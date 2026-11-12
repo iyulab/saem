@@ -46,15 +46,29 @@ public class MySqlSourceTests
     public void A_read_selects_the_key_as_text_and_the_asked_columns_by_key()
     {
         Assert.Equal(
-            "SELECT CAST(`item_code` AS CHAR), `item_name`, `supplier_id` FROM `visible_items` WHERE CAST(`item_code` AS CHAR) = @key",
+            "SELECT CAST(`item_code` AS CHAR), `item_name`, `supplier_id` FROM `visible_items` WHERE `item_code` = @key AND CAST(`item_code` AS CHAR) = @key",
             MySqlSourceSession.SelectByKey("visible_items", "item_code", ["item_name", "supplier_id"]));
+    }
+
+    /// <summary>
+    /// The column is compared as itself first, so the source's index on it decides the rows; the text comparison after it keeps
+    /// the key's spelling exact (a number column is not matched by <c>007</c> or <c>7.0</c>). Wrapping the column alone in a cast
+    /// read every row of the table for every key.
+    /// </summary>
+    [Fact]
+    public void A_read_compares_the_column_itself_before_its_text()
+    {
+        var sql = MySqlSourceSession.SelectByKey("t", "k", []);
+
+        var itself = sql.IndexOf("`k` = @key", StringComparison.Ordinal);
+        Assert.True(itself >= 0 && itself < sql.IndexOf("CAST(`k` AS CHAR) = @key", StringComparison.Ordinal));
     }
 
     [Fact]
     public void A_find_selects_by_a_field_as_text_in_key_order_up_to_the_limit()
     {
         Assert.Equal(
-            "SELECT CAST(`supplier_id` AS CHAR), `supplier_name` FROM `visible_suppliers` WHERE CAST(`supplier_name` AS CHAR) = @value ORDER BY 1 LIMIT 51",
+            "SELECT CAST(`supplier_id` AS CHAR), `supplier_name` FROM `visible_suppliers` WHERE `supplier_name` = @value AND CAST(`supplier_name` AS CHAR) = @value ORDER BY 1 LIMIT 51",
             MySqlSourceSession.SelectWhere("visible_suppliers", "supplier_id", "supplier_name", ["supplier_name"], 51));
     }
 
@@ -62,7 +76,7 @@ public class MySqlSourceTests
     public void Every_name_is_quoted_as_an_identifier_even_a_hostile_one()
     {
         Assert.Equal(
-            "SELECT CAST(`id` AS CHAR), `name``; DROP TABLE x; --` FROM `erp`.`items` WHERE CAST(`id` AS CHAR) = @key",
+            "SELECT CAST(`id` AS CHAR), `name``; DROP TABLE x; --` FROM `erp`.`items` WHERE `id` = @key AND CAST(`id` AS CHAR) = @key",
             MySqlSourceSession.SelectByKey("erp.items", "id", ["name`; DROP TABLE x; --"]));
     }
 }

@@ -146,26 +146,31 @@ internal sealed class MySqlSourceSession : ISourceSession, IChangedRows
     }
 
     /// <summary>
-    /// <c>SELECT CAST(key AS CHAR), columns… FROM table WHERE CAST(key AS CHAR) = @key</c>. The names come
-    /// from the ontology, not from a caller, and are quoted as identifiers all the same; the key is
-    /// compared as text because a lookup carries keys as text whatever the column's type.
+    /// <c>SELECT CAST(key AS CHAR), columns… FROM table WHERE key = @key AND CAST(key AS CHAR) = @key</c>. The names come
+    /// from the ontology, not from a caller, and are quoted as identifiers all the same. The column is compared as itself
+    /// first, so the source's index on it decides which rows are looked at — a cast around the column alone is read as a
+    /// function of every row, and the table is scanned for each key. The key is then compared as text, because a lookup
+    /// carries keys as text whatever the column's type: that keeps the spelling exact (a number column does not answer to
+    /// <c>007</c> or <c>7.0</c>, which MySQL would read as the number).
     /// </summary>
     internal static string SelectByKey(string table, string keyColumn, IReadOnlyList<string> columns)
     {
-        var key = $"CAST({Identifier(keyColumn)} AS CHAR)";
+        var column = Identifier(keyColumn);
+        var key = $"CAST({column} AS CHAR)";
         var select = string.Join(", ", columns.Select(Identifier));
-        return $"SELECT {key}{(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} WHERE {key} = @key";
+        return $"SELECT {key}{(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} WHERE {column} = @key AND {key} = @key";
     }
 
     /// <summary>
-    /// <c>SELECT CAST(key AS CHAR), columns… FROM table WHERE CAST(column AS CHAR) = @value ORDER BY 1 LIMIT n</c> —
-    /// the rows a field's value names, in key order as text.
+    /// <c>SELECT CAST(key AS CHAR), columns… FROM table WHERE column = @value AND CAST(column AS CHAR) = @value ORDER BY 1 LIMIT n</c> —
+    /// the rows a field's value names, in key order as text; compared as <see cref="SelectByKey"/> does, the column itself first.
     /// </summary>
     internal static string SelectWhere(string table, string keyColumn, string column, IReadOnlyList<string> columns, int limit)
     {
         var select = string.Join(", ", columns.Select(Identifier));
+        var field = Identifier(column);
         return $"SELECT CAST({Identifier(keyColumn)} AS CHAR){(columns.Count == 0 ? "" : ", " + select)} FROM {QualifiedTable(table)} " +
-            $"WHERE CAST({Identifier(column)} AS CHAR) = @value ORDER BY 1 LIMIT {limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            $"WHERE {field} = @value AND CAST({field} AS CHAR) = @value ORDER BY 1 LIMIT {limit.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
     }
 
     /// <summary><c>SELECT CAST(key AS CHAR), columns… FROM table ORDER BY 1</c> — every row, in key order as text.</summary>

@@ -76,4 +76,36 @@ public class PostgresSourceTests
     {
         Assert.Equal("""SELECT "k"::text FROM "t" WHERE "k"::text = @key""", PostgresSourceSession.SelectByKey("t", "k", []));
     }
+
+    /// <summary>
+    /// An integer column's text is canonical (digits, a minus sign, no leading zero), so a key spelled any other way names no row, and
+    /// one spelled so is the number itself — compared as the number, the source's index is used; cast to text, it is not.
+    /// </summary>
+    [Theory]
+    [InlineData("0", true, 0L)]
+    [InlineData("42", true, 42L)]
+    [InlineData("-7", true, -7L)]
+    [InlineData("9223372036854775807", true, long.MaxValue)]
+    [InlineData("007", false, 0L)]
+    [InlineData("+5", false, 0L)]
+    [InlineData("-0", false, 0L)]
+    [InlineData("7.0", false, 0L)]
+    [InlineData(" 7", false, 0L)]
+    [InlineData("", false, 0L)]
+    [InlineData("abc", false, 0L)]
+    [InlineData("9223372036854775808", false, 0L)]
+    public void An_integer_keys_text_is_the_number_only_when_it_is_spelled_canonically(string text, bool canonical, long number)
+    {
+        Assert.Equal(canonical, PostgresSourceSession.TryCanonicalInteger(text, out var value));
+        Assert.Equal(number, value);
+    }
+
+    [Fact]
+    public void An_integer_column_is_read_and_found_by_the_number_and_still_returned_as_text()
+    {
+        Assert.Equal("""SELECT "id"::text, "name" FROM "t" WHERE "id" = @key""", PostgresSourceSession.SelectByIntegerKey("t", "id", ["name"]));
+        Assert.Equal(
+            """SELECT "id"::text, "n" FROM "t" WHERE "qty" = @value ORDER BY 1 LIMIT 51""",
+            PostgresSourceSession.SelectWhereInteger("t", "id", "qty", ["n"], 51));
+    }
 }
