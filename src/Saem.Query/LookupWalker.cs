@@ -253,9 +253,10 @@ public sealed class LookupWalker
     /// relation leads to the branch's entity, each read as the person with the relation's field and what the next step
     /// needs — kept when the source shows the row and the field still names that entity. Across an identity: the entities
     /// of the other type the partition holds to be the same thing, each read as the person with what the next step needs —
-    /// kept when the source shows the row. An edge or a member built before the source changed, or one naming a row this
-    /// person may not see, adds nothing; its partition is then reported blocked, which says that much and no more. Null
-    /// when the person is in no partition.
+    /// kept when the source shows the row, and only from an entity the person sees (which is read first when no row stands
+    /// for it yet). An edge or a member built before the source changed, or one naming a row this person may not see,
+    /// adds nothing; its partition is then reported blocked, which says that much and no more. Null when the person is in
+    /// no partition.
     /// </summary>
     private async Task<IReadOnlyList<Branch>?> ThroughPartitionsAsync(
         Dictionary<string, ISourceSession> open,
@@ -275,6 +276,28 @@ public sealed class LookupWalker
         if (relations.Partitions.Count == 0)
         {
             return null;
+        }
+
+        // Across an identity the entity crossed from is read as the person too (D-86): an identity is the group's own
+        // knowledge, in no row, so nothing but this read says the person may see what it is crossed from. It comes
+        // before the candidates are counted, so what a person does not see is neither answered nor reported too broad.
+        // A branch that already stands on a row read as the person (any step after the first) is not read again.
+        if (step.Identity is not null)
+        {
+            var seen = new List<Branch>();
+            foreach (var branch in frontier)
+            {
+                if (branch.Row is not null || await ReadAsync(open, sessions, trace, leaves, branch.Key, [], cancellationToken).ConfigureAwait(false) is not null)
+                {
+                    seen.Add(branch);
+                }
+            }
+
+            frontier = seen;
+            if (frontier.Count == 0)
+            {
+                return [];
+            }
         }
 
         // Every candidate of the step is counted before any is read: a step too broad anywhere reads none.

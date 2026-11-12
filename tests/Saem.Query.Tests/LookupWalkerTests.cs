@@ -626,8 +626,8 @@ public class LookupWalkerTests
         Assert.Equal([("M-1", "Bracket"), ("M-2", "Bracket (old code)")], claims.Select(c => (c.Entity.Key, c.Value.GetString())));
         Assert.Equal([Same("Item", "I-100", "Material", "M-1")], claims[0].Path);
         Assert.Equal([new PartitionRead("g-plant", null, Blocked: false, Incomplete: false)], answer.Partitions);
-        // Each member read as the person; the entity crossed from is not read for the step.
-        Assert.Equal(["mes materials mat_no=M-1 [mat_name]", "mes materials mat_no=M-2 [mat_name]"], sessions.Reads);
+        // The entity crossed from is read first, as the person (D-86), and then each member as the person.
+        Assert.Equal(["erp visible_items item_code=I-100 []", "mes materials mat_no=M-1 [mat_name]", "mes materials mat_no=M-2 [mat_name]"], sessions.Reads);
     }
 
     /// <summary>D-86 ① · D-46: a member the person does not see is not answered; the partition says it was blocked, and no more.</summary>
@@ -638,6 +638,23 @@ public class LookupWalkerTests
 
         Assert.Equal(["M-1"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Entity.Key));
         Assert.True(Assert.Single(answer.Partitions!).Blocked);
+    }
+
+    /// <summary>
+    /// D-86 ① (revised): the entity an identity is crossed from is read as the person too. A person who does not see it
+    /// does not get the group's word that it is the same as another — the refusal is the one a visible entity with no
+    /// counterpart gets, and nothing of the other side is read.
+    /// </summary>
+    [Fact]
+    public async Task An_identity_is_not_crossed_from_an_entity_the_person_does_not_see()
+    {
+        var sessions = new FakeSessions("bob");
+
+        var answer = await Back(sessions, Things(), "Material", "M-2", ["same_item"], ["name"]);
+
+        Assert.Equal(new Refusal(RefusalReason.NoVisibleResult, 1, "same_item", "erp"), Assert.IsType<Refused>(answer).Refusal);
+        Assert.Null(answer.Partitions);
+        Assert.Equal(["mes materials mat_no=M-2 []"], sessions.Reads);
     }
 
     /// <summary>The walk goes on from the entity an identity led to: a material's supplier is read through the ERP item it is.</summary>
@@ -664,6 +681,17 @@ public class LookupWalkerTests
 
         Assert.Equal((1, "same_item"), (thrown.AtHop, thrown.Relation));
         Assert.DoesNotContain(sessions.Reads, r => r.Contains("materials", StringComparison.Ordinal));
+    }
+
+    /// <summary>The limit is no side channel: an entity the person does not see is refused, not reported too broad.</summary>
+    [Fact]
+    public async Task An_unseen_entity_with_too_many_counterparts_is_refused_not_reported_too_broad()
+    {
+        var narrow = new LookupWalker(new FixedCatalog(Ontology.Ontology.Create(Rig)), new FixedClock(ReadAt), maxCandidatesPerStep: 1);
+
+        var answer = await Back(new FakeSessions("bob"), Things(), "Material", "M-2", ["same_item"], ["name"], narrow);
+
+        Assert.Equal(RefusalReason.NoVisibleResult, Assert.IsType<Refused>(answer).Refusal.Reason);
     }
 
     [Fact]
