@@ -90,4 +90,35 @@ public sealed class OverviewApiTests
         Assert.Null(overview!.Check);
         Assert.Equal(HttpStatusCode.NotFound, (await builder.GetAsync("api/check", TestContext.Current.CancellationToken)).StatusCode);
     }
+
+    /// <summary>
+    /// A check report that cannot be read is not «no report» and not a server error: the overview still says what the catalog
+    /// holds and says why it shows no check, and the check itself answers that it cannot be read.
+    /// </summary>
+    [Theory]
+    [InlineData("this is not json")]
+    [InlineData("""{ "checkedAt": 7, "catalogVersion": 3, "holds": "yes", "findings": [] }""")]
+    public async Task A_check_report_that_cannot_be_read_is_said_so_and_the_overview_still_answers(string written)
+    {
+        var report = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(report, written, TestContext.Current.CancellationToken);
+            await using var server = await ConsoleServer.StartAsync(ontologyJson: Catalog, configure: s => s.Configure<ConsoleCheckOptions>(o => o.CheckReport = report));
+            using var auditor = server.Client(ConsoleServer.Token("ann", ["privacy-office"]));
+            using var builder = server.Client(ConsoleServer.Token("alice", ["ontology-builders"]));
+
+            var overview = await auditor.GetFromJsonAsync<Overview>("api/overview", TestContext.Current.CancellationToken);
+            using var check = await builder.GetAsync("api/check", TestContext.Current.CancellationToken);
+
+            Assert.Equal(2, overview!.Declarations["entityType"]);
+            Assert.Null(overview.Check);
+            Assert.Contains("cannot be read", overview.CheckProblem, StringComparison.Ordinal);
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, check.StatusCode);
+        }
+        finally
+        {
+            File.Delete(report);
+        }
+    }
 }

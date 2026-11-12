@@ -68,7 +68,7 @@ export type AuthoringReview = {
 
 export type CheckSummary = { checkedAt: string | null; catalogVersion: string | null; current: boolean; holds: boolean; violations: number };
 
-export type Overview = { catalogVersion: string; declarations: Record<string, number>; check: CheckSummary | null };
+export type Overview = { catalogVersion: string; declarations: Record<string, number>; check: CheckSummary | null; checkProblem?: string | null };
 
 export type CheckFinding = { type: string; relation: string | null; kind: string; violation: boolean; what: string; count: number; recordsCited: number };
 

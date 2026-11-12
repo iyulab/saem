@@ -103,6 +103,22 @@ public sealed class LocalGraphTests
     }
 
     [Fact]
+    public async Task An_MCP_server_that_cannot_be_reached_is_a_bad_gateway_that_does_not_name_where_it_was_looked_for()
+    {
+        var lookups = new McpConsoleLookups(
+            TestIssuer.For(new ExchangingIssuer()),
+            Options.Create(new ConsoleLookupOptions { McpEndpoint = "http://mcp.test/mcp" }),
+            (_, _, _, _) => throw new HttpRequestException("Connection refused (mcp.internal.example:8443)"));
+        await using var server = await ConsoleServer.StartAsync(configure: services => services.AddSingleton<IConsoleLookups>(lookups));
+        using var builder = server.Client(ConsoleServer.Token("alice", ["ontology-builders"]));
+
+        using var response = await builder.PostAsJsonAsync("api/graph/local", Call, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.DoesNotContain("internal.example", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task An_exchange_the_issuer_cannot_answer_asks_nothing_and_is_a_bad_gateway_not_a_server_error()
     {
         var called = false;
@@ -121,6 +137,8 @@ public sealed class LocalGraphTests
 
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
         Assert.False(called);
+        // What the transport said names where the issuer was looked for, and that is not for the browser.
+        Assert.DoesNotContain("Connection refused", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
     }
 
     private sealed class RecordingLookups : IConsoleLookups

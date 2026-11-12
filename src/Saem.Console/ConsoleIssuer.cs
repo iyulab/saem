@@ -38,9 +38,9 @@ internal sealed class ConsoleIssuer(IHttpClientFactory clients, IOptionsMonitor<
         }
         catch (Exception e) when (e is HttpRequestException or InvalidOperationException or IOException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            // Not an answer: the discovery document or the token endpoint could not be reached in time. The cause is the
-            // transport's own message, which names no secret.
-            throw new IssuerUnavailableException($"The issuer gave no answer to the console's {grant} request: {e.Message}", e);
+            // Not an answer: the discovery document or the token endpoint could not be reached in time. What the transport said
+            // names where the issuer was looked for, so it stays with the inner exception and out of the message a browser may see.
+            throw new IssuerUnavailableException($"The issuer gave no answer to the console's {grant} request: it could not be reached in time.", e);
         }
 
         if (status is >= HttpStatusCode.InternalServerError or HttpStatusCode.TooManyRequests)

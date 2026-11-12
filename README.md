@@ -698,6 +698,7 @@ kind it holds, and the last check — when it ran, whether every declaration hel
 the catalog in force at all. `GET /api/check` (builders) gives that check's findings without the records
 they cite: those are rows the checking account could read, which a builder looking at the console may
 not be able to read at the source; they stay in the report file.
+A report file that is named and cannot be read is not "no report": the overview still answers, with `checkProblem` saying why it shows no check, and `GET /api/check` is `503`.
 
 `GET /api/executors` (builders) lists the groups the console has an executor for, and
 `/api/executors/<group>/jobs` starts (`POST`), lists (`GET`), reads (`…/jobs/{id}`) and cancels

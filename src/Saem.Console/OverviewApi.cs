@@ -31,7 +31,7 @@ internal static class OverviewApi
                 return Results.Problem(title: "The catalog is refused.", detail: string.Join(" ", e.Problems), statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
-            var report = await ReadAsync(check.Value, ct);
+            var (report, unreadable) = await ReadAsync(check.Value, ct);
             return TypedResults.Ok(new Overview(
                 ontology.Version,
                 new Dictionary<string, int>(StringComparer.Ordinal)
@@ -42,27 +42,52 @@ internal static class OverviewApi
                     ["linkage"] = ontology.Linkages.Count,
                     ["grouping"] = ontology.Groupings.Count,
                 },
-                report is null ? null : Summary(report, ontology.Version)));
+                report is null ? null : Summary(report, ontology.Version),
+                unreadable));
         });
 
         // The findings as the check reported them, but not the records it cites: those are rows the checking account
         // read, and a builder looking here may not be able to read them at the source (saem constitution §2).
         api.MapGet("/check", async (Microsoft.Extensions.Options.IOptions<ConsoleCheckOptions> check, CancellationToken ct) =>
-            await ReadAsync(check.Value, ct) is { } report
-                ? Results.Text(WithoutRecords(report).ToJsonString(), "application/json")
-                : Results.Problem(title: "No check report.", detail: "Run saem-materialize check --report <file> and name the file in Saem:Console:CheckReport.", statusCode: StatusCodes.Status404NotFound))
+            await ReadAsync(check.Value, ct) switch
+            {
+                (_, { } unreadable) => Results.Problem(title: "The check report cannot be read.", detail: unreadable, statusCode: StatusCodes.Status503ServiceUnavailable),
+                ({ } report, _) => Results.Text(WithoutRecords(report).ToJsonString(), "application/json"),
+                _ => Results.Problem(title: "No check report.", detail: "Run saem-materialize check --report <file> and name the file in Saem:Console:CheckReport.", statusCode: StatusCodes.Status404NotFound),
+            })
             .RequireAuthorization(ConsoleRoles.Builder);
     }
 
-    private static async Task<JsonObject?> ReadAsync(ConsoleCheckOptions options, CancellationToken ct)
+    /// <summary>
+    /// The check report the deployment names: the report, nothing when it names none or the file is not there, or why the file
+    /// cannot be read — a file that is there and not a check report is said so, not taken for «no report» and not a server error.
+    /// </summary>
+    private static async Task<(JsonObject? Report, string? Unreadable)> ReadAsync(ConsoleCheckOptions options, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(options.CheckReport) || !File.Exists(options.CheckReport))
         {
-            return null;
+            return (null, null);
         }
 
-        await using var file = File.OpenRead(options.CheckReport);
-        return await JsonNode.ParseAsync(file, cancellationToken: ct) as JsonObject;
+        try
+        {
+            await using var file = File.OpenRead(options.CheckReport);
+            if (await JsonNode.ParseAsync(file, cancellationToken: ct) is not JsonObject report)
+            {
+                return (null, "The check report cannot be read: it is not a JSON object.");
+            }
+
+            _ = Summary(report, string.Empty);
+            return (report, null);
+        }
+        catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException or FormatException)
+        {
+            return (null, "The check report cannot be read: it is not a check report the console understands.");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return (null, "The check report cannot be read: the file could not be opened.");
+        }
     }
 
     internal static CheckSummary Summary(JsonObject report, string catalogInForce)
@@ -93,8 +118,9 @@ internal static class OverviewApi
 /// <summary>The console's overview.</summary>
 /// <param name="CatalogVersion">The catalog in force.</param>
 /// <param name="Declarations">How many declarations of each kind it holds.</param>
-/// <param name="Check">The last check against the sources, or null when the deployment keeps no report.</param>
-public sealed record Overview(string CatalogVersion, IReadOnlyDictionary<string, int> Declarations, CheckSummary? Check);
+/// <param name="Check">The last check against the sources, or null when the deployment keeps no report or it cannot be read.</param>
+/// <param name="CheckProblem">Why there is no check to show, when the deployment names a report that cannot be read.</param>
+public sealed record Overview(string CatalogVersion, IReadOnlyDictionary<string, int> Declarations, CheckSummary? Check, string? CheckProblem = null);
 
 /// <summary>The last check, in brief.</summary>
 /// <param name="CheckedAt">When it ran.</param>

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol;
 using ModelContextProtocol.Client;
 
 namespace Saem.Console;
@@ -64,7 +65,15 @@ internal sealed class McpConsoleLookups(ConsoleIssuer issuer, IOptions<ConsoleLo
             throw new LookupUnavailableException(e.Message, e);
         }
 
-        return await _call(new Uri(settings.McpEndpoint), exchanged, arguments, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await _call(new Uri(settings.McpEndpoint), exchanged, arguments, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is HttpRequestException or IOException or McpException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            // What the transport said names where the MCP server was looked for: the inner exception keeps it, the browser does not see it.
+            throw new LookupUnavailableException("The MCP server could not be reached.", e);
+        }
     }
 
     private static Dictionary<string, string> Exchange(ConsoleLookupOptions settings, string presentedToken, string? actor)

@@ -17,7 +17,7 @@ export function OverviewView({ onOpenCheck }: { onOpenCheck?: () => void }) {
     return <p role="alert">{whyNot(overview, "The overview could not be read.")}</p>;
   }
 
-  const { catalogVersion, declarations, check } = overview.value;
+  const { catalogVersion, declarations, check, checkProblem } = overview.value;
   return (
     <section>
       <h1>Overview</h1>
@@ -29,9 +29,17 @@ export function OverviewView({ onOpenCheck }: { onOpenCheck?: () => void }) {
             Version <code>{catalogVersion}</code>
           </p>
         </article>
-        <article className={check && (!check.holds || !check.current) ? "card attention" : "card"}>
+        <article className={checkProblem || (check && (!check.holds || !check.current)) ? "card attention" : "card"}>
           <h2>Checked against the sources?</h2>
-          {check === null && (
+          {check === null && checkProblem && (
+            <>
+              <p className="big">The last check cannot be shown</p>
+              <p className="muted" role="alert">
+                {checkProblem}
+              </p>
+            </>
+          )}
+          {check === null && !checkProblem && (
             <>
               <p className="big">Not checked yet</p>
               <details>
