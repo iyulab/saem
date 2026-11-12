@@ -583,6 +583,10 @@ object per line under the log category `Saem.Mcp.OcsfEvents`, for a SIEM: the pe
 acts under (`delegation`: the agent's token's `jti` and `iss`, as the issuer named it), the records reached
 `resources` by the same digests, and what OCSF has no attribute for under `unmapped`.
 
+The interaction log is the record of who looked where, so a server does not run without it: if the log level
+of `Saem.Mcp.InteractionLog` (or `Saem.Mcp.OcsfEvents`, with OCSF on) is raised above Information, the server
+refuses to start, and a lookup that arrives after the level is raised at run time is refused before any source is read.
+
 ```json
 {
   "Saem": {

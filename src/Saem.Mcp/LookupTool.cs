@@ -87,6 +87,13 @@ internal sealed partial class LookupTool
             return Error("The request presented no bearer token, so no source can be read as its person.");
         }
 
+        // The interaction log is the record of who looked where: with nothing keeping it (a log level raised above Information at run time
+        // — a start with it already raised is refused by AuditSinkCheck), a lookup would leave no trace of the person's reach, so it is not run.
+        if (_interactions.NotRecording is { } notRecorded)
+        {
+            return Error($"The lookup was not run: {notRecorded} A call that cannot be recorded is not served; nothing was read.");
+        }
+
         // The call's span, under the request's trace when there is one (W3C trace context). The lookup is named by an id of its own,
         // made here: a trace id is the caller's to choose, so several calls under one trace — or a trace id picked to collide — would
         // otherwise be one interaction. The interaction carries both, which is how the source's log (named by the lookup id) and a

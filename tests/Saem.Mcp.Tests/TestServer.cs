@@ -50,14 +50,16 @@ internal sealed class TestServer : IAsyncDisposable
             services =>
             {
                 services.AddSingleton(logins);
-                services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, jwt =>
-                {
-                    // The issuer's keys come from here instead of its discovery document.
-                    var configuration = new OpenIdConnectConfiguration { Issuer = Issuer };
-                    configuration.SigningKeys.Add(Key);
-                    jwt.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration);
-                });
+                services.PostConfigure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, TrustTestKey);
             });
+
+    /// <summary>Makes the bearer handler read the issuer's keys from here instead of its discovery document.</summary>
+    public static void TrustTestKey(JwtBearerOptions jwt)
+    {
+        var configuration = new OpenIdConnectConfiguration { Issuer = Issuer };
+        configuration.SigningKeys.Add(Key);
+        jwt.ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration);
+    }
 
     /// <summary>The server as configured by <paramref name="settings"/>, with any test overrides.</summary>
     public static async Task<TestServer> StartAsync(string ontologyJson, Dictionary<string, string?> settings, Action<IServiceCollection>? configure = null)

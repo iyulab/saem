@@ -109,6 +109,31 @@ internal sealed partial class InteractionLog
     /// <summary>The key id to log beside the names, or null when records are not named.</summary>
     public string? KeyId => _key is null ? null : _keyId;
 
+    /// <summary>
+    /// Null while every interaction is written. Otherwise what is not: an operator's log level above Information drops the
+    /// interaction log (and the OCSF stream, when on) without a word, and a call nobody can account for is not one to serve.
+    /// </summary>
+    public string? NotRecording
+    {
+        get
+        {
+            var off = new List<string>(2);
+            if (!_logger.IsEnabled(LogLevel.Information))
+            {
+                off.Add("Saem.Mcp.InteractionLog");
+            }
+
+            if (_ocsf is not null && !_ocsf.IsEnabled(LogLevel.Information))
+            {
+                off.Add("Saem.Mcp.OcsfEvents");
+            }
+
+            return off.Count == 0
+                ? null
+                : $"The interaction log is not being written: the log level of {string.Join(" and ", off)} is above Information.";
+        }
+    }
+
     public void Write(Interaction interaction, Activity? span)
     {
         if (_logger.IsEnabled(LogLevel.Information))
