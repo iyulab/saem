@@ -33,8 +33,11 @@ internal sealed class GroupStoreRig : IAsyncDisposable
     /// <summary>The secret confined to <see cref="Project"/>, with the group's role.</summary>
     public string Secret { get; }
 
-    /// <summary>The group's Formbase.</summary>
+    /// <summary>The group's Formbase, presenting its access key.</summary>
     public HttpClient Formbase => _formbase.Http;
+
+    /// <summary>The access key the group's Formbase was started with — what saem presents to it.</summary>
+    public string AccessKey => _formbase.AccessKey;
 
     public static async Task<GroupStoreRig> StartAsync(string group, CancellationToken ct)
     {

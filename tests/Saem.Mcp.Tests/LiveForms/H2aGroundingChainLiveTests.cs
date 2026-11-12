@@ -48,6 +48,7 @@ public sealed class H2aGroundingChainLiveTests : IAsyncLifetime
         var settings = rig.ServerSettings;
         settings["Saem:Sources:Projections:forms:Url"] = rig.Formbase.BaseAddress!.AbsoluteUri;
         settings["Saem:Sources:Projections:forms:FormTypes:inspection"] = "inspection";
+        settings["Saem:Sources:Projections:forms:AccessKey"] = rig.AccessKey;
         return settings;
     }
 

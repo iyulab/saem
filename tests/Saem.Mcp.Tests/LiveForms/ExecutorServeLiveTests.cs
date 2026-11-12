@@ -49,7 +49,11 @@ public sealed class ExecutorServeLiveTests : IAsyncLifetime
         await File.WriteAllTextAsync(sources, "{}", ct);
 
         // The arguments a deployment gives `saem-materialize serve`, and the environment it sets.
-        var environment = new Dictionary<string, string> { [ServeOptions.SecretVariable] = Secret };
+        var environment = new Dictionary<string, string>
+        {
+            [ServeOptions.SecretVariable] = Secret,
+            [MaterializeOptions.StoreTokenVariable] = _store.AccessKey,
+        };
         var serve = ServeOptions.Parse(
             ["--catalog", catalog, "--sources", sources, "--group", "g-plant", "--base-iri", BaseIri.ToString(),
              "--store", _store.Formbase.BaseAddress!.ToString(), "--listen", "http://127.0.0.1:0"],

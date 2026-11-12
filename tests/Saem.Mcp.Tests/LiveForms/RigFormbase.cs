@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http.Headers;
 using Xunit;
 
 namespace Saem.Mcp.Tests.LiveForms;
@@ -6,7 +7,10 @@ namespace Saem.Mcp.Tests.LiveForms;
 /// <summary>
 /// Formbase running as its published image on the rig's network, projecting into one MorphDB project with
 /// the secret it is given — its own schema in the rig's Formbase database. The forms source and each
-/// group's store start one the same way and differ only in the project and the secret.
+/// group's store start one the same way and differ only in the project and the secret. Each host is started with
+/// an access key of its own (SD-15: the host asks no one who is calling, so it answers only a caller that presents
+/// a key — a key names a calling service, not a person): <see cref="Http"/> carries it, and a caller that is not
+/// this client sends <see cref="AccessKey"/> itself.
 /// </summary>
 internal sealed class RigFormbase : IAsyncDisposable
 {
@@ -15,17 +19,23 @@ internal sealed class RigFormbase : IAsyncDisposable
 
     private readonly string _container;
 
-    private RigFormbase(string container, HttpClient http)
+    private RigFormbase(string container, HttpClient http, string accessKey)
     {
         _container = container;
         Http = http;
+        AccessKey = accessKey;
     }
 
-    /// <summary>Formbase's HTTP API.</summary>
+    /// <summary>Formbase's HTTP API, presenting <see cref="AccessKey"/>.</summary>
     public HttpClient Http { get; }
+
+    /// <summary>The access key this host was started with — what a caller of it presents as a bearer token.</summary>
+    public string AccessKey { get; }
 
     public static async Task<RigFormbase> StartAsync(Guid project, string secret, CancellationToken ct)
     {
+        // The host refuses to start with a key shorter than 32 characters.
+        var accessKey = $"rig-access-key-{Guid.NewGuid():N}";
         var container = (await DockerAsync(
         [
             "run", "-d", "--network", Network, "-p", "127.0.0.1::8080",
@@ -35,10 +45,13 @@ internal sealed class RigFormbase : IAsyncDisposable
             "-e", "Formbase__MorphDb__Url=http://forms:8080",
             "-e", $"Formbase__MorphDb__ProjectId={project}",
             "-e", $"Formbase__MorphDb__Secret={secret}",
+            "-e", $"Formbase__Access__Keys__0={accessKey}",
             Image,
         ], ct)).Trim();
         var port = (await DockerAsync(["port", container, "8080"], ct)).Split('\n')[0].Split(':')[^1].Trim();
-        var formbase = new RigFormbase(container, new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") });
+        var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessKey);
+        var formbase = new RigFormbase(container, http, accessKey);
         await formbase.WaitHealthyAsync(ct);
         return formbase;
     }

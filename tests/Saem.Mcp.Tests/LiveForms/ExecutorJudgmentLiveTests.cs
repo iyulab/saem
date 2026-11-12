@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Text.Json;
 using Saem.Contracts;
 using Saem.Materialization;
@@ -33,7 +34,15 @@ public sealed class ExecutorJudgmentLiveTests : IAsyncLifetime
     public async ValueTask DisposeAsync() => await _store.DisposeAsync();
 
     private IReadOnlyDictionary<string, JobWork> Kinds() => ExecutorJobs.For(Run, _ => Task.FromResult(new GroupContext(
-        Plant, new Dictionary<string, SourceOpener>(), new HttpClient { BaseAddress = _store.Formbase.BaseAddress })));
+        Plant, new Dictionary<string, SourceOpener>(), StoreClient())));
+
+    // The group's Formbase asks for its access key, as saem's executor presents it (SAEM_STORE_TOKEN).
+    private HttpClient StoreClient()
+    {
+        var client = new HttpClient { BaseAddress = _store.Formbase.BaseAddress };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _store.AccessKey);
+        return client;
+    }
 
     private async Task<(JobOutcome Outcome, string Output)> RunAsync(string kind, JobArguments? arguments = null)
     {

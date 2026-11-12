@@ -30,6 +30,9 @@ internal sealed class FormsRig : IAsyncDisposable
     /// <summary>Formbase's HTTP API.</summary>
     public HttpClient Formbase => _formbase.Http;
 
+    /// <summary>The access key the forms Formbase was started with — what saem presents to it.</summary>
+    public string AccessKey => _formbase.AccessKey;
+
     /// <summary>The server settings that read the forms source as the person whose token reached saem.</summary>
     public Dictionary<string, string?> ServerSettings => new()
     {

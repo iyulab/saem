@@ -93,6 +93,8 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
             ["Saem:Materialization:BaseIri"] = BaseIri,
             ["Saem:Materialization:Groups:g-plant:Url"] = _plant.Formbase.BaseAddress!.AbsoluteUri,
             ["Saem:Materialization:Groups:g-office:Url"] = _office.Formbase.BaseAddress!.AbsoluteUri,
+            ["Saem:Materialization:Groups:g-plant:AccessKey"] = _plant.AccessKey,
+            ["Saem:Materialization:Groups:g-office:AccessKey"] = _office.AccessKey,
         });
     }
 
