@@ -304,6 +304,21 @@ public class FormbaseConnectorTests
     }
 
     [Fact]
+    public async Task A_sampled_record_carries_its_record_key_apart_from_the_version_it_was_read_from()
+    {
+        // The id names the document (the version a claim cites); the key names the record across its corrections,
+        // so a field holding another record's key has something to be resolved against. A document with no key
+        // is a record of its own and has none.
+        var formbase = new StubFormbase().Answer("GET", "/formtypes/workorders/documents?after=0&limit=10", HttpStatusCode.OK,
+            KeyedPage(head: 3, (1, "a", false, 1), (2, "a", false, 2), (3, null, false, 3)));
+
+        var records = await Connector(formbase).SampleAsync(WorkOrders, 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal(["a", null], records.Select(r => r.Key));
+        Assert.All(records, r => Assert.NotEqual(r.Key, r.Id));
+    }
+
+    [Fact]
     public async Task A_retired_record_is_not_sampled()
     {
         var formbase = new StubFormbase().Answer("GET", "/formtypes/workorders/documents?after=0&limit=10", HttpStatusCode.OK,

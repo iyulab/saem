@@ -161,6 +161,8 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     /// <paramref name="maxCount"/> records stand, so a record corrected or retired further along the
     /// stream is sampled as it stood there; reading from the end meets the latest document of each record
     /// first, so a record is always sampled as it stands now and a retired one is not sampled at all.
+    /// A sampled record's <see cref="RawRecord.Key"/> is that record key — its identity apart from the
+    /// document (the version) its id names — and is null for a document without one.
     /// </para>
     /// <para>
     /// A repeated section has no documents of its own: its declaration names the parent
@@ -196,7 +198,8 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
             .Select(document => new RawRecord(
                 document.DocumentId.ToString(),
                 Flatten(document.Body).Where(f => !sectionFields.Contains(f.Key)).ToDictionary(),
-                subject))];
+                subject,
+                document.RecordKey))];
     }
 
     /// <summary>
