@@ -164,6 +164,13 @@ internal static class CatalogConfirmApi
 
         try
         {
+            // No proposals file is no pass to settle — a draft a builder wrote by hand — which is not proposals that cannot be
+            // read: the review screen says "there are no proposals" for the same file.
+            if (!File.Exists(options.Proposals))
+            {
+                return Settling.None;
+            }
+
             var proposed = ProposedDeclarations.Parse(await File.ReadAllTextAsync(options.Proposals, ct));
             var kept = File.Exists(options.SettledRecords) ? await File.ReadAllLinesAsync(options.SettledRecords, ct) : [];
             if (ReviewSettlement.RecordsPass(kept, proposed.Pass))

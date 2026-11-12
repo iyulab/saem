@@ -102,6 +102,22 @@ public sealed class CatalogConfirmSettlementTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_draft_written_by_hand_confirms_when_no_pass_has_left_proposals()
+    {
+        // No pass has written proposals: there is no review to settle, which is not the same as proposals that cannot be read
+        // (the review screen says "there are no proposals" for the same file).
+        File.Delete(_proposals);
+        using var builder = Builder();
+
+        var (status, body) = await Confirm(builder);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("settlement").ValueKind);
+        Assert.Equal($"[{Line},{Equipment},{OnLine}]", await File.ReadAllTextAsync(_server.OntologyFile, TestContext.Current.CancellationToken));
+        Assert.False(File.Exists(_records));
+    }
+
+    [Fact]
     public async Task A_console_without_settled_records_confirms_without_a_settlement()
     {
         var plainDraft = Path.GetTempFileName();
