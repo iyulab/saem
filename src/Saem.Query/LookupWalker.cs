@@ -141,9 +141,20 @@ public sealed class LookupWalker
         }
         finally
         {
+            // Clean-up after the answer is known (or the walk has failed for its own reason): a session that cannot be closed — its
+            // connection already gone — has nothing left to report, must not replace the answer or the walk's own error, and must not
+            // keep the sessions after it from being closed.
             foreach (var session in open.Values)
             {
-                await session.DisposeAsync().ConfigureAwait(false);
+#pragma warning disable CA1031 // A failed close is not the lookup's result.
+                try
+                {
+                    await session.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                }
+#pragma warning restore CA1031
             }
         }
     }

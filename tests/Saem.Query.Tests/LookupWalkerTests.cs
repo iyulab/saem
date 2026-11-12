@@ -372,6 +372,22 @@ public class LookupWalkerTests
         Assert.All(claims, c => Assert.Empty(c.Path));
     }
 
+    /// <summary>
+    /// Closing a session is clean-up after the answer is known: one that cannot be closed (its connection already gone) neither
+    /// turns a finished answer into an error nor leaves the sessions after it open.
+    /// </summary>
+    [Fact]
+    public async Task A_session_that_cannot_be_closed_neither_spoils_the_answer_nor_leaves_the_others_open()
+    {
+        var sessions = new FakeSessions("alice", failToCloseFor: "mes");
+
+        var answer = await Run(sessions, "WorkOrder", "WO-2", ["orders_item", "supplied_by"], ["name"]);
+
+        Assert.IsType<Answered>(answer);
+        Assert.Equal(["mes", "erp"], sessions.Opened);
+        Assert.Equal(2, sessions.Disposed);
+    }
+
     [Fact]
     public async Task Each_system_is_opened_once_per_lookup_asked_only_for_the_columns_the_walk_needs_and_closed_after()
     {
@@ -742,7 +758,7 @@ public class LookupWalkerTests
         public ValueTask<Ontology.Ontology> GetAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(ontology);
     }
 
-    private sealed class FakeSessions(string person) : ISourceSessions
+    private sealed class FakeSessions(string person, string? failToCloseFor = null) : ISourceSessions
     {
         public List<string> Opened { get; } = [];
 
@@ -791,11 +807,13 @@ public class LookupWalkerTests
             public ValueTask DisposeAsync()
             {
                 owner.Disposed++;
-                return ValueTask.CompletedTask;
+                return system == owner.FailToCloseFor ? throw new InvalidOperationException("The connection is already closed.") : ValueTask.CompletedTask;
             }
         }
 
         private string Person => person;
+
+        private string? FailToCloseFor => failToCloseFor;
     }
 
     [Fact]
