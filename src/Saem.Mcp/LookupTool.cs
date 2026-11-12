@@ -105,25 +105,43 @@ internal sealed partial class LookupTool
             return Error("A lookup names 'start' (type, and key or where), 'path' (relations, possibly none) and 'read' (fields).");
         }
 
-        // The call's span, under the request's trace when there is one (W3C trace context): its trace id names
-        // the lookup, so the interaction log, the source's log and any tracing backend all name it the same way.
+        // The call's span, under the request's trace when there is one (W3C trace context). The lookup is named by an id of its own,
+        // made here: a trace id is the caller's to choose, so several calls under one trace — or a trace id picked to collide — would
+        // otherwise be one interaction. The interaction carries both, which is how the source's log (named by the lookup id) and a
+        // tracing backend (named by the trace) are read together.
         using var span = InteractionLog.Source.StartActivity("execute_tool " + Name);
         span?.SetTag("gen_ai.operation.name", "execute_tool");
         span?.SetTag("gen_ai.tool.name", Name);
-        var lookupId = Activity.Current?.TraceId.ToHexString() ?? Guid.NewGuid().ToString("N");
+        var lookupId = Guid.NewGuid().ToString("N");
+        var traceId = Activity.Current?.TraceId.ToHexString();
         var started = Stopwatch.GetTimestamp();
         var at = DateTimeOffset.UtcNow;
         var ontology = await _catalog.GetAsync(cancellationToken).ConfigureAwait(false);
         string SystemOf(string type) => ontology.EntityTypes.TryGetValue(type, out var declared) ? declared.System : "-";
 
-        void Record(string outcome, IReadOnlyList<AccessedRecord> accessed, InteractionRefusal? refusal = null, string? errorType = null, int suspect = 0) =>
+        // The log keeps what the ontology declares and nothing of a caller's own words: a type, relation or field it does not declare could be
+        // any text — a value put in a name's place — and would be written to the log, the OCSF event and the span as given.
+        var declaredTypes = ontology.EntityTypes.Keys.ToHashSet(StringComparer.Ordinal);
+        var declaredSteps = ontology.Relations.Keys.Concat(ontology.Inverses.Keys).Concat(ontology.Identities.Keys).ToHashSet(StringComparer.Ordinal);
+        var declaredFields = ontology.EntityTypes.Values.SelectMany(t => t.Fields.Keys).ToHashSet(StringComparer.Ordinal);
+        static string Declared(string name, HashSet<string> declared) => declared.Contains(name) ? name : Undeclared;
+
+        // The records the walk asked a source for, as it asked — kept whether the walk was answered, refused, stopped or failed.
+        var trace = new ReadTrace();
+        IReadOnlyList<AccessedRecord> Accessed() =>
+        [
+            .. trace.Attempts.Select(a =>
+            {
+                var system = SystemOf(a.Type);
+                return new AccessedRecord(system, a.Type, _interactions.Name(system, a.Type, a.Key), a.Status);
+            }),
+        ];
+
+        void Record(string outcome, InteractionRefusal? refusal = null, string? errorType = null, int suspect = 0) =>
             _interactions.Write(new Interaction(
                 lookupId, at, Stopwatch.GetElapsedTime(started).TotalMilliseconds, person.Subject, person.Actor,
-                call.Start.Type, call.Path, call.Read, outcome, accessed, refusal, errorType, _interactions.KeyId, suspect, person.Delegation), span);
-
-        // A start named by a field's value names no record: the value is not a key, and no value is logged (D-83).
-        AccessedRecord Start(string status) =>
-            new(SystemOf(call.Start.Type), call.Start.Type, call.Start.Key is { } key ? _interactions.Name(SystemOf(call.Start.Type), call.Start.Type, key) : null, status);
+                Declared(call.Start.Type, declaredTypes), [.. call.Path.Select(p => Declared(p, declaredSteps))], [.. call.Read.Select(f => Declared(f, declaredFields))],
+                outcome, Accessed(), refusal, errorType, _interactions.KeyId, suspect, person.Delegation, traceId), span);
 
         LookupAnswer answer;
         // The deadline bounds the whole lookup — token exchanges, source reads, partition reads (saem D-84).
@@ -132,43 +150,43 @@ internal sealed partial class LookupTool
         try
         {
             var relations = new GroupRelations(_groups.StoresOf(person), _groups.Iris, _logger);
-            answer = await _walker.RunAsync(call, _logins.SessionsFor(person, token, lookupId), relations, deadline.Token).ConfigureAwait(false);
+            answer = await _walker.RunAsync(call, _logins.SessionsFor(person, token, lookupId), relations, trace, deadline.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             // Not a refusal and not a source's fault: saem stopped waiting, so nothing is said.
-            Record("failed", [], errorType: "deadline");
+            Record("failed", errorType: "deadline");
             return Error($"The lookup was not answered within {_deadline.TotalSeconds:0.#} seconds, so it was stopped. This is a failure, not a refusal: nothing is known about what the sources hold.");
         }
         catch (TooBroadException e)
         {
             // saem's own limit, not an answer about the sources: no count, and the caller can narrow the lookup.
-            Record("invalid", [], errorType: "too_broad");
+            Record("invalid", errorType: "too_broad");
             return Error(e.Message);
         }
         catch (UnknownTermException e)
         {
             // The question is malformed, which is not a refusal: a refusal is an answer about the sources.
-            Record("invalid", [], errorType: "unknown_term");
+            Record("invalid", errorType: "unknown_term");
             return Error(e.Message);
         }
         catch (NoSourceLoginException e)
         {
-            Record("invalid", [], errorType: "no_source_login");
+            Record("invalid", errorType: "no_source_login");
             return Error(e.Message);
         }
         catch (MaterializedRelationsException e)
         {
             // The group's store failed, not a source: said as such, with its detail kept in the log.
             LogLookupFailed(e, lookupId, person.Subject);
-            Record("failed", [], errorType: "materialized_relations");
+            Record("failed", errorType: "materialized_relations");
             return Error($"The materialized relations of the group '{e.Partition}' could not be read, so the lookup was not answered. This is a failure, not a refusal: nothing is known about what they hold.");
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
             // A source that fails is a fault, not a refusal. Its detail (hosts, server messages) stays in the log.
             LogLookupFailed(e, lookupId, person.Subject);
-            Record("failed", [], errorType: "source");
+            Record("failed", errorType: "source");
             return Error("A source failed while the lookup ran, so it was not answered. This is a failure, not a refusal: nothing is known about what the source holds.");
         }
 
@@ -176,12 +194,12 @@ internal sealed partial class LookupTool
         var suspect = InjectionSignals.For(answer);
         if (answer is Refused { Refusal: var refusal })
         {
-            Record("refused", [Start(refusal.AtHop == 0 ? "notVisible" : "read")],
+            Record("refused",
                 new InteractionRefusal(JsonNamingPolicy.CamelCase.ConvertName(refusal.Reason.ToString()), refusal.AtHop, refusal.Relation, refusal.System));
         }
         else
         {
-            Record(answer is Candidates ? "candidates" : "answered", _interactions.Reached(answer, SystemOf), suspect: suspect?.Count ?? 0);
+            Record(answer is Candidates ? "candidates" : "answered", suspect: suspect?.Count ?? 0);
         }
 
         // The answer is this person's view: said in it, so it is not taken for anyone else's once passed on.
@@ -312,6 +330,9 @@ internal sealed partial class LookupTool
     }
 
     private static bool Unnamed(string? name) => string.IsNullOrWhiteSpace(name);
+
+    /// <summary>What the log says in place of a name the ontology does not declare.</summary>
+    private const string Undeclared = "(undeclared)";
 
     [LoggerMessage(Level = LogLevel.Error, Message = "lookup {LookupId} for {Person} failed at a source")]
     private partial void LogLookupFailed(Exception exception, string lookupId, string person);

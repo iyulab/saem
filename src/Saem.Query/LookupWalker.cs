@@ -70,7 +70,17 @@ public sealed class LookupWalker
     /// <exception cref="UnknownTermException">The lookup is not in the ontology's terms; no source was read.</exception>
     /// <exception cref="TooBroadException">A step has more candidates than <see cref="MaxCandidatesPerStep"/>; none of them was read.</exception>
     /// <exception cref="InvalidOperationException">A source returned more than one row for a declared key.</exception>
-    public async Task<LookupAnswer> RunAsync(LookupCall call, ISourceSessions sessions, IMaterializedRelations relations, CancellationToken cancellationToken = default)
+    public Task<LookupAnswer> RunAsync(LookupCall call, ISourceSessions sessions, IMaterializedRelations relations, CancellationToken cancellationToken = default) =>
+        RunAsync(call, sessions, relations, trace: null, cancellationToken);
+
+    /// <summary>
+    /// As <see cref="RunAsync(LookupCall, ISourceSessions, IMaterializedRelations, CancellationToken)"/>, noting in <paramref name="trace"/> each
+    /// record the walk asks a source for as it does — so what was reached is known however the walk ends, including by an exception.
+    /// </summary>
+    /// <exception cref="UnknownTermException">The lookup is not in the ontology's terms; no source was read.</exception>
+    /// <exception cref="TooBroadException">A step has more candidates than <see cref="MaxCandidatesPerStep"/>; none of them was read.</exception>
+    /// <exception cref="InvalidOperationException">A source returned more than one row for a declared key.</exception>
+    public async Task<LookupAnswer> RunAsync(LookupCall call, ISourceSessions sessions, IMaterializedRelations relations, ReadTrace? trace, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(call);
         ArgumentNullException.ThrowIfNull(sessions);
@@ -78,12 +88,12 @@ public sealed class LookupWalker
 
         var ontology = await _catalog.GetAsync(cancellationToken).ConfigureAwait(false);
         var plan = ontology.Plan(call);
-        var answer = await WalkAsync(call, plan, ontology, sessions, relations, cancellationToken).ConfigureAwait(false);
+        var answer = await WalkAsync(call, plan, ontology, sessions, relations, trace, cancellationToken).ConfigureAwait(false);
         return answer with { CatalogVersion = ontology.Version };
     }
 
     private async Task<LookupAnswer> WalkAsync(
-        LookupCall call, LookupPlan plan, Ontology.Ontology ontology, ISourceSessions sessions, IMaterializedRelations relations, CancellationToken cancellationToken)
+        LookupCall call, LookupPlan plan, Ontology.Ontology ontology, ISourceSessions sessions, IMaterializedRelations relations, ReadTrace? trace, CancellationToken cancellationToken)
     {
 
         var open = new Dictionary<string, ISourceSession>(StringComparer.Ordinal);
@@ -109,19 +119,25 @@ public sealed class LookupWalker
                 if (found.Count > 1)
                 {
                     var readAt = _time.GetUtcNow();
+                    foreach (var row in found)
+                    {
+                        trace?.Add(at.Name, row.Key, ReadStatus.Read);
+                    }
+
                     var projection = await StateAsync(states, at, cancellationToken).ConfigureAwait(false);
                     return new Candidates([.. found.Select(row => new Candidate(
                         new EntityKey(at.Name, row.Key), new SourceRecord(at.System, at.Table, RecordOf(at, row)) { ReadAt = readAt, Projection = projection }))]);
                 }
 
                 key = at.Normalize(found[0].Key);
+                trace?.Add(at.Name, key, ReadStatus.Read);
             }
             else
             {
                 key = at.Normalize(call.Start.Key!);
             }
 
-            return await StepsAsync(open, states, sessions, relations, plan, ontology, at, key, cancellationToken).ConfigureAwait(false);
+            return await StepsAsync(open, states, sessions, relations, trace, plan, ontology, at, key, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -146,6 +162,7 @@ public sealed class LookupWalker
         Dictionary<(string, string), SourceProjection?> states,
         ISourceSessions sessions,
         IMaterializedRelations relations,
+        ReadTrace? trace,
         LookupPlan plan,
         Ontology.Ontology ontology,
         EntityTypeDeclaration at,
@@ -163,7 +180,7 @@ public sealed class LookupWalker
             if (step is { Backwards: true } or { Identity: not null })
             {
                 var reached = ontology.EntityTypes[step.Reaches];
-                var walked = await ThroughPartitionsAsync(open, states, sessions, relations, step, at, reached, frontier, hop + 1, Needed(plan, hop + 1), reports, cancellationToken).ConfigureAwait(false);
+                var walked = await ThroughPartitionsAsync(open, states, sessions, relations, trace, step, at, reached, frontier, hop + 1, Needed(plan, hop + 1), reports, cancellationToken).ConfigureAwait(false);
                 if (walked is null)
                 {
                     return With(new Refused(new Refusal(RefusalReason.NoMaterializedPartition, hop + 1, step.Name, reached.System)));
@@ -184,7 +201,7 @@ public sealed class LookupWalker
             var survivors = new List<(Branch Branch, SourceRow Row)>();
             foreach (var branch in frontier)
             {
-                if ((branch.Row ?? await ReadAsync(open, sessions, at, branch.Key, fields, cancellationToken).ConfigureAwait(false)) is { } row)
+                if ((branch.Row ?? await ReadAsync(open, sessions, trace, at, branch.Key, fields, cancellationToken).ConfigureAwait(false)) is { } row)
                 {
                     survivors.Add((branch, row));
                 }
@@ -245,6 +262,7 @@ public sealed class LookupWalker
         Dictionary<(string, string), SourceProjection?> states,
         ISourceSessions sessions,
         IMaterializedRelations relations,
+        ReadTrace? trace,
         LookupStep step,
         EntityTypeDeclaration leaves,
         EntityTypeDeclaration from,
@@ -297,7 +315,7 @@ public sealed class LookupWalker
             var blocked = false;
             foreach (var key in edges.Keys)
             {
-                var row = await ReadAsync(open, sessions, from, key, columns, cancellationToken).ConfigureAwait(false);
+                var row = await ReadAsync(open, sessions, trace, from, key, columns, cancellationToken).ConfigureAwait(false);
                 // Walked backwards, the field still names the branch's entity — as that entity's type spells keys.
                 if (row is null || step.Relation is { } relation
                     && (Text(row.Values[from.Fields[relation.Via]]) is not { } leadsTo || leaves.Normalize(leadsTo) != branch.Key))
@@ -349,6 +367,7 @@ public sealed class LookupWalker
     private static async Task<SourceRow?> ReadAsync(
         Dictionary<string, ISourceSession> open,
         ISourceSessions sessions,
+        ReadTrace? trace,
         EntityTypeDeclaration type,
         string key,
         IReadOnlyList<string> fields,
@@ -358,14 +377,32 @@ public sealed class LookupWalker
 
         // The record columns are read beside the asked ones: the answer cites the record a row is.
         var columns = fields.Select(f => type.Fields[f]).Concat(type.Record ?? []).Distinct(StringComparer.Ordinal).ToList();
-        var rows = await session.ReadAsync(type.Table, type.Key, key, columns, cancellationToken).ConfigureAwait(false);
-        return rows.Count switch
+        IReadOnlyList<SourceRow> rows;
+        try
         {
-            0 => null,
-            1 => rows[0],
-            _ => throw new InvalidOperationException(
-                $"'{type.System}' returned {rows.Count} rows of '{type.Table}' for key '{key}' in '{type.Key}', which the ontology declares as the key of '{type.Name}'."),
-        };
+            rows = await session.ReadAsync(type.Table, type.Key, key, columns, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A read that did not come back — the source failed, or the lookup was stopped while it was out — is still a record asked for.
+            trace?.Add(type.Name, key, ReadStatus.Failed);
+            throw;
+        }
+
+        switch (rows.Count)
+        {
+            case 0:
+                trace?.Add(type.Name, key, ReadStatus.NotVisible);
+                return null;
+            case 1:
+                trace?.Add(type.Name, key, ReadStatus.Read);
+                return rows[0];
+            default:
+                trace?.Add(type.Name, key, ReadStatus.Failed);
+                // The key is not in the message: it is logged with the exception, and a business key is what the log keeps out of reach.
+                throw new InvalidOperationException(
+                    $"'{type.System}' returned {rows.Count} rows of '{type.Table}' for one key of '{type.Key}', which the ontology declares as the key of '{type.Name}'.");
+        }
     }
 
     /// <param name="readAt">When the row came back from its source — taken as each read returns, so a walk that

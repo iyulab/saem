@@ -51,10 +51,12 @@ internal sealed record Interaction(
     string? ErrorType,
     string? KeyId,
     int SuspectClaims = 0,
-    Delegation? Delegation = null);
+    Delegation? Delegation = null,
+    string? TraceId = null);
 
 /// <summary>A record the call reached: its system and type, its key as a keyed digest, and what came of it.</summary>
-/// <param name="Status"><c>read</c> — returned to the person; <c>notVisible</c> — the source returned nothing to them.</param>
+/// <param name="Status">What the walk's read of it came to (<see cref="Saem.Query.ReadStatus"/>): <c>read</c> — the source returned it to saem as the person;
+/// <c>notVisible</c> — the source returned nothing to them; <c>failed</c> — the read did not complete.</param>
 internal sealed record AccessedRecord(string System, string Type, string? Key, string Status);
 
 /// <summary>Where a refused call stopped — the same facts the refusal itself states.</summary>
@@ -106,48 +108,6 @@ internal sealed partial class InteractionLog
 
     /// <summary>The key id to log beside the names, or null when records are not named.</summary>
     public string? KeyId => _key is null ? null : _keyId;
-
-    /// <summary>
-    /// The records an answer reached, from the answer itself: every entity a claim or a hop names was read as
-    /// the person and returned. Systems come from the ontology, which places each type on one.
-    /// </summary>
-    public IReadOnlyList<AccessedRecord> Reached(LookupAnswer answer, Func<string, string> systemOf)
-    {
-        if (answer is Candidates candidates)
-        {
-            // Each candidate is a row the person's read returned.
-            return [.. candidates.Entities.Select(c => new AccessedRecord(c.Source.System, c.Entity.Type, Name(c.Source.System, c.Entity.Type, c.Entity.Key), "read"))];
-        }
-
-        if (answer is not Answered answered)
-        {
-            return [];
-        }
-
-        var seen = new HashSet<(string, string)>();
-        var reached = new List<AccessedRecord>();
-        void Add(EntityKey entity)
-        {
-            if (seen.Add((entity.Type, entity.Key)))
-            {
-                var system = systemOf(entity.Type);
-                reached.Add(new AccessedRecord(system, entity.Type, Name(system, entity.Type, entity.Key), "read"));
-            }
-        }
-
-        foreach (var claim in answered.Claims)
-        {
-            foreach (var hop in claim.Path)
-            {
-                Add(hop.From);
-                Add(hop.To);
-            }
-
-            Add(claim.Entity);
-        }
-
-        return reached;
-    }
 
     public void Write(Interaction interaction, Activity? span)
     {

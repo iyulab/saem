@@ -57,7 +57,7 @@ internal static class OcsfEvents
         {
             ["version"] = "1.9.0",
             ["uid"] = interaction.Id,
-            ["correlation_uid"] = interaction.Id,
+            ["correlation_uid"] = interaction.TraceId ?? interaction.Id,
             ["product"] = new JsonObject { ["name"] = "saem" },
         };
         var activity = new JsonObject

@@ -118,13 +118,13 @@ internal sealed class TestServer : IAsyncDisposable
         });
     }
 
-    public Task<McpClient> ClientAsync(string token, CancellationToken cancellationToken) =>
+    public Task<McpClient> ClientAsync(string token, CancellationToken cancellationToken, IReadOnlyDictionary<string, string>? headers = null) =>
         McpClient.CreateAsync(
             new HttpClientTransport(new HttpClientTransportOptions
             {
                 Endpoint = Endpoint,
                 TransportMode = HttpTransportMode.StreamableHttp,
-                AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token },
+                AdditionalHeaders = new Dictionary<string, string>(headers ?? new Dictionary<string, string>()) { ["Authorization"] = "Bearer " + token },
             }),
             cancellationToken: cancellationToken);
 
@@ -203,7 +203,8 @@ internal sealed class CapturedLogs : ILoggerProvider
         {
             if (IsEnabled(logLevel))
             {
-                lines.Enqueue(formatter(state, exception));
+                // The exception is part of the line: a message that carries a record key is as readable here as one that was logged by name.
+                lines.Enqueue(exception is null ? formatter(state, exception) : formatter(state, exception) + " | " + exception);
             }
         }
     }
