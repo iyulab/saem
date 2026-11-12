@@ -27,6 +27,14 @@ export function summary(job: Job): string {
   return `${job.kind} · ${ending} · ${job.requestedBy}`;
 }
 
+/** What a running job leaves behind when it is stopped part-way, as a question to put to the person — null for a job that writes nothing. */
+export function cancelWarning(job: Job): string | null {
+  const writes = job.kind === "fit" || job.kind === "judge" || asks.some((a) => a.kind === job.kind && a.writes);
+  return writes
+    ? `Stop the ${job.kind} ${job.requestedBy} started? It writes to the group's store, and stopping it part-way may leave the store half-corrected until the next pass.`
+    : null;
+}
+
 /** The job running now, if any — an executor does one at a time, so a request while one runs is refused. */
 export const runningJob = (jobs: readonly Job[]): Job | undefined => jobs.find(isRunning);
 
@@ -94,24 +102,36 @@ export const fitSays = "Fit the identity's linkage rule to the group's records a
 export const fitIdentities = (catalog: Catalog): string[] =>
   catalog.declarations.filter((d) => d.kind === "identity" && typeof d.linkage === "string" && d.linkage !== "").map((d) => d.name);
 
+/** A pair a person judged, as the executor's job for it says. */
+export type JudgedPair = { identity: string; first: string; second: string; same: boolean; by: string };
+
 /**
  * The pairs judged since the newest list was read, from the jobs the executor remembers — not from what this screen filed, so a
  * judgment is not forgotten when the person looks at an entity and comes back, or someone else filed it. The jobs come newest first;
- * a pair the list was made after is already out of it.
+ * a pair the list was made after is already out of it. A pair judged more than once appears once, as its latest judgment says:
+ * a later judgment of the same pair corrects the earlier one, so this is what a person may still change.
  */
-export function judgedSince(jobs: readonly Job[]): Set<string> {
-  const judged = new Set<string>();
+export function judgedPairs(jobs: readonly Job[]): JudgedPair[] {
+  const seen = new Set<string>();
+  const pairs: JudgedPair[] = [];
   for (const job of jobs) {
     if (job.kind === "candidates" && candidatesOf(job) !== null) {
       break;
     }
-    const { identity, first, second } = job.arguments;
+    const { identity, first, second, same } = job.arguments;
     if (job.kind === "judge" && job.state === "succeeded" && identity && first && second) {
-      judged.add(pairKey({ identity, first, second }));
+      const key = pairKey({ identity, first, second });
+      if (!seen.has(key)) {
+        seen.add(key);
+        pairs.push({ identity, first, second, same: same === true, by: job.requestedBy });
+      }
     }
   }
-  return judged;
+  return pairs;
 }
+
+/** The keys of the pairs judged since the newest list was read — what a person is no longer asked to judge. */
+export const judgedSince = (jobs: readonly Job[]): Set<string> => new Set(judgedPairs(jobs).map(pairKey));
 
 /** A screen's jobs as last read, and why they may be older than the executor's: the poll that came after got no answer. */
 export type Settled = { jobs: Answer<Job[]>; unreached: string | null };

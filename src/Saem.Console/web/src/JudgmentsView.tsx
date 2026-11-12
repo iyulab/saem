@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { api, whyNot, type Answer, type Catalog, type EntityKey, type Job, type PairCandidate } from "./api";
 import { compare, sideOf, type CompareRow } from "./compare";
-import { awaiting, judgedSince, judgments, latestCandidates, pairKey, runningJob, settle, type Settled } from "./jobs";
+import { awaiting, judgedPairs, judgedSince, judgments, latestCandidates, pairKey, runningJob, settle, type Settled } from "./jobs";
 import { fieldsOf } from "./localGraph";
 
 const POLL_MS = 2000;
@@ -106,6 +106,7 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
   // so looking at an entity and coming back does not offer a judged pair again.
   const judged = new Set([...outcome.done, ...judgedSince(list)]);
   const left = listed ? awaiting(listed.pairs, judged) : [];
+  const changeable = judgedPairs(list);
 
   const refresh = () => {
     setRefused(null);
@@ -169,7 +170,7 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
     })();
   };
 
-  const judge = (c: (typeof left)[number], same: boolean) => {
+  const judge = (c: Pick<PairCandidate, "identity" | "first" | "second">, same: boolean) => {
     setRefused(null);
     api.startJob(group, "judge", { identity: c.identity, first: c.first, second: c.second, same }).then((answer) => {
       if (answer.ok) {
@@ -261,6 +262,49 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
                 </tbody>
               </table>
             </div>
+          )}
+          {changeable.length > 0 && (
+            <>
+              <h2>Judged since the pairs were read</h2>
+              <p className="muted">A later judgment of a pair corrects the earlier one on the group's next pass. The executor remembers only its latest jobs, so an older judgment can no longer be changed from here.</p>
+              <div className="graph">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Identity</th>
+                      <th>One entity</th>
+                      <th>The other</th>
+                      <th>Judged</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {changeable.map((j) => (
+                      <tr key={pairKey(j)}>
+                        <td>{j.identity}</td>
+                        <td><code>{j.first}</code></td>
+                        <td><code>{j.second}</code></td>
+                        <td>
+                          {j.same ? "Same" : "Different"} <span className="muted">· {j.by}</span>
+                        </td>
+                        <td>
+                          <button className="button" disabled={running !== undefined} onClick={() => judge(j, !j.same)}>
+                            {j.same ? "Change to Different" : "Change to Same"}
+                          </button>
+                          {outcome.pending.has(pairKey(j)) && <span className="muted"> Filing the judgment…</span>}
+                          {outcome.failed.has(pairKey(j)) && (
+                            <span className="refusal" role="alert">
+                              {" "}
+                              The change was not filed ({outcome.failed.get(pairKey(j))!.state}) — the earlier judgment stands.
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </>
       )}

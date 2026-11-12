@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Answer, Catalog, Job } from "./api";
-import { awaiting, fitIdentities, judgedSince, judgments, settle, statusOf, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
+import { awaiting, cancelWarning, fitIdentities, judgedPairs, judgedSince, judgments, settle, statusOf, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
 
 const job = (more: Partial<Job>): Job => ({
   id: "0123456789abcdef0123456789abcdef",
@@ -148,6 +148,27 @@ describe("the pairs judged since the list was read, as the executor remembers th
   });
 });
 
+describe("the judgments a person may still change", () => {
+  const judge = (id: string, first: string, second: string, same: boolean, by = "alice", state: Job["state"] = "succeeded") =>
+    job({ id, kind: "judge", state, requestedBy: by, arguments: { identity: "same_order", first, second, same } });
+  const listing = job({ id: "list", kind: "candidates", report: { candidates: [] } });
+
+  it("lists each judged pair once with what was judged and by whom, the executor's latest judgment of it standing", () => {
+    // Newest first: bob turns the pair a/b round after alice judged it the same; carol judged x/y different.
+    const pairs = judgedPairs([judge("j3", "b", "a", false, "bob"), judge("j2", "x", "y", false, "carol"), judge("j1", "a", "b", true), listing, judge("j0", "p", "q", true)]);
+
+    expect(pairs).toEqual([
+      { identity: "same_order", first: "b", second: "a", same: false, by: "bob" },
+      { identity: "same_order", first: "x", second: "y", same: false, by: "carol" },
+    ]);
+  });
+
+  it("leaves out a judgment that did not succeed, and says nothing when no judgment came after the list", () => {
+    expect(judgedPairs([judge("j2", "a", "b", true, "alice", "failed"), judge("j1", "c", "d", true, "alice", "running"), listing])).toEqual([]);
+    expect(judgedPairs([listing, judge("j0", "p", "q", true)])).toEqual([]);
+  });
+});
+
 describe("a poll that got no answer", () => {
   const ok: Answer<Job[]> = { ok: true, value: [job({ id: "a", state: "running", exitCode: null, finishedAt: null })] };
 
@@ -166,3 +187,20 @@ describe("a poll that got no answer", () => {
     expect(settle(null, { ok: false, status: 0, problem: "down" }).jobs).toEqual({ ok: false, status: 0, problem: "down" });
   });
 });
+
+describe("cancelling a running job", () => {
+  const running = (kind: Job["kind"], requestedBy = "alice") => job({ kind, requestedBy, state: "running", exitCode: null, finishedAt: null });
+
+  it("asks first when the job writes to the group's store, naming who started it", () => {
+    for (const kind of ["pass", "changed-pass", "fit", "judge"] as const) {
+      expect(cancelWarning(running(kind, "bob"))).toMatch(new RegExp(`${kind}.*bob`));
+    }
+  });
+
+  it("does not ask when the job writes nothing", () => {
+    for (const kind of ["verify", "status", "check", "candidates"] as const) {
+      expect(cancelWarning(running(kind))).toBeNull();
+    }
+  });
+});
+
