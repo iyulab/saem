@@ -85,6 +85,29 @@ public sealed class MaterializeCliTests
         Assert.Throws<MaterializeUsageException>(() => GroupSources.Load(json, _ => secretSet ? "s3cret" : null));
     }
 
+    /// <summary>
+    /// A system's secret variable is its name with everything but letters and digits made «_» and the letters upper-cased, so two names
+    /// can name the same variable. They would then log in with one secret, each as if it were its own: refused, naming both.
+    /// </summary>
+    [Theory]
+    [InlineData("erp-1", "erp_1")]
+    [InlineData("Erp", "erp")]
+    public void Two_systems_whose_names_give_one_secret_variable_are_refused_naming_both(string first, string second)
+    {
+        var json = $$"""
+            {
+              "{{first}}": { "postgres": "Host=a.test;Database=a", "user": "g" },
+              "{{second}}": { "postgres": "Host=b.test;Database=b", "user": "g" }
+            }
+            """;
+
+        var refused = Assert.Throws<MaterializeUsageException>(() => GroupSources.Load(json, _ => "s3cret"));
+
+        Assert.Contains($"'{first}'", refused.Message, StringComparison.Ordinal);
+        Assert.Contains($"'{second}'", refused.Message, StringComparison.Ordinal);
+        Assert.Contains(MaterializeOptions.SecretVariable(first), refused.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_pass_writes_the_groups_edges_and_reports_what_it_did()
     {

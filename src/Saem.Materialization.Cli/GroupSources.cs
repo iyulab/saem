@@ -34,11 +34,20 @@ internal sealed class GroupSources : IDisposable
                 throw new MaterializeUsageException("The sources file is a JSON object of systems.");
             }
 
+            // Names that differ only by what a variable name cannot hold (case, punctuation) give one variable; each would then
+            // log in with a secret meant for the other, so they are told apart here, before any secret is read.
+            var variables = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var system in document.RootElement.EnumerateObject())
             {
-                var secret = environment(MaterializeOptions.SecretVariable(system.Name)) is { Length: > 0 } value
+                var variable = MaterializeOptions.SecretVariable(system.Name);
+                if (!variables.TryAdd(variable, system.Name))
+                {
+                    throw new MaterializeUsageException($"The systems '{variables[variable]}' and '{system.Name}' would share the secret variable {variable}: name them apart.");
+                }
+
+                var secret = environment(variable) is { Length: > 0 } value
                     ? value
-                    : throw new MaterializeUsageException($"The system '{system.Name}' has no secret: set {MaterializeOptions.SecretVariable(system.Name)}.");
+                    : throw new MaterializeUsageException($"The system '{system.Name}' has no secret: set {variable}.");
                 sources.Openers.Add(system.Name, sources.Opener(system.Name, system.Value, secret));
             }
         }
