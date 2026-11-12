@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authentication;
@@ -39,8 +40,9 @@ internal sealed class SessionTokens(ConsoleIssuer issuer, TimeProvider time)
             return;
         }
 
+        var subject = context.Principal?.FindFirst("sub")?.Value ?? "";
         var outcome = properties.GetTokenValue("refresh_token") is { Length: > 0 } refresh
-            ? await RenewAsync(refresh).ConfigureAwait(false)
+            ? await RenewAsync(refresh, subject).ConfigureAwait(false)
             : Outcome.Refused;
         if (outcome.NoAnswer)
         {
@@ -69,12 +71,24 @@ internal sealed class SessionTokens(ConsoleIssuer issuer, TimeProvider time)
             properties.UpdateTokenValue("refresh_token", rotated);
         }
 
+        // The roles follow the groups the issuer names now: a renewal that names them replaces what the session carried since
+        // sign-in, so a person taken out of a group loses its role here and not when the cookie ends.
+        if (renewed.Groups is { } groups && context.Principal?.Identity is ClaimsIdentity carried)
+        {
+            var identity = new ClaimsIdentity(
+                carried.Claims.Where(c => c.Type != "groups").Concat(groups.Select(g => new Claim("groups", g))),
+                carried.AuthenticationType,
+                carried.NameClaimType,
+                carried.RoleClaimType);
+            context.ReplacePrincipal(new ClaimsPrincipal(identity));
+        }
+
         context.ShouldRenew = true;
     }
 
     // Not tied to the request that started it: another request may be waiting on the same renewal, and a renewal the
     // issuer completed but nobody kept would leave the session holding a refresh token the issuer has retired.
-    private Task<Outcome> RenewAsync(string refreshToken)
+    private Task<Outcome> RenewAsync(string refreshToken, string subject)
     {
         var now = time.GetUtcNow();
         foreach (var stale in _renewals.Where(r => now - r.Value.At > Shared).Select(r => r.Key).ToList())
@@ -84,15 +98,16 @@ internal sealed class SessionTokens(ConsoleIssuer issuer, TimeProvider time)
 
         // Keyed by the token's hash: the dictionary holds no refresh token itself.
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(refreshToken)));
-        return _renewals.GetOrAdd(key, _ => (now, RequestAsync(refreshToken, CancellationToken.None))).Renewal;
+        return _renewals.GetOrAdd(key, _ => (now, RequestAsync(refreshToken, subject, CancellationToken.None))).Renewal;
     }
 
-    private async Task<Outcome> RequestAsync(string refreshToken, CancellationToken cancellationToken)
+    private async Task<Outcome> RequestAsync(string refreshToken, string subject, CancellationToken cancellationToken)
     {
         try
         {
             var issued = await issuer.TokenAsync(new Dictionary<string, string> { ["grant_type"] = "refresh_token", ["refresh_token"] = refreshToken }, cancellationToken).ConfigureAwait(false);
-            return new Outcome(new Renewed(issued.AccessToken, issued.RefreshToken, time.GetUtcNow() + (issued.Lifetime ?? Ahead)), NoAnswer: false);
+            var groups = issued.IdToken is { Length: > 0 } idToken ? await issuer.GroupsOfAsync(idToken, subject, cancellationToken).ConfigureAwait(false) : null;
+            return new Outcome(new Renewed(issued.AccessToken, issued.RefreshToken, time.GetUtcNow() + (issued.Lifetime ?? Ahead), groups), NoAnswer: false);
         }
         catch (IssuerRefusedException)
         {
@@ -104,7 +119,7 @@ internal sealed class SessionTokens(ConsoleIssuer issuer, TimeProvider time)
         }
     }
 
-    private sealed record Renewed(string AccessToken, string? RefreshToken, DateTimeOffset ExpiresAt);
+    private sealed record Renewed(string AccessToken, string? RefreshToken, DateTimeOffset ExpiresAt, IReadOnlyList<string>? Groups);
 
     /// <summary>What a renewal came to: new tokens, a refusal (no tokens), or no answer from the issuer (kept, like a renewal, for <see cref="Shared"/>).</summary>
     private sealed record Outcome(Renewed? Tokens, bool NoAnswer)

@@ -8,6 +8,8 @@ namespace Saem.Console.Tests;
 /// <summary>The console's issuer client with its token endpoint answered by <c>handler</c> — no discovery, no network.</summary>
 internal static class TestIssuer
 {
+    public const string IssuerName = "https://issuer.test";
+
     public const string TokenEndpoint = "https://issuer.test/token";
 
     public const string RevocationEndpoint = "https://issuer.test/revoke";
@@ -18,7 +20,7 @@ internal static class TestIssuer
     /// <param name="revocable">Whether the discovery document names a revocation endpoint (RFC 8414).</param>
     public static ConsoleIssuer For(HttpMessageHandler handler, string clientId = "saem-console", string clientSecret = "", bool revocable = false)
     {
-        var configuration = new OpenIdConnectConfiguration { TokenEndpoint = TokenEndpoint };
+        var configuration = new OpenIdConnectConfiguration { Issuer = IssuerName, TokenEndpoint = TokenEndpoint };
         if (revocable)
         {
             configuration.AdditionalData["revocation_endpoint"] = RevocationEndpoint;

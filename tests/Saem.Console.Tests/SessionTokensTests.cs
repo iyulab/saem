@@ -116,9 +116,86 @@ public sealed class SessionTokensTests
         Assert.Equal(1, issuer.Requests);
     }
 
+    /// <summary>
+    /// A session's roles follow the groups the issuer names now, not only the ones it named at sign-in (OpenID Connect Core §12.2:
+    /// the ID token a renewal returns, if it returns one): a person taken out of a group at the issuer loses its role the next time
+    /// the session renews, rather than keeping it until the cookie ends.
+    /// </summary>
+    [Fact]
+    public async Task A_renewals_id_token_replaces_the_groups_the_session_carries()
+    {
+        var context = Context(expiresIn: TimeSpan.FromSeconds(30), groups: ["ontology-builders", "plant"]);
+
+        await Tokens(new Issuer(idToken: IdToken(groups: ["plant", "auditors"]))).ValidateAsync(context);
+
+        Assert.Equal(["auditors", "plant"], context.Principal!.FindAll("groups").Select(c => c.Value).Order(StringComparer.Ordinal));
+        Assert.True(context.ShouldRenew);
+        Assert.Equal("pat", context.Principal!.FindFirst("sub")!.Value);
+    }
+
+    [Fact]
+    public async Task A_renewals_id_token_that_names_no_group_takes_every_group_from_the_session()
+    {
+        var context = Context(expiresIn: TimeSpan.FromSeconds(30), groups: ["ontology-builders"]);
+
+        await Tokens(new Issuer(idToken: IdToken(groups: []))).ValidateAsync(context);
+
+        Assert.NotNull(context.Principal);
+        Assert.Empty(context.Principal.FindAll("groups"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_renewal_that_says_nothing_of_groups_leaves_the_session_its_groups(bool withIdToken)
+    {
+        var context = Context(expiresIn: TimeSpan.FromSeconds(30), groups: ["ontology-builders"]);
+
+        await Tokens(new Issuer(idToken: withIdToken ? IdToken(groups: null) : null)).ValidateAsync(context);
+
+        Assert.Equal(["ontology-builders"], context.Principal!.FindAll("groups").Select(c => c.Value));
+    }
+
+    /// <summary>An ID token that is not this session's person's, or not for this console at this issuer, is no renewal.</summary>
+    [Theory]
+    [InlineData("someone-else", "https://issuer.test", "saem-console")]
+    [InlineData("pat", "https://elsewhere.test", "saem-console")]
+    [InlineData("pat", "https://issuer.test", "another-client")]
+    public async Task A_renewals_id_token_that_is_not_for_this_session_ends_it(string subject, string issuer, string audience)
+    {
+        var context = Context(expiresIn: TimeSpan.FromSeconds(30), groups: ["ontology-builders"]);
+
+        await Tokens(new Issuer(idToken: IdToken(groups: ["ontology-builders"], subject: subject, issuer: issuer, audience: audience))).ValidateAsync(context);
+
+        Assert.Null(context.Principal);
+    }
+
+    [Fact]
+    public async Task A_renewals_id_token_that_cannot_be_read_ends_the_session()
+    {
+        var context = Context(expiresIn: TimeSpan.FromSeconds(30), groups: ["ontology-builders"]);
+
+        await Tokens(new Issuer(idToken: "not-a-token")).ValidateAsync(context);
+
+        Assert.Null(context.Principal);
+    }
+
+    /// <summary>An ID token as a token endpoint returns it to the client directly: the claims are read, the signature is not checked (OpenID Connect Core §3.1.3.7 — TLS to the endpoint vouches).</summary>
+    private static string IdToken(string[]? groups, string subject = "pat", string issuer = TestIssuer.IssuerName, string audience = "saem-console")
+    {
+        var claims = new Dictionary<string, object> { ["iss"] = issuer, ["aud"] = audience, ["sub"] = subject };
+        if (groups is not null)
+        {
+            claims["groups"] = groups;
+        }
+
+        static string Encode(object value) => Microsoft.IdentityModel.Tokens.Base64UrlEncoder.Encode(System.Text.Json.JsonSerializer.Serialize(value));
+        return $"{Encode(new { alg = "none" })}.{Encode(claims)}.";
+    }
+
     private static SessionTokens Tokens(Issuer issuer) => new(TestIssuer.For(issuer, clientSecret: "s"), new FixedTime(Now));
 
-    private static CookieValidatePrincipalContext Context(TimeSpan expiresIn, string? refreshToken = "refresh-1")
+    private static CookieValidatePrincipalContext Context(TimeSpan expiresIn, string? refreshToken = "refresh-1", string[]? groups = null)
     {
         var http = new DefaultHttpContext { RequestServices = new ServiceCollection().AddSingleton<IAuthenticationService, NoAuthentication>().BuildServiceProvider() };
         var properties = new AuthenticationProperties();
@@ -133,11 +210,11 @@ public sealed class SessionTokensTests
         }
 
         properties.StoreTokens(stored);
-        var ticket = new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "pat")], "test")), properties, CookieAuthenticationDefaults.AuthenticationScheme);
+        var ticket = new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "pat"), .. (groups ?? []).Select(g => new Claim("groups", g))], "test")), properties, CookieAuthenticationDefaults.AuthenticationScheme);
         return new CookieValidatePrincipalContext(http, new AuthenticationScheme(CookieAuthenticationDefaults.AuthenticationScheme, null, typeof(CookieAuthenticationHandler)), new CookieAuthenticationOptions(), ticket);
     }
 
-    private sealed class Issuer(bool refuse = false, HttpStatusCode? status = null, bool disconnect = false) : HttpMessageHandler
+    private sealed class Issuer(bool refuse = false, HttpStatusCode? status = null, bool disconnect = false, string? idToken = null) : HttpMessageHandler
     {
         private int _requests;
 
@@ -167,7 +244,13 @@ public sealed class SessionTokensTests
 
             return refuse
                 ? new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("""{"error":"invalid_grant"}""") }
-                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"access_token":"access-2","refresh_token":"refresh-2","expires_in":300,"token_type":"Bearer"}""") };
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                    idToken is null
+                        ? """{"access_token":"access-2","refresh_token":"refresh-2","expires_in":300,"token_type":"Bearer"}"""
+                        : $$"""{"access_token":"access-2","refresh_token":"refresh-2","expires_in":300,"token_type":"Bearer","id_token":"{{idToken}}"}""")
+                };
         }
     }
 

@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Saem.Console;
 
@@ -57,8 +59,59 @@ internal sealed class ConsoleIssuer(IHttpClientFactory clients, IOptionsMonitor<
             ? new IssuedToken(
                 accessToken,
                 token.TryGetProperty("refresh_token", out var refresh) ? refresh.GetString() : null,
-                token.TryGetProperty("expires_in", out var seconds) && seconds.TryGetInt32(out var s) ? TimeSpan.FromSeconds(s) : null)
+                token.TryGetProperty("expires_in", out var seconds) && seconds.TryGetInt32(out var s) ? TimeSpan.FromSeconds(s) : null,
+                token.TryGetProperty("id_token", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null)
             : throw new IssuerRefusedException($"The issuer answered the console's {grant} request without an access token.");
+    }
+
+    /// <summary>
+    /// The groups the ID token a renewal returned names (OpenID Connect Core §12.2): null when it names none — the member is
+    /// absent, so the issuer said nothing of them — and an empty list when it names an empty set, which takes every group
+    /// away. The token came straight from the token endpoint over TLS, which stands for its signature (§3.1.3.7), so the claims
+    /// are read and the issuer, audience and subject are checked, not the signature.
+    /// </summary>
+    /// <exception cref="IssuerRefusedException">The token cannot be read, or is not <paramref name="subject"/>'s, or not for this console at this issuer.</exception>
+    /// <exception cref="IssuerUnavailableException">The issuer's discovery document could not be read.</exception>
+    public async Task<IReadOnlyList<string>?> GroupsOfAsync(string idToken, string subject, CancellationToken cancellationToken)
+    {
+        string issuerName;
+        try
+        {
+            issuerName = (await oidc.Get(OpenIdConnectDefaults.AuthenticationScheme).ConfigurationManager!.GetConfigurationAsync(cancellationToken).ConfigureAwait(false)).Issuer;
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException or IOException || (e is TaskCanceledException && !cancellationToken.IsCancellationRequested))
+        {
+            throw new IssuerUnavailableException("The issuer gave no answer: its discovery document could not be read in time.", e);
+        }
+
+        JsonWebToken token;
+        try
+        {
+            token = new JsonWebToken(idToken);
+        }
+        catch (Exception e) when (e is ArgumentException or SecurityTokenException or JsonException)
+        {
+            throw new IssuerRefusedException("The ID token the issuer returned with a renewal cannot be read.", e);
+        }
+
+        if (!string.Equals(token.Issuer, issuerName, StringComparison.Ordinal)
+            || !token.Audiences.Contains(identity.Value.ClientId, StringComparer.Ordinal)
+            || !string.Equals(token.Subject, subject, StringComparison.Ordinal))
+        {
+            throw new IssuerRefusedException("The ID token the issuer returned with a renewal is not for this session.");
+        }
+
+        if (!token.TryGetPayloadValue<JsonElement>("groups", out var groups) || groups.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return groups.ValueKind switch
+        {
+            JsonValueKind.Array => [.. groups.EnumerateArray().Where(g => g.ValueKind == JsonValueKind.String).Select(g => g.GetString()!)],
+            JsonValueKind.String => [groups.GetString()!],
+            _ => [],
+        };
     }
 
     /// <summary>
@@ -116,7 +169,8 @@ internal enum RevocationOutcome
 /// <param name="AccessToken">The access token.</param>
 /// <param name="RefreshToken">A refresh token, when the issuer gave one.</param>
 /// <param name="Lifetime">How long the access token lasts, when the issuer said.</param>
-internal sealed record IssuedToken(string AccessToken, string? RefreshToken, TimeSpan? Lifetime);
+/// <param name="IdToken">The ID token, when the issuer returned one (a renewal may).</param>
+internal sealed record IssuedToken(string AccessToken, string? RefreshToken, TimeSpan? Lifetime, string? IdToken = null);
 
 /// <summary>The issuer refused a token request, or answered it without a token.</summary>
 public sealed class IssuerRefusedException : Exception
