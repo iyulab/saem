@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Catalog, Job } from "./api";
-import { awaiting, fitIdentities, statusOf, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
+import { awaiting, fitIdentities, judgments, statusOf, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
 
 const job = (more: Partial<Job>): Job => ({
   id: "0123456789abcdef0123456789abcdef",
@@ -91,5 +91,42 @@ describe("what a group's store holds", () => {
     expect(statusOf(job({ kind: "status", report: { status } }))).toBe(status);
     expect(statusOf(job({ kind: "status", state: "failed", report: { status } }))).toBeNull();
     expect(statusOf(job({ kind: "check", report: { status } }))).toBeNull();
+  });
+});
+
+describe("what became of the judgments a person filed", () => {
+  const filed = new Map([
+    ["pair-a", "ja"],
+    ["pair-b", "jb"],
+    ["pair-c", "jc"],
+    ["pair-d", "jd"],
+  ]);
+
+  it("counts a pair as judged only when its job succeeded", () => {
+    const jobs = [
+      job({ id: "ja", kind: "judge", state: "succeeded" }),
+      job({ id: "jb", kind: "judge", state: "failed", exitCode: 2 }),
+      job({ id: "jc", kind: "judge", state: "running", exitCode: null, finishedAt: null }),
+    ];
+
+    const result = judgments(jobs, filed);
+
+    expect([...result.done]).toEqual(["pair-a"]);
+    expect(result.failed.get("pair-b")?.exitCode).toBe(2);
+    expect([...result.pending]).toEqual(["pair-c"]);
+  });
+
+  it("says a judgment whose job the executor no longer remembers is unknown, not done", () => {
+    const result = judgments([job({ id: "ja", kind: "judge" })], filed);
+
+    expect([...result.unknown].sort()).toEqual(["pair-b", "pair-c", "pair-d"]);
+    expect(result.done.has("pair-d")).toBe(false);
+  });
+
+  it("counts a cancelled judgment as not done", () => {
+    const result = judgments([job({ id: "ja", kind: "judge", state: "cancelled" })], new Map([["pair-a", "ja"]]));
+
+    expect(result.done.size).toBe(0);
+    expect(result.failed.get("pair-a")?.state).toBe("cancelled");
   });
 });

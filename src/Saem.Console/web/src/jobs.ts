@@ -62,6 +62,31 @@ export const pairKey = (c: Pick<PairCandidate, "identity" | "first" | "second">)
 /** What a person is yet to judge: the listed pairs less the ones judged since the list was made. */
 export const awaiting = (pairs: readonly PairCandidate[], judged: ReadonlySet<string>): PairCandidate[] => pairs.filter((c) => !judged.has(pairKey(c)));
 
+/**
+ * What became of the judgments a person filed this session — each pair's key mapped to the job that carries it. A pair is judged
+ * only when its job succeeded: a judgment is a job the executor takes up after it was accepted, and one that fails files nothing.
+ * `unknown` is a job the executor no longer remembers (it keeps the latest few), whose outcome this screen cannot say.
+ */
+export function judgments(jobs: readonly Job[], filed: ReadonlyMap<string, string>) {
+  const done = new Set<string>();
+  const pending = new Set<string>();
+  const unknown = new Set<string>();
+  const failed = new Map<string, Job>();
+  for (const [pair, id] of filed) {
+    const job = jobs.find((j) => j.id === id);
+    if (job === undefined) {
+      unknown.add(pair);
+    } else if (job.state === "succeeded") {
+      done.add(pair);
+    } else if (job.state === "running") {
+      pending.add(pair);
+    } else {
+      failed.set(pair, job);
+    }
+  }
+  return { done, pending, failed, unknown };
+}
+
 /** What a fit does, and what it writes. */
 export const fitSays = "Fit the identity's linkage rule to the group's records and keep the fit in its store, for its passes to score with.";
 

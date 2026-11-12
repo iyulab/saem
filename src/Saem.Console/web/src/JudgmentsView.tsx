@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { api, type Answer, type Catalog, type EntityKey, type Job, type PairCandidate } from "./api";
 import { compare, sideOf, type CompareRow } from "./compare";
-import { awaiting, latestCandidates, pairKey, runningJob } from "./jobs";
+import { awaiting, judgments, latestCandidates, pairKey, runningJob } from "./jobs";
 import { fieldsOf } from "./localGraph";
 
 const POLL_MS = 2000;
@@ -63,7 +63,10 @@ export function JudgmentsView({ onOpenLocal }: { onOpenLocal: (entity: EntityKey
 
 function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entity: EntityKey) => void }) {
   const [jobs, setJobs] = useState<Answer<Job[]> | null>(null);
-  const [judged, setJudged] = useState<ReadonlySet<string>>(new Set());
+  // Each judgment a person filed this session: the pair, and the job that carries it. A pair is judged when that job succeeded, not when it was accepted.
+  const [filed, setFiled] = useState<ReadonlyMap<string, string>>(new Map());
+  // The latest pairs the executor listed, kept: it remembers only its latest jobs, and a list is not lost because newer jobs pushed it out.
+  const [kept, setKept] = useState<{ job: Job; pairs: PairCandidate[] } | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const [compared, setCompared] = useState<ReadonlyMap<string, Comparison>>(new Map());
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -75,6 +78,12 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
 
   const list = jobs?.ok ? jobs.value : [];
   const running = runningJob(list);
+  const latest = latestCandidates(list);
+  useEffect(() => {
+    if (latest) {
+      setKept(latest);
+    }
+  }, [latest?.job.id]);
   useEffect(() => {
     if (!running) {
       return;
@@ -90,12 +99,13 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
     return <p role="alert">{"problem" in jobs ? jobs.problem : "The executor could not be asked."}</p>;
   }
 
-  const listed = latestCandidates(list);
-  const left = listed ? awaiting(listed.pairs, judged) : [];
+  const listed = latest ?? kept;
+  const outcome = judgments(list, filed);
+  const left = listed ? awaiting(listed.pairs, outcome.done) : [];
 
   const refresh = () => {
     setRefused(null);
-    setJudged(new Set());
+    setFiled(new Map());
     api.startJob(group, "candidates").then((answer) => {
       if (!answer.ok) {
         setRefused("problem" in answer ? answer.problem : "The console refused.");
@@ -156,7 +166,8 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
     setRefused(null);
     api.startJob(group, "judge", { identity: c.identity, first: c.first, second: c.second, same }).then((answer) => {
       if (answer.ok) {
-        setJudged((before) => new Set(before).add(pairKey(c)));
+        // Accepted is not filed: the pair stays listed, as filing, until its job has succeeded.
+        setFiled((before) => new Map(before).set(pairKey(c), answer.value.id));
       } else {
         setRefused("problem" in answer ? answer.problem : "The console refused.");
       }
@@ -182,7 +193,7 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
         <>
           <p className="muted">
             Read {new Date(listed.job.finishedAt ?? listed.job.startedAt).toLocaleString()} from the group's store as of its last pass
-            {judged.size > 0 ? ` · ${judged.size} judged since — they join the group's things on its next pass` : ""}.
+            {outcome.done.size > 0 ? ` · ${outcome.done.size} judged since — they join the group's things on its next pass` : ""}.
           </p>
           {left.length === 0 && <p>No pair waits for a person's judgment.</p>}
           {left.length > 0 && (
@@ -215,6 +226,15 @@ function Candidates({ group, onOpenLocal }: { group: string; onOpenLocal: (entit
                         <button className="link" title="Read both as yourself and lay their fields side by side" onClick={() => side(c)}>
                           {compared.has(pairKey(c)) ? "Hide" : "Compare"}
                         </button>
+                        {outcome.pending.has(pairKey(c)) && <span className="muted"> Filing the judgment…</span>}
+                        {outcome.failed.has(pairKey(c)) && (
+                          <span className="refusal" role="alert">
+                            {" "}
+                            The judgment was not filed ({outcome.failed.get(pairKey(c))!.state}
+                            {outcome.failed.get(pairKey(c))!.exitCode === null ? "" : `, exit ${outcome.failed.get(pairKey(c))!.exitCode}`}) — the pair still waits.
+                          </span>
+                        )}
+                        {outcome.unknown.has(pairKey(c)) && <span className="muted"> The executor no longer remembers this judgment — read the pairs again.</span>}
                       </td>
                     </tr>
                     {compared.has(pairKey(c)) && (

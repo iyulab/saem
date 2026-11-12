@@ -150,9 +150,27 @@ export type Answer<T> =
   | { ok: false; status: number; problem: string; code?: string };
 
 async function ask<T>(path: string, init?: RequestInit): Promise<Answer<T>> {
-  const response = await fetch(path, { credentials: "same-origin", ...init });
+  let response: Response;
+  try {
+    response = await fetch(path, { credentials: "same-origin", ...init });
+  } catch {
+    // No answer at all (the connection dropped, the console is down): said as a problem, so no screen waits on a promise that never settles.
+    return { ok: false, status: 0, problem: "The console could not be reached — check the connection and try again." };
+  }
   if (response.ok) {
-    return { ok: true, value: (response.status === 204 ? undefined : await response.json()) as T };
+    // An answer with no body (204, or an accepted 202) is an answer with no value; one that cannot be read is said so.
+    const text = response.status === 204 ? "" : await response.text().catch(() => null);
+    if (text === null) {
+      return { ok: false, status: response.status, problem: "The console's answer could not be read." };
+    }
+    if (text === "") {
+      return { ok: true, value: undefined as T };
+    }
+    try {
+      return { ok: true, value: JSON.parse(text) as T };
+    } catch {
+      return { ok: false, status: response.status, problem: "The console's answer could not be read." };
+    }
   }
   if (response.status === 401 || response.status === 403) {
     return { ok: false, status: response.status };
