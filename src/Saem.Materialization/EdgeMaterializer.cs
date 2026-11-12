@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Saem.Contracts;
 using Saem.Ontology;
@@ -61,6 +63,37 @@ public sealed class EdgeMaterializer(Ontology.Ontology ontology, EntityIris iris
     }
 
     private static readonly IReadOnlyDictionary<string, string> Whole = new Dictionary<string, string>();
+
+    /// <summary>
+    /// What each relation's edges are made of, as one digest per relation: the names, the tables, the columns and the key kinds a
+    /// row is read and an edge named by, and the base the IRIs are minted under. A pass files it with the edges it wrote; a later pass
+    /// narrowed to changed rows leaves a relation whose digest has changed to be read whole, since the rows it would skip were read
+    /// under another declaration and would keep their old edges.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Declarations()
+    {
+        var declared = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var relation in ontology.Relations.Values)
+        {
+            var from = ontology.EntityTypes[relation.From];
+            var to = ontology.EntityTypes[relation.To];
+            var parts = new List<string>
+            {
+                iris.For(from.Name, "key"),
+                relation.Name, from.Name, from.System, from.Table, from.Key, from.KeyKind?.ToString() ?? "", from.Fields[relation.Via], string.Join('\u001f', from.Record ?? []), from.ChangedAt ?? "",
+                to.Name, to.KeyKind?.ToString() ?? "",
+            };
+            var input = new StringBuilder();
+            foreach (var part in parts)
+            {
+                input.Append(part.Length).Append(':').Append(part);
+            }
+
+            declared[relation.Name] = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(input.ToString())));
+        }
+
+        return declared;
+    }
 
     /// <summary>
     /// The latest change of each relation's leaving table that can tell its changed rows — the type declares

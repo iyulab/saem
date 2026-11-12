@@ -28,10 +28,23 @@ internal static class MaterializeRun
         // Where this pass reads to is asked before it reads: a row changed while it reads is read again by the next.
         var materializer = new EdgeMaterializer(ontology, iris);
         var latest = await materializer.LatestChangesAsync(new PersonSessions(openers), cancellationToken).ConfigureAwait(false);
-        var since = changedOnly
-            ? (await store.WatermarksAsync(cancellationToken).ConfigureAwait(false)).Where(m => latest.ContainsKey(m.Key)).ToDictionary(m => m.Key, m => m.Value, StringComparer.Ordinal)
-            : [];
-        var write = await store.MergeAsync(materializer.RowsAsync(new PersonSessions(openers), since, cancellationToken), since.Keys.ToHashSet(StringComparer.Ordinal), latest, cancellationToken).ConfigureAwait(false);
+        // A relation is read on from its watermark only when its edges were made under the declaration it has now: the rows a narrowed
+        // pass skips keep the edges they were given, which are another declaration's when it has changed.
+        var declarations = materializer.Declarations();
+        var since = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (changedOnly)
+        {
+            var heldDeclarations = await store.DeclarationsAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var (relation, at) in await store.WatermarksAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (latest.ContainsKey(relation) && heldDeclarations.TryGetValue(relation, out var held) && held == declarations.GetValueOrDefault(relation))
+                {
+                    since[relation] = at;
+                }
+            }
+        }
+
+        var write = await store.MergeAsync(materializer.RowsAsync(new PersonSessions(openers), since, cancellationToken), since.Keys.ToHashSet(StringComparer.Ordinal), latest, declarations, cancellationToken).ConfigureAwait(false);
         var part = changedOnly ? $" ({write.ReadInPart} relation(s) read where changed, {write.RowsRead} row(s) read)" : "";
         await output.WriteLineAsync($"group {group}: {write.Written} edge(s) written, {write.Unchanged} unchanged, {write.Retired} retired{part}; as of {write.ReadFrom:O}.").ConfigureAwait(false);
 

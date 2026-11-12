@@ -76,6 +76,43 @@ public sealed class ChangedRowsPassTests
         Assert.Equal(["https://example.org/ontology/WorkOrder/WO-2"], (await store.ReadAsync(TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken)).Select(e => e.From));
     }
 
+    /// <summary>
+    /// A narrowed pass reads on from where the last one left a relation — but the rows it skips were read under the declaration of
+    /// then. A relation declared otherwise since (another field, another target, another key kind) gives other edges from rows that did
+    /// not change, so it is read whole once; the pass after that, under the same declaration, is narrowed again.
+    /// </summary>
+    [Fact]
+    public async Task A_relation_declared_otherwise_since_the_last_pass_is_read_whole_and_then_narrowed_again()
+    {
+        static SourceRow Both(string key, string? item, string? alt, string at) => EdgeMaterializerTests.Row(key, ("item_code", item), ("alt_code", alt), ("updated_at", at));
+        Ontology.Ontology Declared(string via) => Ontology.Ontology.Create(
+        [
+            new EntityTypeDeclaration("WorkOrder", "mes", "work_orders", "wo_no", new Dictionary<string, string> { ["item"] = "item_code", ["alt"] = "alt_code" }) { ChangedAt = "updated_at" },
+            new EntityTypeDeclaration("Item", "erp", "items", "item_code", new Dictionary<string, string> { ["name"] = "item_name" }),
+            new RelationDeclaration("orders_item", "WorkOrder", via, "Item"),
+        ]);
+        var table = new ChangingTable([Both("WO-1", "I-1", "A-1", "t1"), Both("WO-2", "I-2", "A-2", "t2"), Both("WO-3", "I-3", "A-3", "t3")]);
+        var store = new FormbaseEdgeStore(new FakeFormbase().Client);
+        await PassAsync(Declared("item"), table, store, changedOnly: false);
+
+        // The relation now leads through the other field. No row changed.
+        table.Scans.Clear();
+        var write = await PassAsync(Declared("alt"), table, store, changedOnly: true);
+
+        Assert.Equal(["mes work_orders whole"], table.Scans);
+        Assert.Equal(0, write.ReadInPart);
+        var edges = await store.ReadAsync(TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(
+            ["https://example.org/ontology/Item/A-1", "https://example.org/ontology/Item/A-2", "https://example.org/ontology/Item/A-3"],
+            edges.Select(e => e.To).Order(StringComparer.Ordinal));
+
+        // Under the same declaration again, the next narrowed pass reads in part.
+        table.Scans.Clear();
+        var next = await PassAsync(Declared("alt"), table, store, changedOnly: true);
+        Assert.Equal(["mes work_orders updated_at>=t3"], table.Scans);
+        Assert.Equal(1, next.ReadInPart);
+    }
+
     /// <summary>A type that declares no change column, or a first pass with no latest change filed, is read whole.</summary>
     [Fact]
     public async Task Without_a_change_column_or_a_filed_latest_change_a_pass_reads_the_whole_table()

@@ -56,7 +56,15 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     /// <summary>The table the latest changes project into.</summary>
     public const string WatermarkTableName = "saem_edge_watermarks";
 
+    /// <summary>The form type each relation's declaration digest is filed under (<see cref="EdgeMaterializer.Declarations"/>), one record per relation.</summary>
+    public const string DeclarationFormType = "edge_declarations";
+
+    /// <summary>The table the declaration digests project into.</summary>
+    public const string DeclarationTableName = "saem_edge_declarations";
+
     private const string LatestPass = "latest";
+
+    private static readonly string[] DeclarationFields = ["relation", "declaration"];
 
     private static readonly string[] WatermarkFields = ["relation", "latest_change"];
 
@@ -76,7 +84,7 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     public Task<EdgeWrite> ReplaceAsync(IAsyncEnumerable<MaterializedEdge> edges, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(edges);
-        return MergeAsync(RowsOf(edges, cancellationToken), NoneInPart, NoWatermarks, cancellationToken);
+        return MergeAsync(RowsOf(edges, cancellationToken), NoneInPart, NoWatermarks, NoWatermarks, cancellationToken);
     }
 
     private static async IAsyncEnumerable<EdgeRow> RowsOf(IAsyncEnumerable<MaterializedEdge> edges, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
@@ -98,11 +106,13 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
         IAsyncEnumerable<EdgeRow> rows,
         IReadOnlySet<string> readInPart,
         IReadOnlyDictionary<string, string> latestChanges,
+        IReadOnlyDictionary<string, string> declarations,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(readInPart);
         ArgumentNullException.ThrowIfNull(latestChanges);
+        ArgumentNullException.ThrowIfNull(declarations);
 
         await _forms.DeclareAsync(FormType, TableName, Fields, cancellationToken).ConfigureAwait(false);
         var held = await _forms.HeldAsync(FormType, "", Fields, cancellationToken).ConfigureAwait(false);
@@ -168,6 +178,25 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
 
         await _forms.ProjectAsync(WatermarkFormType, "Projecting the latest changes", cancellationToken).ConfigureAwait(false);
 
+        // What the edges were made under, filed beside where each relation was read to: a pass that wrote edges from elsewhere (a
+        // replacement, with no declarations) leaves none, so the next narrowed pass reads every relation whole.
+        await _forms.DeclareAsync(DeclarationFormType, DeclarationTableName, DeclarationFields, cancellationToken).ConfigureAwait(false);
+        var heldDeclarations = await _forms.HeldAsync(DeclarationFormType, "", DeclarationFields, cancellationToken).ConfigureAwait(false);
+        foreach (var (relation, digest) in declarations.OrderBy(d => d.Key, StringComparer.Ordinal))
+        {
+            if (!(heldDeclarations.TryGetValue(relation, out var heldDigest) && heldDigest[1] == digest))
+            {
+                await _forms.FileAsync(DeclarationFormType, relation, DeclarationFields, [relation, digest], "Filing a declaration", cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        foreach (var relation in heldDeclarations.Keys.Where(r => !declarations.ContainsKey(r)).Order(StringComparer.Ordinal))
+        {
+            await _forms.RetireAsync(DeclarationFormType, relation, "Retiring a declaration", cancellationToken).ConfigureAwait(false);
+        }
+
+        await _forms.ProjectAsync(DeclarationFormType, "Projecting the declarations", cancellationToken).ConfigureAwait(false);
+
         // Filed only once the edges are in: a pass that failed leaves the time of the last one that did not.
         await _forms.DeclareAsync(PassFormType, PassTableName, PassFields, cancellationToken).ConfigureAwait(false);
         await _forms.FileAsync(PassFormType, LatestPass, PassFields, [readFrom.ToString("O", CultureInfo.InvariantCulture)], "Filing the pass", cancellationToken).ConfigureAwait(false);
@@ -183,6 +212,16 @@ public sealed class FormbaseEdgeStore(HttpClient http, string? formbaseNamespace
     public async Task<IReadOnlyDictionary<string, string>> WatermarksAsync(CancellationToken cancellationToken = default)
     {
         var held = await _forms.HeldAsync(WatermarkFormType, "", WatermarkFields, cancellationToken).ConfigureAwait(false);
+        return held.ToDictionary(m => m.Key, m => m.Value[1], StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// The declaration digest each relation's edges were last made under (<see cref="EdgeMaterializer.Declarations"/>), by relation —
+    /// none before a pass filed any, which is how a store made before digests were kept reads: every relation is read whole once.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, string>> DeclarationsAsync(CancellationToken cancellationToken = default)
+    {
+        var held = await _forms.HeldAsync(DeclarationFormType, "", DeclarationFields, cancellationToken).ConfigureAwait(false);
         return held.ToDictionary(m => m.Key, m => m.Value[1], StringComparer.Ordinal);
     }
 

@@ -52,6 +52,7 @@ public sealed class CatalogConfirmLiveTests : IAsyncLifetime
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Logging.ClearProviders();
+        builder.Logging.AddProvider(new DiscardingLogs());
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Saem:Ontology"] = _catalog,
