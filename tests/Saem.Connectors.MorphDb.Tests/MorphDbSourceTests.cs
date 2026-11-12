@@ -199,4 +199,36 @@ public class MorphDbSourceTests
             async () => await source.As(_ => ValueTask.FromResult(""))(TestContext.Current.CancellationToken));
         Assert.Empty(recorder.Requests);
     }
+
+    /// <summary>
+    /// A scan that ends only because the page did not say whether another follows has not shown it read the whole table:
+    /// a pass that retires every edge it did not see would take a short read for an emptied table.
+    /// </summary>
+    [Fact]
+    public async Task A_scan_whose_page_does_not_say_whether_another_follows_is_a_failure_not_the_end_of_the_table()
+    {
+        var (source, _) = Source(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""{ "data": [ { "id": "7b6a5a43-7c3e-4a52-8f1d-3a0d6d7a2b11", "data": { "wo_no": "WO-1", "item_code": "I-1" } } ], "pagination": { "page": 1, "pageSize": 1000 } }""", Encoding.UTF8, "application/json"),
+        });
+        await using var session = await source.As(_ => ValueTask.FromResult("t"))(TestContext.Current.CancellationToken);
+
+        var failure = await Assert.ThrowsAsync<MorphDbSourceException>(async () =>
+            await session.ScanAsync("work_orders", "wo_no", ["item_code"], TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("hasNext", failure.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>The page that says no page follows is the end — an empty table is a complete read of nothing.</summary>
+    [Fact]
+    public async Task A_scan_whose_page_says_none_follows_ends_there_even_when_it_is_empty()
+    {
+        var (source, recorder) = Source(_ => Page(false));
+        await using var session = await source.As(_ => ValueTask.FromResult("t"))(TestContext.Current.CancellationToken);
+
+        var rows = await session.ScanAsync("work_orders", "wo_no", ["item_code"], TestContext.Current.CancellationToken).ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.Empty(rows);
+        Assert.Single(recorder.Requests);
+    }
 }

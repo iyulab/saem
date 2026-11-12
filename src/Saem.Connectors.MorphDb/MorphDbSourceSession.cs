@@ -170,7 +170,15 @@ internal sealed class MorphDbSourceSession : ISourceSession, IChangedRows
                 yield return new SourceRow(AsText(data.GetProperty(keyColumn)), values);
             }
 
-            if (!body.RootElement.GetProperty("pagination").TryGetProperty("hasNext", out var hasNext) || !hasNext.GetBoolean())
+            // The end of a table is something the page says. A page that does not say it (a proxy's page, a service of another version)
+            // has not shown the table was read whole — a pass that retires every edge it did not see would take it for an emptied one.
+            if (!body.RootElement.GetProperty("pagination").TryGetProperty("hasNext", out var hasNext) || hasNext.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                throw new MorphDbSourceException(
+                    $"The source's page of '{table}' does not say whether another follows ('hasNext'), so it cannot be told whether the table was read whole.", response.StatusCode);
+            }
+
+            if (!hasNext.GetBoolean())
             {
                 yield break;
             }

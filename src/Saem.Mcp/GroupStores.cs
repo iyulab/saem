@@ -128,8 +128,7 @@ internal sealed partial class GroupRelations(IReadOnlyList<GroupStore> stores, E
             LogSkipped(logger, partition, read.SkippedDocuments);
         }
 
-        // An edge naming its entity under another base or type was not built by this deployment's pass.
-        return new PartitionEdges([.. read.Edges.Select(e => iris.KeyOf(relation.From, e.From)).OfType<string>()], read.Incomplete);
+        return Kept(partition, read.Edges.Select(e => iris.KeyOf(relation.From, e.From)), read.Incomplete);
     }
 
     public async ValueTask<PartitionEdges> SameAsAsync(
@@ -158,8 +157,34 @@ internal sealed partial class GroupRelations(IReadOnlyList<GroupStore> stores, E
 
         // The other type's members only — the same type's too, for duplicates within one.
         var other = string.Equals(type, identity.First, StringComparison.Ordinal) ? identity.Second : identity.First;
-        return new PartitionEdges([.. read.Members.Select(m => iris.KeyOf(other, m)).OfType<string>()], read.Incomplete);
+        return Kept(partition, read.Members.Select(m => iris.KeyOf(other, m)), read.Incomplete);
     }
+
+    private PartitionEdges Kept(string partition, IEnumerable<string?> keys, bool incomplete)
+    {
+        var (edges, foreign) = Keep(keys, incomplete);
+        if (foreign > 0)
+        {
+            LogForeign(logger, partition, foreign);
+        }
+
+        return edges;
+    }
+
+    /// <summary>
+    /// The entities that stand under this deployment's names. An edge naming its entity under another base or type was not built by this
+    /// deployment's pass — the store is paired with a deployment it was not built for — and is not followed, but dropped in silence it
+    /// would read as «no edge leads here»: its partition is said incomplete instead, which is what a lookup can truthfully claim of it.
+    /// </summary>
+    internal static (PartitionEdges Edges, int Foreign) Keep(IEnumerable<string?> keys, bool incomplete)
+    {
+        var all = keys.ToList();
+        var foreign = all.Count(k => k is null);
+        return (new PartitionEdges([.. all.OfType<string>()], incomplete || foreign > 0), foreign);
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The materialized relations of the group '{Group}' hold {Count} edge(s) naming an entity under another base IRI or type than this deployment's, so they were not followed and a lookup walking them back may miss an answer. The store may belong to another deployment.")]
+    private static partial void LogForeign(ILogger logger, string group, int count);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The materialized relations of the group '{Group}' are read in part: their projection skipped {Count} document(s), so a lookup walking them back may miss an answer. Rerun the group's materialization.")]
     private static partial void LogSkipped(ILogger logger, string group, int count);

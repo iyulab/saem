@@ -62,6 +62,29 @@ public class GroupStoresTests
         }));
     }
 
+    /// <summary>
+    /// An edge that names its entity under another base or type was not built by this deployment's pass — the store and the
+    /// deployment's names do not belong together. Dropped without a word it reads as «no edge leads here»; it is said as a
+    /// partition read in part, which is what it is.
+    /// </summary>
+    [Fact]
+    public void Edges_under_another_base_are_not_followed_and_the_partition_is_said_incomplete()
+    {
+        var (edges, foreign) = GroupRelations.Keep(["I-1", null, "I-2", null], incomplete: false);
+
+        Assert.Equal(["I-1", "I-2"], edges.Keys);
+        Assert.True(edges.Incomplete);
+        Assert.Equal(2, foreign);
+    }
+
+    [Fact]
+    public void Edges_all_under_this_deployments_base_leave_a_complete_partition_complete_and_an_incomplete_one_incomplete()
+    {
+        Assert.False(GroupRelations.Keep(["I-1"], incomplete: false).Edges.Incomplete);
+        Assert.True(GroupRelations.Keep(["I-1"], incomplete: true).Edges.Incomplete);
+        Assert.Equal(0, GroupRelations.Keep([], incomplete: false).Foreign);
+    }
+
     private sealed class Recording : HttpMessageHandler
     {
         public List<string?> Authorizations { get; } = [];
