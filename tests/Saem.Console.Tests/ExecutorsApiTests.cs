@@ -40,13 +40,12 @@ public sealed class ExecutorsApiTests
     }
 
     [Fact]
-    public async Task A_job_is_asked_in_the_name_of_the_caller_whatever_the_request_says()
+    public async Task A_job_is_asked_in_the_name_of_the_caller()
     {
         var (server, builder, executors) = await StartAsync();
         await using var scope = server;
 
-        using var response = await builder.PostAsJsonAsync(
-            "api/executors/plant/jobs", new { kind = "pass", requestedBy = "mallory", arguments = new { identity = "ignored" } }, TestContext.Current.CancellationToken);
+        using var response = await builder.PostAsJsonAsync("api/executors/plant/jobs", new { kind = "pass" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var sent = Assert.Single(executors.Requests);
@@ -57,12 +56,12 @@ public sealed class ExecutorsApiTests
     }
 
     [Fact]
-    public async Task A_fit_and_a_judgment_carry_what_they_take_and_nothing_else()
+    public async Task A_fit_and_a_judgment_carry_what_they_take()
     {
         var (server, builder, executors) = await StartAsync();
         await using var scope = server;
 
-        await builder.PostAsJsonAsync("api/executors/plant/jobs", new { kind = "fit", arguments = new { identity = "same_order", first = "dropped" } }, TestContext.Current.CancellationToken);
+        await builder.PostAsJsonAsync("api/executors/plant/jobs", new { kind = "fit", arguments = new { identity = "same_order" } }, TestContext.Current.CancellationToken);
         await builder.PostAsJsonAsync(
             "api/executors/plant/jobs", new { kind = "judge", arguments = new { identity = "same_order", first = "wo/1", second = "wo/2", same = false } }, TestContext.Current.CancellationToken);
 
@@ -78,6 +77,12 @@ public sealed class ExecutorsApiTests
     [InlineData("""{"kind":"judge","arguments":{"identity":"i","first":"a","second":"b"}}""")]
     [InlineData("""{"kind":"judge","arguments":{"identity":"i","first":"a","same":true}}""")]
     [InlineData("""{"kind":"judge","arguments":{"identity":"i","first":"a","second":"b","same":"yes"}}""")]
+    // A member nobody reads is a typo or an attempt to be someone else, and either way not a thing to take for «nothing said».
+    [InlineData("""{"kind":"pass","requestedBy":"mallory"}""")]
+    [InlineData("""{"kind":"pass","argumnets":{}}""")]
+    [InlineData("""{"kind":"pass","arguments":{"identity":"i"}}""")]
+    [InlineData("""{"kind":"fit","arguments":{"identity":"i","first":"a"}}""")]
+    [InlineData("""{"kind":"judge","arguments":{"identity":"i","first":"a","second":"b","same":true,"secnod":"c"}}""")]
     public async Task A_request_the_executor_could_not_do_is_refused_before_it_is_asked(string body)
     {
         var (server, builder, executors) = await StartAsync();
@@ -147,7 +152,7 @@ public sealed class ExecutorsApiTests
         var (server, builder, requests) = await StartAsync(executors);
         await using var scope = server;
 
-        await builder.PostAsJsonAsync("api/executors/plant/jobs", new { kind, arguments = new { identity = "ignored" } }, TestContext.Current.CancellationToken);
+        await builder.PostAsJsonAsync("api/executors/plant/jobs", new { kind }, TestContext.Current.CancellationToken);
         var job = await builder.GetFromJsonAsync<JsonElement>("api/executors/plant/jobs/0123456789abcdef0123456789abcdef", TestContext.Current.CancellationToken);
 
         Assert.Equal("{\"kind\":\"" + kind + "\",\"requestedBy\":\"alice\",\"arguments\":{}}", requests.Requests[0].Body!.ToJsonString());
@@ -260,5 +265,21 @@ public sealed class ExecutorsApiTests
     private sealed class StubClients(HttpMessageHandler handler) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    }
+
+    [Theory]
+    [InlineData("""{"kind":"pass","requestedBy":"mallory"}""", "requestedBy")]
+    [InlineData("""{"kind":"judge","arguments":{"identity":"i","first":"a","second":"b","same":true,"secnod":"c"}}""", "secnod")]
+    public async Task A_refusal_for_a_member_nobody_reads_names_it(string body, string member)
+    {
+        var (server, builder, executors) = await StartAsync();
+        await using var scope = server;
+
+        using var response = await builder.PostAsync(
+            "api/executors/plant/jobs", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains(member, (await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken)).GetProperty("detail").GetString(), StringComparison.Ordinal);
+        Assert.Empty(executors.Requests);
     }
 }

@@ -676,7 +676,7 @@ which version to which, how many changes break). It is refused with `409` and a 
 longer the base (`stale-base`) — builders write one at a time, and the second to confirm reads the draft against
 the new catalog and tries again — when the draft changed since it was read (`stale-draft`), when it has nothing to
 add (`nothing-to-confirm`), or when it breaks something and the builder has not acknowledged it (`breaking`); a draft
-the ontology refuses is `422`. The console needs write access to the catalog file and the confirmations file; the lock
+the ontology refuses is `422`. A request body with a member the console does not read — `acknowledgeBreakng`, say — is `400` and names it, here and in the review and job requests below: a member nobody reads is not taken for "nothing said". The console needs write access to the catalog file and the confirmations file; the lock
 covers the console's own confirmations, not an edit made to the file by other means in the same instant.
 
 With the pass's proposals set, a builder can review them one by one first. `GET /api/authoring/review` reads each

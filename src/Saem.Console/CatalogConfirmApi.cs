@@ -33,6 +33,11 @@ internal static class CatalogConfirmApi
                 return TypedResults.Problem(title: "The token names no one.", detail: "A confirmation is made in the name of the person confirming, and the token has no subject.", statusCode: StatusCodes.Status403Forbidden);
             }
 
+            if (ConsoleBody.Unknown(request, ConfirmMembers) is { } unread)
+            {
+                return TypedResults.Problem(title: "The confirmation is refused.", detail: ConsoleBody.Refusal(unread, ConfirmMembers), statusCode: StatusCodes.Status400BadRequest);
+            }
+
             if (Read(request) is not { } ask)
             {
                 return TypedResults.Problem(
@@ -248,6 +253,9 @@ internal static class CatalogConfirmApi
         detail: detail,
         statusCode: StatusCodes.Status409Conflict,
         extensions: new Dictionary<string, object?> { ["code"] = code });
+
+    /// <summary>The members a confirmation is read by.</summary>
+    private static readonly string[] ConfirmMembers = ["base", "draft", "acknowledgeBreaking"];
 
     private static ConfirmAsk? Read(JsonElement request) =>
         request.ValueKind == JsonValueKind.Object

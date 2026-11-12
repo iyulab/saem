@@ -23,6 +23,11 @@ internal static class AuthoringReviewApi
 
         review.MapPost("/review", async (IOptions<ConsoleCatalogOptions> options, JsonElement request, CancellationToken ct) =>
         {
+            if (ConsoleBody.Unknown(request, ReviewMembers) is { } unread)
+            {
+                return TypedResults.Problem(title: "The review is refused.", detail: ConsoleBody.Refusal(unread, ReviewMembers), statusCode: StatusCodes.Status400BadRequest);
+            }
+
             if (Read(request) is not { } ask)
             {
                 return TypedResults.Problem(
@@ -220,6 +225,9 @@ internal static class AuthoringReviewApi
         var seen = await CatalogConfirmApi.Compare(options, ct);
         return seen.Problem is not null ? new Loaded { Problem = seen.Problem } : new Loaded { Proposals = proposals, Seen = seen };
     }
+
+    /// <summary>The members a review is read by.</summary>
+    private static readonly string[] ReviewMembers = ["draft", "take", "leave", "edit"];
 
     private static ReviewAsk? Read(JsonElement request)
     {

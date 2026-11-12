@@ -169,6 +169,27 @@ public sealed class CatalogConfirmApiTests : IAsyncLifetime
         Assert.Equal(InForce, await File.ReadAllTextAsync(_server.OntologyFile, TestContext.Current.CancellationToken));
     }
 
+    /// <summary>
+    /// A member the confirmation does not read is refused and named: <c>acknowledgeBreakng: true</c> is not «no acknowledgement»,
+    /// it is a builder who believes they said something.
+    /// </summary>
+    [Theory]
+    [InlineData("acknowledgeBreakng", "true")]
+    [InlineData("requestedBy", "\"mallory\"")]
+    public async Task A_confirmation_with_a_member_nobody_reads_is_refused_and_names_it(string member, string value)
+    {
+        await File.WriteAllTextAsync(_draft, Breaking, TestContext.Current.CancellationToken);
+        using var builder = _server.Client(ConsoleServer.Token("alice", ["ontology-builders"]));
+        var view = await builder.GetFromJsonAsync<JsonElement>("api/catalog/draft", TestContext.Current.CancellationToken);
+        var body = $$"""{ "base": "{{view.GetProperty("inForce").GetString()}}", "draft": "{{view.GetProperty("draft").GetString()}}", "acknowledgeBreaking": true, "{{member}}": {{value}} }""";
+
+        using var response = await builder.PostAsync("api/catalog/confirm", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains(member, (await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken)).GetProperty("detail").GetString(), StringComparison.Ordinal);
+        Assert.Equal(InForce, await File.ReadAllTextAsync(_server.OntologyFile, TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task A_draft_that_declares_what_is_in_force_has_nothing_to_confirm()
     {

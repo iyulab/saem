@@ -237,6 +237,9 @@ public sealed class AuthoringReviewApiTests : IAsyncLifetime
     [InlineData("""{ "draft": "v" }""", HttpStatusCode.BadRequest, null)]
     [InlineData("""{ "take": ["entityType:Shift"] }""", HttpStatusCode.BadRequest, null)]
     [InlineData("""{ "draft": "v", "take": "entityType:Shift" }""", HttpStatusCode.BadRequest, null)]
+    // «leve» is not «leave»: a member nobody reads is refused, not dropped while the rest of the review is made.
+    [InlineData("""{ "draft": "v", "take": ["entityType:Shift"], "leve": ["entityType:Shift"] }""", HttpStatusCode.BadRequest, null)]
+    [InlineData("""{ "draft": "v", "take": ["entityType:Shift"], "Draft": "w" }""", HttpStatusCode.BadRequest, null)]
     public async Task A_review_that_is_not_one_is_refused(string body, HttpStatusCode status, string? code)
     {
         using var builder = Builder();

@@ -105,6 +105,9 @@ internal static partial class ExecutorsApi
     /// <summary>The kinds of job an executor does, as a request names them.</summary>
     internal static readonly string[] Kinds = ["verify", "check", "candidates", "status", "pass", "changed-pass", "fit", "judge"];
 
+    /// <summary>The members a job request is read by: who asked is the caller, never a member of it.</summary>
+    private static readonly string[] RequestMembers = ["kind", "arguments"];
+
     private const int MaxArgumentLength = 2048;
 
     [GeneratedRegex("^[0-9a-f]{32}$")]
@@ -149,14 +152,26 @@ internal static partial class ExecutorsApi
             return (null, $"kind is one of: {string.Join(", ", Kinds)}.");
         }
 
+        if (ConsoleBody.Unknown(request, RequestMembers) is { } unread)
+        {
+            return (null, ConsoleBody.Refusal(unread, RequestMembers));
+        }
+
         var given = request.TryGetProperty("arguments", out var arguments) && arguments.ValueKind == JsonValueKind.Object ? arguments : default;
-        var kept = new JsonObject();
-        foreach (var (name, needed) in kind switch
+        var taken = kind switch
         {
             "fit" => [("identity", true)],
             "judge" => [("identity", true), ("first", true), ("second", true)],
             _ => Array.Empty<(string, bool)>(),
-        })
+        };
+        var argumentMembers = kind == "judge" ? [.. taken.Select(t => t.Item1), "same"] : taken.Select(t => t.Item1).ToArray();
+        if (ConsoleBody.Unknown(given, argumentMembers) is { } unreadArgument)
+        {
+            return (null, ConsoleBody.Refusal(unreadArgument, argumentMembers));
+        }
+
+        var kept = new JsonObject();
+        foreach (var (name, needed) in taken)
         {
             var value = given.ValueKind == JsonValueKind.Object && given.TryGetProperty(name, out var found) && found.ValueKind == JsonValueKind.String ? found.GetString() : null;
             if (string.IsNullOrWhiteSpace(value) || value.Length > MaxArgumentLength)
