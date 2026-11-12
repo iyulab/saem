@@ -279,9 +279,23 @@ public static class SaemConsole
         app.MapGet("/login", (string? returnUrl) => Results.Challenge(
             new AuthenticationProperties { RedirectUri = returnUrl is { Length: > 0 } && Uri.IsWellFormedUriString(returnUrl, UriKind.Relative) && returnUrl.StartsWith('/') && !returnUrl.StartsWith("//", StringComparison.Ordinal) ? returnUrl : "/" },
             [OpenIdConnectDefaults.AuthenticationScheme]));
-        app.MapPost("/logout", async (HttpContext http) =>
+        app.MapPost("/logout", async (HttpContext http, ConsoleIssuer issuer, ILogger<ConsoleIssuer> log) =>
         {
+            // The session cookie is stateless: ending it here does not stop a copy of it, which renews its tokens for as long as
+            // the issuer honours the refresh token. So the refresh token goes to the issuer to be revoked — best effort and
+            // bounded, since signing out must not wait on, or fail with, an issuer that does not answer.
+            var refresh = await http.GetTokenAsync(CookieAuthenticationDefaults.AuthenticationScheme, "refresh_token");
             await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            if (refresh is { Length: > 0 })
+            {
+                using var bound = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
+                bound.CancelAfter(TimeSpan.FromSeconds(5));
+                if (await issuer.RevokeAsync(refresh, bound.Token) == RevocationOutcome.Failed)
+                {
+                    SignOutLog.RevocationFailed(log);
+                }
+            }
+
             return Results.NoContent();
         });
 
@@ -351,4 +365,11 @@ internal sealed class GroupRoles(IOptions<ConsoleRoleOptions> roles) : IClaimsTr
 
         return Task.FromResult(mapped);
     }
+}
+
+/// <summary>What signing out says in the log.</summary>
+internal static partial class SignOutLog
+{
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Signing out could not revoke the session's refresh token at the issuer; the issuer may honour it until it expires.")]
+    internal static partial void RevocationFailed(ILogger logger);
 }

@@ -26,10 +26,7 @@ internal sealed class ConsoleIssuer(IHttpClientFactory clients, IOptionsMonitor<
         try
         {
             var configuration = await oidc.Get(OpenIdConnectDefaults.AuthenticationScheme).ConfigurationManager!.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
-            var client = identity.Value;
-            using var request = new HttpRequestMessage(HttpMethod.Post, configuration.TokenEndpoint) { Content = new FormUrlEncodedContent(form) };
-            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(
-                Encoding.UTF8.GetBytes($"{Uri.EscapeDataString(client.ClientId)}:{Uri.EscapeDataString(client.ClientSecret)}")));
+            using var request = AsClient(configuration.TokenEndpoint, form);
 
             using var http = clients.CreateClient(nameof(ConsoleIssuer));
             using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
@@ -63,6 +60,56 @@ internal sealed class ConsoleIssuer(IHttpClientFactory clients, IOptionsMonitor<
                 token.TryGetProperty("expires_in", out var seconds) && seconds.TryGetInt32(out var s) ? TimeSpan.FromSeconds(s) : null)
             : throw new IssuerRefusedException($"The issuer answered the console's {grant} request without an access token.");
     }
+
+    /// <summary>
+    /// Asks the issuer to revoke a refresh token (RFC 7009), as signing out does: the session cookie is stateless, so a copy of
+    /// it keeps working until its tokens end — and renews them for as long as the issuer honours the refresh token. Best effort:
+    /// an issuer that names no revocation endpoint is not asked, and one that cannot be reached or does not accept the request
+    /// is reported, never thrown — signing out goes on either way.
+    /// </summary>
+    public async Task<RevocationOutcome> RevokeAsync(string refreshToken, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var configuration = await oidc.Get(OpenIdConnectDefaults.AuthenticationScheme).ConfigurationManager!.GetConfigurationAsync(cancellationToken).ConfigureAwait(false);
+            if (!configuration.AdditionalData.TryGetValue("revocation_endpoint", out var named) || named?.ToString() is not { Length: > 0 } endpoint)
+            {
+                return RevocationOutcome.NotOffered;
+            }
+
+            using var request = AsClient(endpoint, new Dictionary<string, string> { ["token"] = refreshToken, ["token_type_hint"] = "refresh_token" });
+            using var http = clients.CreateClient(nameof(ConsoleIssuer));
+            using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            return response.IsSuccessStatusCode ? RevocationOutcome.Revoked : RevocationOutcome.Failed;
+        }
+        catch (Exception e) when (e is HttpRequestException or InvalidOperationException or IOException or TaskCanceledException)
+        {
+            return RevocationOutcome.Failed;
+        }
+    }
+
+    /// <summary>A form post to <paramref name="endpoint"/> as the console's confidential client.</summary>
+    private HttpRequestMessage AsClient(string endpoint, IReadOnlyDictionary<string, string> form)
+    {
+        var client = identity.Value;
+        var request = new HttpRequestMessage(HttpMethod.Post, endpoint) { Content = new FormUrlEncodedContent(form) };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(
+            Encoding.UTF8.GetBytes($"{Uri.EscapeDataString(client.ClientId)}:{Uri.EscapeDataString(client.ClientSecret)}")));
+        return request;
+    }
+}
+
+/// <summary>What asking the issuer to revoke a token came to.</summary>
+internal enum RevocationOutcome
+{
+    /// <summary>The issuer accepted the revocation.</summary>
+    Revoked,
+
+    /// <summary>The issuer names no revocation endpoint: nothing was asked.</summary>
+    NotOffered,
+
+    /// <summary>The issuer could not be reached or did not accept the request: the token may still be honoured.</summary>
+    Failed,
 }
 
 /// <summary>What the token endpoint issued.</summary>

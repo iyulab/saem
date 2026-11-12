@@ -10,14 +10,25 @@ internal static class TestIssuer
 {
     public const string TokenEndpoint = "https://issuer.test/token";
 
-    public static ConsoleIssuer For(HttpMessageHandler handler, string clientId = "saem-console", string clientSecret = "") =>
-        new(
+    public const string RevocationEndpoint = "https://issuer.test/revoke";
+
+    /// <param name="handler">Answers the issuer's endpoints.</param>
+    /// <param name="clientId">The console's client at the issuer.</param>
+    /// <param name="clientSecret">The console's secret there.</param>
+    /// <param name="revocable">Whether the discovery document names a revocation endpoint (RFC 8414).</param>
+    public static ConsoleIssuer For(HttpMessageHandler handler, string clientId = "saem-console", string clientSecret = "", bool revocable = false)
+    {
+        var configuration = new OpenIdConnectConfiguration { TokenEndpoint = TokenEndpoint };
+        if (revocable)
+        {
+            configuration.AdditionalData["revocation_endpoint"] = RevocationEndpoint;
+        }
+
+        return new(
             new Clients(handler),
-            new Monitor(new OpenIdConnectOptions
-            {
-                ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(new OpenIdConnectConfiguration { TokenEndpoint = TokenEndpoint }),
-            }),
+            new Monitor(new OpenIdConnectOptions { ConfigurationManager = new StaticConfigurationManager<OpenIdConnectConfiguration>(configuration) }),
             Options.Create(new ConsoleIdentityOptions { ClientId = clientId, ClientSecret = clientSecret }));
+    }
 
     private sealed class Clients(HttpMessageHandler handler) : IHttpClientFactory
     {
