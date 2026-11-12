@@ -149,6 +149,26 @@ public sealed class CatalogConfirmApiTests : IAsyncLifetime
         Assert.Equal(1, line.GetProperty("breaking").GetInt32());
     }
 
+    /// <summary>
+    /// The acknowledgement that lets breaking changes through is a boolean the builder gave. A text that reads like one
+    /// (<c>"true"</c>) is not read as «no» and the confirmation then refused as if nothing was said: it is a malformed request.
+    /// </summary>
+    [Theory]
+    [InlineData("\"true\"")]
+    [InlineData("1")]
+    public async Task An_acknowledgement_that_is_not_a_boolean_is_a_malformed_request(string value)
+    {
+        await File.WriteAllTextAsync(_draft, Breaking, TestContext.Current.CancellationToken);
+        using var builder = _server.Client(ConsoleServer.Token("alice", ["ontology-builders"]));
+        var view = await builder.GetFromJsonAsync<JsonElement>("api/catalog/draft", TestContext.Current.CancellationToken);
+        var body = $$"""{ "base": "{{view.GetProperty("inForce").GetString()}}", "draft": "{{view.GetProperty("draft").GetString()}}", "acknowledgeBreaking": {{value}} }""";
+
+        using var response = await builder.PostAsync("api/catalog/confirm", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(InForce, await File.ReadAllTextAsync(_server.OntologyFile, TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task A_draft_that_declares_what_is_in_force_has_nothing_to_confirm()
     {

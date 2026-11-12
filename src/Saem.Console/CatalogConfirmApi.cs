@@ -253,6 +253,8 @@ internal static class CatalogConfirmApi
         request.ValueKind == JsonValueKind.Object
         && request.TryGetProperty("base", out var b) && b.ValueKind == JsonValueKind.String && b.GetString() is { Length: > 0 } baseVersion
         && request.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.String && d.GetString() is { Length: > 0 } draftVersion
+        // The acknowledgement is a boolean the builder gave or it is not there; a text or a number that reads like one is not taken for «no».
+        && (!request.TryGetProperty("acknowledgeBreaking", out var ack) || ack.ValueKind is JsonValueKind.True or JsonValueKind.False)
             ? new ConfirmAsk(baseVersion, draftVersion, request.TryGetProperty("acknowledgeBreaking", out var a) && a.ValueKind == JsonValueKind.True)
             : null;
 

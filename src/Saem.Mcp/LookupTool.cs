@@ -100,9 +100,15 @@ internal sealed partial class LookupTool
 
         // A name left out of the path or the read (a JSON null, or an empty string) names no relation and no field: said as the shape of
         // a lookup, not discovered later as a source that failed.
-        if (call?.Start is null || call.Path is null || call.Read is null || call.Path.Any(Unnamed) || call.Read.Any(Unnamed))
+        if (call?.Start is null || Unnamed(call.Start.Type) || call.Path is null || call.Read is null || call.Path.Any(Unnamed) || call.Read.Any(Unnamed))
         {
             return Error("A lookup names 'start' (type, and key or where), 'path' (relations, possibly none) and 'read' (fields).");
+        }
+
+        // A start named by a field's value names the field and the value it holds; one without either is not a start the lookup can run.
+        if (call.Start.Where is { } where && (Unnamed(where.Field) || where.Value is null))
+        {
+            return Error("A 'start' named by a field's value gives the 'field' and the 'value' it holds: where: { field, value }.");
         }
 
         // The call's span, under the request's trace when there is one (W3C trace context). The lookup is named by an id of its own,
