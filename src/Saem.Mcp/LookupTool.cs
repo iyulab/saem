@@ -78,7 +78,7 @@ internal sealed partial class LookupTool
         if (person is null)
         {
             // Authentication already demands a token; one that names nobody cannot be run as anyone.
-            return Error("The request's token names no person (no 'sub' claim), so there is no one to run the lookup as.");
+            return Error("The request's token names no person (it has no 'sub' claim, or its 'act' claim does not name the agent), so there is no one to run the lookup as.");
         }
 
         if (token is null)

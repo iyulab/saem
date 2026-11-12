@@ -25,8 +25,9 @@ public sealed record Person(string Subject, string? Actor)
     public Delegation? Delegation { get; init; }
 
     /// <summary>
-    /// Reads the person from a validated token's claims, or returns <see langword="null"/> when the
-    /// token names nobody.
+    /// Reads the person from a validated token's claims, or returns <see langword="null"/> when the token names nobody:
+    /// it has no <c>sub</c>, or it has an <c>act</c> claim that does not name an agent. A delegation that cannot be read
+    /// is not a direct call — read as one, the call would run as the person with the agent gone from the audit.
     /// </summary>
     public static Person? From(ClaimsPrincipal? user)
     {
@@ -36,7 +37,12 @@ public sealed record Person(string Subject, string? Actor)
             return null;
         }
 
-        var actor = ActorOf(user!.FindFirst("act")?.Value);
+        string? actor = null;
+        if (user!.FindFirst("act") is { } act && (actor = ActorOf(act.Value)) is null)
+        {
+            return null;
+        }
+
         return new Person(subject, actor)
         {
             Groups = [.. user.FindAll("groups").Select(c => c.Value).Where(g => g.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)],
@@ -63,7 +69,8 @@ public sealed record Person(string Subject, string? Actor)
             return document.RootElement.ValueKind == JsonValueKind.Object
                 && document.RootElement.TryGetProperty("sub", out var sub)
                 && sub.ValueKind == JsonValueKind.String
-                ? sub.GetString()
+                && sub.GetString() is { Length: > 0 } agent
+                ? agent
                 : null;
         }
         catch (JsonException)

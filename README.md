@@ -552,7 +552,8 @@ like a source that fails, never a refusal.
 Who a lookup runs as is never an argument. Every request carries a bearer token from an issuer the
 deployment trusts; the server validates it (signature, lifetime, audience) and runs the lookup as the
 token's `sub`, recording the agent named in its `act` claim when an agent obtained the token on the
-person's behalf (RFC 8693). A request without a valid token gets `401` with a pointer to the issuer
+person's behalf (RFC 8693) — a token whose `act` claim does not name an agent is refused as naming no
+person, not read as a direct call. A request without a valid token gets `401` with a pointer to the issuer
 (RFC 9728 protected resource metadata). Each person then logs in to each source the way that source
 can. A MorphDB source takes the person's token itself: the server exchanges the token it was called
 with for one meant for that source (RFC 8693 token exchange at the same issuer, as saem's own client),

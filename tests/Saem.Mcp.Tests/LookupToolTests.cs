@@ -510,6 +510,22 @@ public class PersonTests
         Assert.Null(direct!.Delegation);
     }
 
+    /// <summary>
+    /// An <c>act</c> claim that is there but does not name an agent is a malformed delegation, not a direct call: read as
+    /// one, the call would run as the person with the agent gone from the audit and no delegation named.
+    /// </summary>
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("""["agent-7"]""")]
+    [InlineData("""{"iss":"https://issuer.test"}""")]
+    [InlineData("""{"sub":7}""")]
+    [InlineData("""{"sub":""}""")]
+    [InlineData("")]
+    public void A_token_whose_act_claim_names_no_agent_names_no_person(string act)
+    {
+        Assert.Null(Person.From(Claims.Of(("sub", "alice", "string"), ("act", act, "JSON"))));
+    }
+
     [Fact]
     public void Without_act_the_person_called_directly()
     {
