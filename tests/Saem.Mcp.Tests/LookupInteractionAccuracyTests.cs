@@ -49,6 +49,35 @@ public sealed class LookupInteractionAccuracyTests
 
     private static JsonElement Interaction(string line) => JsonDocument.Parse(line[(line.IndexOf('{', StringComparison.Ordinal))..]).RootElement.Clone();
 
+    /// <summary>
+    /// A call that is not shaped like a lookup is still a call someone made: it leaves an interaction saying it was invalid,
+    /// by whom, and nothing of what the caller sent — a refused call that left no trace is a call nobody can account for.
+    /// </summary>
+    [Theory]
+    [InlineData("an arguments object that is not a lookup")]
+    [InlineData("a lookup that names no read")]
+    [InlineData("a where that names nothing")]
+    public async Task A_call_that_is_not_shaped_like_a_lookup_is_logged_as_invalid_and_none_of_what_was_sent(string shape)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        Dictionary<string, object?> arguments = shape switch
+        {
+            "an arguments object that is not a lookup" => new() { ["start"] = "CANARY-START-7f3", ["path"] = Array.Empty<string>(), ["read"] = new[] { "note" } },
+            "a lookup that names no read" => new() { ["start"] = new Dictionary<string, object?> { ["type"] = "CANARY-TYPE-7f3", ["key"] = "WO-3" }, ["path"] = Array.Empty<string>() },
+            _ => new() { ["start"] = new Dictionary<string, object?> { ["type"] = "CANARY-TYPE-7f3", ["where"] = new Dictionary<string, object?>() }, ["path"] = Array.Empty<string>(), ["read"] = new[] { "note" } },
+        };
+        await using var server = await TestServer.StartAsync(OntologyJson, Alice(), Audit);
+        await using var alice = await server.ClientAsync(TestServer.Token("alice"), ct);
+
+        var result = await alice.CallToolAsync("lookup", arguments, cancellationToken: ct);
+
+        Assert.True(result.IsError);
+        var interaction = Interaction(Assert.Single(Interactions(server)));
+        Assert.Equal(("invalid", "malformed_arguments", "alice"), (interaction.GetProperty("outcome").GetString(), interaction.GetProperty("errorType").GetString(), interaction.GetProperty("subject").GetString()));
+        Assert.Equal(0, interaction.GetProperty("accessed").GetArrayLength());
+        Assert.DoesNotContain("CANARY", string.Join('\n', server.Logs.Lines), StringComparison.Ordinal);
+    }
+
     /// <summary>The caller's words are not the log's: a type, relation or field the ontology does not declare is not written anywhere.</summary>
     [Fact]
     public async Task A_call_naming_nothing_the_ontology_declares_logs_none_of_what_it_named()
