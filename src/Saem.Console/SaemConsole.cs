@@ -346,15 +346,14 @@ internal sealed class GroupRoles(IOptions<ConsoleRoleOptions> roles) : IClaimsTr
             return Task.FromResult(principal);
         }
 
-        // The principal may be transformed more than once per request: each time from the token's own claims, on a copy.
-        var mapped = principal.Clone();
-        var identity = (ClaimsIdentity)mapped.Identity!;
-        foreach (var carried in identity.FindAll(identity.RoleClaimType).ToList())
-        {
-            identity.RemoveClaim(carried);
-        }
+        // The principal may be transformed more than once per request: each time from the token's own claims, into an identity of its own.
+        // (ClaimsPrincipal.Clone() would share the identity with the principal it copies, so the one handed in would be changed too.)
+        var source = (ClaimsIdentity)principal.Identity!;
+        var identity = new ClaimsIdentity(
+            source.Claims.Where(c => c.Type != source.RoleClaimType), source.AuthenticationType, source.NameClaimType, source.RoleClaimType);
+        var mapped = new ClaimsPrincipal([identity, .. principal.Identities.Skip(1)]);
 
-        var groups = mapped.FindAll("groups").Select(c => c.Value).ToHashSet(StringComparer.Ordinal);
+        var groups = identity.FindAll("groups").Select(c => c.Value).ToHashSet(StringComparer.Ordinal);
         foreach (var (role, holders) in new[] { (ConsoleRoles.Builder, roles.Value.Builders), (ConsoleRoles.Auditor, roles.Value.Auditors) })
         {
             if (holders.Any(groups.Contains))
