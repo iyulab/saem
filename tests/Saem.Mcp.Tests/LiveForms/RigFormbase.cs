@@ -10,7 +10,7 @@ namespace Saem.Mcp.Tests.LiveForms;
 /// </summary>
 internal sealed class RigFormbase : IAsyncDisposable
 {
-    private static readonly string Image = Environment.GetEnvironmentVariable("SAEM_RIG_FORMBASE_IMAGE") ?? "ghcr.io/iyulab/formbase:0.34.0";
+    private static readonly string Image = Environment.GetEnvironmentVariable("SAEM_RIG_FORMBASE_IMAGE") ?? "ghcr.io/iyulab/formbase:0.35.0";
     private static readonly string Network = Environment.GetEnvironmentVariable("SAEM_RIG_NETWORK") ?? "saem-rig_default";
 
     private readonly string _container;
