@@ -45,8 +45,9 @@ internal static partial class InjectionSignals
     }
 
     /// <summary>
-    /// The signals of every claim whose value is text, as <c>[{ claim, signals }]</c> by claim index; null
-    /// when no claim carries any — so a clean answer carries no <c>_meta</c> entry at all.
+    /// The signals of every claim whose value carries text — a string, or strings nested in an array or an object (a multi-choice
+    /// field, a free-form one), property names included — as <c>[{ claim, signals }]</c> by claim index; null when no claim
+    /// carries any — so a clean answer carries no <c>_meta</c> entry at all.
     /// </summary>
     public static JsonArray? For(LookupAnswer answer)
     {
@@ -58,23 +59,57 @@ internal static partial class InjectionSignals
         var marked = new JsonArray();
         for (var i = 0; i < answered.Claims.Count; i++)
         {
-            if (answered.Claims[i].Value.ValueKind != JsonValueKind.String)
-            {
-                continue;
-            }
-
-            var signals = Of(answered.Claims[i].Value.GetString()!);
+            var signals = new HashSet<string>(StringComparer.Ordinal);
+            Collect(answered.Claims[i].Value, signals, depth: 0);
             if (signals.Count > 0)
             {
                 marked.Add(new JsonObject
                 {
                     ["claim"] = i,
-                    ["signals"] = new JsonArray([.. signals.Select(s => (JsonNode)s)]),
+                    ["signals"] = new JsonArray([.. Named.Where(signals.Contains).Select(s => (JsonNode)s)]),
                 });
             }
         }
 
         return marked.Count > 0 ? marked : null;
+    }
+
+    // The signals in the order a single text names them, so a claim's list reads the same whether its text was bare or nested.
+    private static readonly string[] Named = ["invisibleCharacters", "instructionPhrase", "activeMarkup"];
+
+    // A value deeper than this was not written for a reader; it is read as far as it goes. The JSON reader's own limit is lower in practice.
+    private const int MaxDepth = 64;
+
+    private static void Collect(JsonElement value, HashSet<string> signals, int depth)
+    {
+        if (depth > MaxDepth)
+        {
+            return;
+        }
+
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.String:
+                signals.UnionWith(Of(value.GetString()!));
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in value.EnumerateArray())
+                {
+                    Collect(item, signals, depth + 1);
+                }
+
+                break;
+            case JsonValueKind.Object:
+                foreach (var member in value.EnumerateObject())
+                {
+                    signals.UnionWith(Of(member.Name));
+                    Collect(member.Value, signals, depth + 1);
+                }
+
+                break;
+            default:
+                break;
+        }
     }
 
     // Zero-width and joiner characters, bidirectional overrides and isolates, the byte-order mark used mid-text,

@@ -26,7 +26,7 @@ internal sealed partial class CatalogSourcesCheck(IOntologyCatalog catalog, IOpt
             return;
         }
 
-        var configured = sources.Value.Postgres.Keys.Concat(sources.Value.MySql.Keys).Concat(sources.Value.MorphDb.Keys).ToHashSet(StringComparer.Ordinal);
+        var configured = sources.Value.Postgres.Keys.Concat(sources.Value.MySql.Keys).Concat(sources.Value.MySqlToken.Keys).Concat(sources.Value.MorphDb.Keys).ToHashSet(StringComparer.Ordinal);
         foreach (var system in ontology.EntityTypes.Values.Select(t => t.System).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
         {
             if (!configured.Contains(system))
