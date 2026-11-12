@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, whyNot, type Answer, type Catalog, type Job, type JobKind } from "./api";
-import { asks, checkReport, fitIdentities, fitSays, isRunning, runningJob, settle, type Settled, statusOf, summary, took, violations } from "./jobs";
+import { asks, cancelWarning, checkReport, fitIdentities, fitSays, isRunning, runningJob, settle, type Settled, statusOf, summary, took, violations } from "./jobs";
 
 const POLL_MS = 2000;
 
@@ -64,6 +64,7 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
   const jobs = settled?.jobs ?? null;
   const [open, setOpen] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ kind: JobKind; identity?: string } | null>(null);
+  const [stopping, setStopping] = useState<Job | null>(null);
   const [identity, setIdentity] = useState(fits[0] ?? "");
   const [refused, setRefused] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
@@ -140,11 +141,31 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
           </span>
         )}
         {running && (
-          <button className="link" onClick={() => api.cancelJob(group, running.id).then(load)}>
-            Cancel the running {running.kind}
+          <button
+            className="link"
+            onClick={() => (cancelWarning(running) === null ? api.cancelJob(group, running.id).then(load) : setStopping(running))}
+          >
+            Cancel the running {running.kind} <span className="muted">({running.requestedBy})</span>
           </button>
         )}
       </div>
+      {stopping && running?.id === stopping.id && (
+        <p className="refusal" role="alertdialog">
+          {cancelWarning(stopping)}{" "}
+          <button
+            className="button"
+            onClick={() => {
+              setStopping(null);
+              api.cancelJob(group, stopping.id).then(load);
+            }}
+          >
+            Stop it
+          </button>{" "}
+          <button className="link" onClick={() => setStopping(null)}>
+            Keep it running
+          </button>
+        </p>
+      )}
       {confirm && (
         <p className="refusal" role="alertdialog">
           {confirm.kind === "fit" ? `${fitSays} (${confirm.identity})` : asks.find((a) => a.kind === confirm.kind)?.says} It writes to <strong>{group}</strong>'s store.{" "}
