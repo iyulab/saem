@@ -160,6 +160,9 @@ public class LookupAnswerJsonTests
         Assert.Contains("\"projection\":\"stale\"", Write(answered), StringComparison.Ordinal);
         Assert.Equal(SourceProjection.Stale, Assert.IsType<Answered>(Read(Write(answered))).Claims[0].Sources[0].Projection);
         Assert.Equal(SourceProjection.Unverified, Assert.IsType<Refused>(Read(Write(refused))).Refusal.Projection);
+        var incomplete = new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp with { Projection = SourceProjection.Incomplete }], [])]);
+        Assert.Contains("\"projection\":\"incomplete\"", Write(incomplete), StringComparison.Ordinal);
+        Assert.Equal(SourceProjection.Incomplete, Assert.IsType<Answered>(Read(Write(incomplete))).Claims[0].Sources[0].Projection);
         Assert.DoesNotContain("projection", Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [])])), StringComparison.Ordinal);
         Assert.Equal(
             Enum.GetValues<SourceProjection>().Select(p => JsonSerializer.Serialize(p, ContractJson.Default.SourceProjection).Trim('"')),

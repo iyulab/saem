@@ -319,7 +319,7 @@ public sealed record SourceRecord(string System, string Table, string Record)
 }
 
 /// <summary>
-/// How far a projected table is behind the documents it is projected from — said only when it is behind.
+/// How far a projected table falls short of the documents it is projected from — said only when it does.
 /// On the wire each state travels by its camelCase name.
 /// </summary>
 public enum SourceProjection
@@ -335,6 +335,14 @@ public enum SourceProjection
     /// <summary>A rebuild of the projection failed, so nothing vouches for its rows.</summary>
     [JsonStringEnumMemberName("unverified")]
     Unverified,
+
+    /// <summary>
+    /// The projection is current but could not map some of the documents it was given, and they are in no row:
+    /// the table holds what could be projected, and the documents may say more. Said only of a current projection —
+    /// a table already behind its documents says how, and that already covers it.
+    /// </summary>
+    [JsonStringEnumMemberName("incomplete")]
+    Incomplete,
 }
 
 /// <summary>Who settles a pair an identity finds. On the wire each travels by its camelCase name.</summary>

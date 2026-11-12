@@ -30,7 +30,8 @@ public sealed class ProjectionSourceOptions
 
 /// <summary>
 /// Asks each configured Formbase whether a table's projection is behind its documents
-/// (<c>GET formtypes/{type}/projection</c>). The state is about the form type, not about anyone's rows, so it
+/// (<c>GET formtypes/{type}/projection</c>) and, for a projection that is current, whether it left documents out
+/// (<c>GET formtypes/{type}/projection/skips</c>). The state is about the form type, not about anyone's rows, so it
 /// is asked over the deployment's own key. A Formbase that cannot be asked leaves the state unsaid — the
 /// facts read are still the person's own reads — and is logged for whoever runs it.
 /// </summary>
@@ -73,23 +74,15 @@ internal sealed partial class FormbaseProjectionStates : IProjectionStates
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"formtypes/{Uri.EscapeDataString(formType)}/projection");
-            if (source.Options.Namespace is { } ns)
+            var status = await ReadAsync(source, $"formtypes/{Uri.EscapeDataString(formType)}/projection", system, table, cancellationToken).ConfigureAwait(false);
+            if (status is null)
             {
-                request.Headers.Add(NamespaceHeader, ns);
-            }
-
-            using var response = await source.Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                LogUnknown(_logger, system, table, $"HTTP {(int)response.StatusCode}");
                 return null;
             }
 
-            var status = await response.Content.ReadFromJsonAsync<JsonElement>(Json, cancellationToken).ConfigureAwait(false);
-            return status.GetProperty("state").GetString() switch
+            return status.Value.GetProperty("state").GetString() switch
             {
-                "projected" => null,
+                "projected" => await SkipsOfAsync(source, formType, system, table, cancellationToken).ConfigureAwait(false),
                 "stale" => SourceProjection.Stale,
                 "unverified" => SourceProjection.Unverified,
                 "notProjected" => SourceProjection.NotProjected,
@@ -102,6 +95,36 @@ internal sealed partial class FormbaseProjectionStates : IProjectionStates
             LogUnknown(_logger, system, table, e.GetType().Name);
             return null;
         }
+    }
+
+    /// <summary>
+    /// A projection that reached the head of the stream is current, not complete: a document its declaration could
+    /// not map is recorded as skipped and is in no row. The durable count is asked of the Formbase —
+    /// <c>lastRun</c> on the state is only what the host instance itself saw since it started, and says nothing
+    /// after a restart. A Formbase that cannot say leaves the state unsaid, as for the state itself.
+    /// </summary>
+    private async ValueTask<SourceProjection?> SkipsOfAsync((HttpClient Http, ProjectionSourceOptions Options) source, string formType, string system, string table, CancellationToken cancellationToken)
+    {
+        var skips = await ReadAsync(source, $"formtypes/{Uri.EscapeDataString(formType)}/projection/skips", system, table, cancellationToken).ConfigureAwait(false);
+        return skips?.GetProperty("count").GetInt32() > 0 ? SourceProjection.Incomplete : null;
+    }
+
+    private async ValueTask<JsonElement?> ReadAsync((HttpClient Http, ProjectionSourceOptions Options) source, string path, string system, string table, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        if (source.Options.Namespace is { } ns)
+        {
+            request.Headers.Add(NamespaceHeader, ns);
+        }
+
+        using var response = await source.Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            LogUnknown(_logger, system, table, $"HTTP {(int)response.StatusCode}");
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<JsonElement>(Json, cancellationToken).ConfigureAwait(false);
     }
 
     private SourceProjection? Unknown(string system, string table, string why)

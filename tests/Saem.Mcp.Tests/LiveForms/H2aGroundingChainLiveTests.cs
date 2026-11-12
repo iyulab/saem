@@ -119,4 +119,34 @@ public sealed class H2aGroundingChainLiveTests : IAsyncLifetime
         Assert.Equal("stale", source.GetProperty("projection").GetString());
         Assert.Equal(Canary, forAlice.GetProperty("claims")[0].GetProperty("value").GetString());
     }
+
+    /// <summary>
+    /// A projection that ran to the head of the stream is current, but a document its declaration cannot map (a
+    /// required field absent) is in no row: an answer read from that table says the projection is incomplete,
+    /// where it would otherwise say nothing and read as if every document stood.
+    /// </summary>
+    [Fact]
+    public async Task An_answer_read_from_a_current_projection_that_skipped_a_document_says_it_is_incomplete()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await _rig.FileAsync("inspection", new { inspector = "alice" }, ct);
+        await _rig.ProjectAsync("inspection", ct);
+        var state = await _rig.Formbase.GetFromJsonAsync<JsonElement>("formtypes/inspection/projection", ct);
+        Assert.Equal("projected", state.GetProperty("state").GetString());
+        var skips = await _rig.Formbase.GetFromJsonAsync<JsonElement>("formtypes/inspection/projection/skips", ct);
+        Assert.Equal(1, skips.GetProperty("count").GetInt32());
+        var call = new Dictionary<string, object?>
+        {
+            ["start"] = new Dictionary<string, object?> { ["type"] = "Inspection", ["key"] = _document },
+            ["path"] = Array.Empty<string>(),
+            ["read"] = Finding,
+        };
+
+        await using var alice = await _server.ClientAsync(await FormsRig.TokenAsync("alice", ct), ct);
+        var forAlice = (await alice.CallToolAsync("lookup", call, cancellationToken: ct)).StructuredContent!.Value;
+
+        var source = forAlice.GetProperty("claims")[0].GetProperty("sources")[0];
+        Assert.Equal("incomplete", source.GetProperty("projection").GetString());
+        Assert.Equal(Canary, forAlice.GetProperty("claims")[0].GetProperty("value").GetString());
+    }
 }

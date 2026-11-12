@@ -116,7 +116,7 @@ public static class ContractSchema
                 "source": { "$ref": "#/$defs/sourceRecord" }
               }
             },
-            "sourceProjection": { "enum": ["notProjected", "stale", "unverified"] },
+            "sourceProjection": { "enum": ["notProjected", "stale", "unverified", "incomplete"] },
             "partitionRead": {
               "type": "object",
               "required": ["name", "blocked", "incomplete", "statements"],

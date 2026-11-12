@@ -185,12 +185,14 @@ them one after another. Every answer names the version of the ontology it was wa
 (`catalogVersion`), and `ContractSchema` gives the same shape as a JSON Schema — it holds the rules
 the constructors hold, so a consumer validating against it refuses what the contract cannot build.
 Where a table is a projection of documents kept elsewhere — a form's records, projected by Formbase —
-and that projection is behind its documents, a source read from it says so (`projection`: `stale`,
-`unverified`, or `notProjected`), and so does a refusal at it: the value is what the table holds, and
-the documents may say more. The server asks the Formbase that projects the table
+and that projection is behind its documents or left some of them out, a source read from it says so
+(`projection`: `stale`, `unverified`, `notProjected`, or `incomplete` — a current projection that could
+not map some documents, which are then in no row), and so does a refusal at it: the value is what the
+table holds, and the documents may say more. The server asks the Formbase that projects the table
 (`Saem:Sources:Projections:<system>`: its URL, and the form type each table is projected from) once
 per table per lookup, over the deployment's own key, since the state is about the form type and not
-about anyone's rows; a Formbase that cannot answer leaves it unsaid.
+about anyone's rows — and, for a current projection, which documents it skipped; a Formbase that cannot
+answer leaves it unsaid.
 
 **The ontology a lookup walks** (`Saem.Ontology`) is a set of declarations: each entity type
 stands on one table of one source system, with its key column, its fields and — where a row is
