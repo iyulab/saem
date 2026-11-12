@@ -60,7 +60,7 @@ public class MorphDbSourceTests
         var path = MorphDbSourceSession.ReadByKey("fb_inspection", "fb_doc_id", "a:b&c", ["result", "fb_doc_id"], 2);
 
         Assert.Equal(
-            "api/data/fb_inspection?filter=fb_doc_id%3Aeq%3Aa%3Ab%26c&select=fb_doc_id%2Cresult&page=2&pageSize=1000",
+            "api/data/fb_inspection?filter=fb_doc_id%3Aeq%3A%22a%3Ab%26c%22&select=fb_doc_id%2Cresult&page=2&pageSize=1000",
             path);
     }
 
@@ -70,7 +70,7 @@ public class MorphDbSourceTests
         var path = MorphDbSourceSession.ReadWhere("orders", "wo_no", "note", "a:b&c", ["note"], 1, 51);
 
         Assert.Equal(
-            "api/data/orders?filter=note%3Aeq%3Aa%3Ab%26c&select=wo_no%2Cnote&orderBy=wo_no%3Aasc&page=1&pageSize=51",
+            "api/data/orders?filter=note%3Aeq%3A%22a%3Ab%26c%22&select=wo_no%2Cnote&orderBy=wo_no%3Aasc&page=1&pageSize=51",
             path);
     }
 
@@ -230,5 +230,20 @@ public class MorphDbSourceTests
 
         Assert.Empty(rows);
         Assert.Single(recorder.Requests);
+    }
+
+    /// <summary>
+    /// The service trims a filter's value and takes one pair of quotes off a quoted one, so a value sent bare loses the spaces
+    /// around it and one that starts and ends in a quote loses those: another record is read, or none. Sent quoted, the value
+    /// is exactly the text between the outer quotes — spaces, quotes and colons inside it included.
+    /// </summary>
+    [Theory]
+    [InlineData(" 7 ", "%22%207%20%22")]
+    [InlineData("\"x\"", "%22%22x%22%22")]
+    [InlineData("a:b", "%22a%3Ab%22")]
+    public void A_key_or_value_is_sent_quoted_so_the_service_compares_it_as_written(string value, string encoded)
+    {
+        Assert.Contains($"filter=k%3Aeq%3A{encoded}&", MorphDbSourceSession.ReadByKey("t", "k", value, ["c"], 1), StringComparison.Ordinal);
+        Assert.Contains($"filter=c%3Aeq%3A{encoded}&", MorphDbSourceSession.ReadWhere("t", "k", "c", value, ["c"], 1, 51), StringComparison.Ordinal);
     }
 }

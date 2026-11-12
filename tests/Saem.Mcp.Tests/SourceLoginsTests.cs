@@ -111,7 +111,7 @@ public class SourceLoginsTests
         Assert.Equal("issuer.test", exchange.RequestUri!.Host);
         Assert.Contains("audience=forms-aud", body, StringComparison.Ordinal);
         var read = recorder.Requests[1].Request;
-        Assert.Equal("http://forms.test/api/data/t?filter=k%3Aeq%3Av&select=k&page=1&pageSize=1000", read.RequestUri!.ToString());
+        Assert.Equal("http://forms.test/api/data/t?filter=k%3Aeq%3A\"v\"&select=k&page=1&pageSize=1000", read.RequestUri!.ToString());
         Assert.Equal("exchanged-for-forms", read.Headers.Authorization!.Parameter);
     }
 

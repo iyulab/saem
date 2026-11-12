@@ -186,6 +186,13 @@ internal sealed class MorphDbSourceSession : ISourceSession, IChangedRows
     }
 
     /// <summary>
+    /// A filter's value as the service reads it as written. The service trims the value and takes one pair of quotes off a quoted one
+    /// (it has no escape inside), so a bare value loses the spaces around it and one that begins and ends in a quote loses those; wrapped
+    /// in one more pair, it is exactly the text between the outer quotes.
+    /// </summary>
+    private static string Quoted(string value) => "\"" + value + "\"";
+
+    /// <summary>
     /// <c>api/data/{table}?filter={key}:eq:{value}&amp;select={key},{columns…}&amp;page=…&amp;pageSize=…</c> —
     /// relative to the source's base address. Every part is escaped; the filter separates on its first
     /// two colons only, so a key that contains one is compared whole.
@@ -194,7 +201,7 @@ internal sealed class MorphDbSourceSession : ISourceSession, IChangedRows
     {
         var select = string.Join(',', new[] { keyColumn }.Concat(columns.Where(c => c != keyColumn)));
         return string.Create(CultureInfo.InvariantCulture,
-            $"api/data/{Uri.EscapeDataString(table)}?filter={Uri.EscapeDataString($"{keyColumn}:eq:{key}")}" +
+            $"api/data/{Uri.EscapeDataString(table)}?filter={Uri.EscapeDataString($"{keyColumn}:eq:{Quoted(key)}")}" +
             $"&select={Uri.EscapeDataString(select)}&page={page}&pageSize={PageSize}");
     }
 
@@ -206,7 +213,7 @@ internal sealed class MorphDbSourceSession : ISourceSession, IChangedRows
     {
         var select = string.Join(',', new[] { keyColumn }.Concat(columns.Where(c => c != keyColumn)));
         return string.Create(CultureInfo.InvariantCulture,
-            $"api/data/{Uri.EscapeDataString(table)}?filter={Uri.EscapeDataString($"{column}:eq:{value}")}" +
+            $"api/data/{Uri.EscapeDataString(table)}?filter={Uri.EscapeDataString($"{column}:eq:{Quoted(value)}")}" +
             $"&select={Uri.EscapeDataString(select)}&orderBy={Uri.EscapeDataString($"{keyColumn}:asc")}&page={page}&pageSize={pageSize}");
     }
 
