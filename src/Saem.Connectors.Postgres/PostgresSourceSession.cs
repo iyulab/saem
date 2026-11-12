@@ -15,6 +15,7 @@ internal sealed class PostgresSourceSession : ISourceSession, IChangedRows
     private readonly NpgsqlDataSource _dataSource;
     private readonly NpgsqlConnection _connection;
     private readonly NpgsqlTransaction _transaction;
+    private readonly HashSet<string> _rowSecurityChecked = new(StringComparer.Ordinal);
 
     private PostgresSourceSession(NpgsqlDataSource dataSource, NpgsqlConnection connection, NpgsqlTransaction transaction)
     {
@@ -60,6 +61,30 @@ internal sealed class PostgresSourceSession : ISourceSession, IChangedRows
         }
     }
 
+    /// <summary>
+    /// Refuses to read a table whose row-level security is enabled but not forced when the login owns it — or is a
+    /// member of the role that does: PostgreSQL exempts a table's owner from its row-level security unless it is forced,
+    /// so the policy would not decide what the session reads. Asked once per table per session, of the catalog, in the
+    /// session's own transaction. A table that is not there, or one with no row-level security, is the read's to answer.
+    /// </summary>
+    private async Task RefuseOwnedUnforcedTableAsync(string table, CancellationToken cancellationToken)
+    {
+        if (!_rowSecurityChecked.Add(table))
+        {
+            return;
+        }
+
+        await using var command = new NpgsqlCommand(
+            "SELECT current_user, c.relrowsecurity AND NOT c.relforcerowsecurity AND pg_has_role(current_user, c.relowner, 'USAGE') "
+            + "FROM pg_class c WHERE c.oid = to_regclass(@name) AND c.relkind IN ('r', 'p')", _connection, _transaction);
+        command.Parameters.AddWithValue("name", QualifiedTable(table));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && reader.GetBoolean(1))
+        {
+            throw new InsecureSourceRoleException(reader.GetString(0), table);
+        }
+    }
+
     /// <inheritdoc />
     public async ValueTask<IReadOnlyList<SourceRow>> ReadAsync(
         string table,
@@ -70,6 +95,7 @@ internal sealed class PostgresSourceSession : ISourceSession, IChangedRows
     {
         ArgumentNullException.ThrowIfNull(columns);
 
+        await RefuseOwnedUnforcedTableAsync(table, cancellationToken).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(SelectByKey(table, keyColumn, columns), _connection, _transaction);
         command.Parameters.AddWithValue("key", key);
 
@@ -95,6 +121,7 @@ internal sealed class PostgresSourceSession : ISourceSession, IChangedRows
         ArgumentNullException.ThrowIfNull(columns);
         ArgumentOutOfRangeException.ThrowIfNegative(limit);
 
+        await RefuseOwnedUnforcedTableAsync(table, cancellationToken).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(SelectWhere(table, keyColumn, column, columns, limit), _connection, _transaction);
         command.Parameters.AddWithValue("value", value);
 
@@ -116,6 +143,7 @@ internal sealed class PostgresSourceSession : ISourceSession, IChangedRows
     {
         ArgumentNullException.ThrowIfNull(columns);
 
+        await RefuseOwnedUnforcedTableAsync(table, cancellationToken).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(SelectAll(table, keyColumn, columns), _connection, _transaction);
         await foreach (var row in RowsAsync(command, columns, cancellationToken).ConfigureAwait(false))
         {
@@ -126,6 +154,7 @@ internal sealed class PostgresSourceSession : ISourceSession, IChangedRows
     /// <inheritdoc />
     public async ValueTask<string?> LatestChangeAsync(string table, string column, CancellationToken cancellationToken = default)
     {
+        await RefuseOwnedUnforcedTableAsync(table, cancellationToken).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(SelectLatest(table, column), _connection, _transaction);
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
     }
@@ -142,6 +171,7 @@ internal sealed class PostgresSourceSession : ISourceSession, IChangedRows
         ArgumentNullException.ThrowIfNull(columns);
         ArgumentNullException.ThrowIfNull(since);
 
+        await RefuseOwnedUnforcedTableAsync(table, cancellationToken).ConfigureAwait(false);
         await using var command = new NpgsqlCommand(SelectChanged(table, keyColumn, columns, column), _connection, _transaction);
         // Sent untyped, so the source reads the text as the column's own type — the spelling max(column)::text gave.
         command.Parameters.Add(new NpgsqlParameter("since", NpgsqlTypes.NpgsqlDbType.Unknown) { Value = since });

@@ -207,6 +207,44 @@ public class PostgresSourceLiveTests
         Assert.Equal(bypassesRls, refused.BypassesRowLevelSecurity);
     }
 
+    /// <summary>
+    /// PostgreSQL does not apply a table's row-level security to its owner unless it is forced, so a login that owns the
+    /// table would read every row whatever the policy says. The session refuses it for that table, and reads under the
+    /// policy once it is forced.
+    /// </summary>
+    [Fact]
+    public async Task A_login_that_owns_a_table_whose_row_security_is_not_forced_is_refused_until_it_is()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var table = $"q9_owned_{Guid.NewGuid():N}"[..20];
+        await using var super = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("SAEM_RIG_MES")) { Username = "super_pw", Password = "rig-super-local-only", Pooling = false }.ConnectionString);
+        await super.OpenAsync(ct);
+        await Execute(super, $"""
+            CREATE TABLE {table} (wo_no text PRIMARY KEY, who text);
+            INSERT INTO {table} VALUES ('A-1', 'alice_pw'), ('B-1', 'bob_pw');
+            ALTER TABLE {table} OWNER TO alice_pw;
+            ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY mine ON {table} USING (who = current_user);
+            """, ct);
+        try
+        {
+            await using (var owner = await As("alice")(ct))
+            {
+                var refused = await Assert.ThrowsAsync<InsecureSourceRoleException>(async () => await owner.ReadAsync(table, "wo_no", "B-1", ["who"], ct));
+                Assert.Equal(("alice_pw", table), (refused.RoleName, refused.TableName));
+            }
+
+            await Execute(super, $"ALTER TABLE {table} FORCE ROW LEVEL SECURITY", ct);
+            await using var forced = await As("alice")(ct);
+            Assert.Empty(await forced.ReadAsync(table, "wo_no", "B-1", ["who"], ct));
+            Assert.Equal("A-1", Assert.Single(await forced.ReadAsync(table, "wo_no", "A-1", ["who"], ct)).Key);
+        }
+        finally
+        {
+            await Execute(super, $"DROP TABLE {table}", CancellationToken.None);
+        }
+    }
+
     private sealed class Fixed(Ontology.Ontology ontology) : IOntologyCatalog
     {
         public ValueTask<Ontology.Ontology> GetAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(ontology);

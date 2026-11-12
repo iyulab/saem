@@ -502,7 +502,10 @@ own interface: the session logs in with the person's credential (`PostgresSource
 read-only transaction rolled back when the session ends, and pools nothing between lookups. A
 connection string that names a login is refused, and so is a PostgreSQL session that logged in as a
 superuser or a role with `BYPASSRLS` (`InsecureSourceRoleException`): row-level security does not apply
-to such a role, so the source would hand over every row instead of deciding what the person reads. One lookup can cross both: a work order in a
+to such a role, so the source would hand over every row instead of deciding what the person reads. The
+same holds for a table the login owns (or owns through a role it belongs to) whose row-level security
+is enabled but not forced — an owner is exempt from it unless `FORCE ROW LEVEL SECURITY` is set — and
+it is refused when the session first reads that table. One lookup can cross both: a work order in a
 PostgreSQL MES names an item in a MySQL ERP, which names its supplier — and each person's answer, or
 the hop at which it is refused, follows from what each source lets that person see.
 
