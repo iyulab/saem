@@ -556,15 +556,17 @@ is the session's login, and the account is named by the token's subject. Postgre
 sources not configured for tokens, take a password login configured per person (PostgreSQL until its
 driver can present a token). The token the request presented is kept only for the exchange and never logged.
 
-Each lookup gets an id — the request's W3C trace id when it has one — which the server logs with the
-person and the agent, and which each source session carries as its name (`application_name=saem/<id>`
+Each lookup gets an id of its own — made by the server, never taken from the request (a trace id is the caller's to choose, so
+calls sharing one would otherwise be one interaction); the interaction carries the request's W3C trace id beside it when there is one —
+which the server logs with the person and the agent, and which each source session carries as its name (`application_name=saem/<id>`
 on PostgreSQL, the `program_name` connection attribute on MySQL). The source's own record then shows,
 for that id, which login it authorised — PostgreSQL's connection log, or on MySQL an audit log that
 keeps connection attributes (the rig turns on Percona's `audit_log_filter` for this): the record that a
 lookup ran as the person comes from the source, not only from saem.
 
 The server also logs one interaction per call: who asked for whom, the start type, relation and field
-names, how it ended, where a refusal stopped, and the records reached — each named by an HMAC of its
+names (only those the ontology declares: any other is logged as `(undeclared)`), how it ended, where a refusal stopped, and the
+records the walk asked its sources for — `read`, `notVisible` or `failed` — each named by an HMAC of its
 system, type and key under `Saem:Audit:HmacKey` (with `Saem:Audit:HmacKeyId`), never by the key; without
 a key, records are not named. No value, key or label is logged. With `Saem:Audit:Ocsf` set, each
 interaction is also written as an OCSF 1.9.0 API Activity event (class 6003, activity Read), one JSON
