@@ -45,7 +45,7 @@ export function GroupsView() {
       <aside className="note">
         <h2>How a question is answered</h2>
         <p>
-          A person asks from a start. A step that needs the other direction of a relation — <em>which work orders make this item?</em> — is answered from their group's copy, each hop saying which group's copy and when it was read. Someone in no group is told that step has no copy to read; forward steps still answer.
+          A question that goes against a relation — <em>which work orders make this item?</em> — is answered from the asker's group copy, and says which copy and when it was read. Someone in no group is told there is no copy to read; questions that follow a relation forward still answer.
         </p>
         <dl>
           <dt>Refresh (whole pass)</dt>
@@ -53,7 +53,7 @@ export function GroupsView() {
           <dt>Only what changed (changed-rows pass)</dt>
           <dd>reads just the rows the source changed since the last pass. It cannot see a row that was retired — a whole pass does.</dd>
           <dt>Wrote · kept · retired</dt>
-          <dd>how many edges the pass added or corrected, left as they were, and took out because the source no longer gives them.</dd>
+          <dd>how many links the pass added or corrected, left as they were, and took out because the source no longer has them.</dd>
         </dl>
       </aside>
     </section>
@@ -144,7 +144,7 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
   return (
     <article className="group-card" aria-label={`Group ${group}`}>
       <h2>{group}</h2>
-      <p className="muted small">Keeps its own copy of the relations its account can see · own store, own secret</p>
+      <p className="muted small">Reads the source with its own account and keeps its own copy.</p>
       <dl className="facts">
         <dt>Last refresh</dt>
         <dd>
@@ -152,23 +152,8 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
           {facts.agrees === true && <span className="badge ok">matches the source</span>}
           {facts.agrees === false && <span className="badge warn">differs from the source</span>}
         </dd>
-        <dt>Last pass</dt>
-        <dd>
-          {facts.lastPass ? (
-            <>
-              <span className="figures">
-                wrote {facts.lastPass.wrote} · kept {facts.lastPass.kept} · retired {facts.lastPass.retired}
-              </span>{" "}
-              <span className="muted">
-                ({asks.find((a) => a.kind === facts.lastPass!.kind)?.label.toLowerCase()}, asked by {facts.lastPass.by})
-              </span>
-            </>
-          ) : (
-            <span className="muted">none yet in this executor's memory</span>
-          )}
-        </dd>
         <dt>Holds</dt>
-        <dd>{facts.edges === null ? "reading…" : `${facts.edges} edge${facts.edges === 1 ? "" : "s"} across ${facts.relations} relation${facts.relations === 1 ? "" : "s"}`}</dd>
+        <dd>{facts.edges === null ? "reading…" : `${facts.edges} link${facts.edges === 1 ? "" : "s"} · ${facts.relations} relation${facts.relations === 1 ? "" : "s"}`}</dd>
         <dt>Answers</dt>
         <dd>
           people whose sign-in names <strong>{group}</strong>
@@ -183,7 +168,7 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
         )}
       </div>
       <details className="inline">
-        <summary>Other asks</summary>
+        <summary>More options</summary>
         <div className="actions-row">
           {secondary.map((a) => button(a, false))}
           {fits.length > 0 && (
@@ -251,12 +236,18 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
           <br />
           {outcome.facts.length > 0 && <span className="figures">{outcome.facts.join(" · ")} · </span>}
           <span className="muted">done in {outcome.took}</span>
+          {last && (last.kind === "pass" || last.kind === "changed-pass") && outcome.facts.length === 3 && (
+            <>
+              <br />
+              <span className="muted small">links added or corrected · left as they were · taken out because the source no longer has them</span>
+            </>
+          )}
         </p>
       )}
-      {!running && !outcome && <p className="muted">Nothing has been asked of this group since its executor started.</p>}
+      {!running && !outcome && <p className="muted">Nothing has been asked of this group yet.</p>}
       {list.length > 0 && (
         <details className="inline">
-          <summary>Everything this executor ran ({list.length})</summary>
+          <summary>History ({list.length})</summary>
           <div className="graph">
             <table>
               <thead>
