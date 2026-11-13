@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Answer, Catalog, Job } from "./api";
-import { awaiting, cancelWarning, fitIdentities, judgedPairs, judgedSince, judgments, settle, statusOf, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
+import { ago, awaiting, cancelWarning, copyFacts, countsStale, outcomeOf, fitIdentities, judgedPairs, judgedSince, judgments, settle, statusOf, latestCandidates, pairKey, runningJob, summary, took, violations } from "./jobs";
 
 const job = (more: Partial<Job>): Job => ({
   id: "0123456789abcdef0123456789abcdef",
@@ -204,3 +204,62 @@ describe("cancelling a running job", () => {
   });
 });
 
+
+describe("a job in the words a person reads", () => {
+  const now = new Date("2026-11-13T10:00:00Z");
+  const done = (more: Partial<Job>) => job({ state: "succeeded", exitCode: 0, startedAt: "2026-11-13T09:59:57Z", finishedAt: "2026-11-13T10:00:00Z", requestedBy: "pat", ...more });
+
+  it("says a pass's numbers as wrote, kept and retired, with who asked and how long it took", () => {
+    const outcome = outcomeOf(done({ kind: "pass", output: "group g-plant: 10 edge(s) written, 2 unchanged, 1 retired; as of 2026-11-13T09:59:58Z.\n" }), now);
+
+    expect(outcome).toEqual({ title: "Refresh from the source · asked by pat", facts: ["wrote 10", "kept 2", "retired 1"], tone: "ok", took: "3 s" });
+  });
+
+  it("says whether a verify found the copy agreeing with the source, and in what way it does not", () => {
+    const agrees = outcomeOf(done({ kind: "verify", output: "group g: 9 edge(s) as the sources give them, 0 missing, 0 different, 0 no longer given, 0 document(s) skipped" }), now);
+    const differs = outcomeOf(done({ kind: "verify", exitCode: 1, output: "group g: 9 edge(s) as the sources give them, 2 missing, 0 different, 1 no longer given, 0 document(s) skipped" }), now);
+
+    expect(agrees).toMatchObject({ facts: ["9 edges, all as the source gives them"], tone: "ok" });
+    expect(differs).toMatchObject({ facts: ["2 missing", "0 different", "1 no longer given"], tone: "warn" });
+  });
+
+  it("says a failed or stopped job plainly and has nothing to say of one still running", () => {
+    expect(outcomeOf(done({ kind: "pass", state: "failed", exitCode: 2 }), now)).toMatchObject({ facts: ["Failed (exit 2)"], tone: "bad" });
+    expect(outcomeOf(done({ kind: "pass", state: "cancelled", exitCode: null }), now)).toMatchObject({ facts: ["Stopped before it finished"], tone: "bad" });
+    expect(outcomeOf(job({ kind: "pass", state: "running", exitCode: null, finishedAt: null }), now)).toBeNull();
+  });
+
+  it("reads how long ago in the unit that matters", () => {
+    expect(ago("2026-11-13T09:59:30Z", now)).toBe("just now");
+    expect(ago("2026-11-13T09:40:00Z", now)).toBe("20 min ago");
+    expect(ago("2026-11-13T07:00:00Z", now)).toBe("3 h ago");
+    expect(ago("2026-11-11T10:00:00Z", now)).toBe("2 d ago");
+    expect(ago(null, now)).toBeNull();
+  });
+
+  it("gathers a copy's facts from the newest status, pass and verify", () => {
+    const status = done({ kind: "status", report: { status: { asOf: "2026-11-13T09:50:00Z", relations: [{ relation: "item", edges: 7, watermark: null }, { relation: "x", edges: 2, watermark: null }], identities: [] } } });
+    const verify = done({ kind: "verify", exitCode: 0 });
+
+    const pass = done({ kind: "changed-pass", requestedBy: "olive", output: "group g: 3 edge(s) written, 6 unchanged, 1 retired (1 relation(s) read where changed, 4 row(s) read)" });
+
+    expect(copyFacts([verify, status])).toMatchObject({ asOf: "2026-11-13T09:50:00Z", edges: 9, relations: 2, agrees: true, lastPass: null });
+    expect(copyFacts([pass, status]).lastPass).toEqual({ kind: "changed-pass", wrote: 3, kept: 6, retired: 1, by: "olive" });
+    expect(copyFacts([])).toEqual({ lastPass: null, asOf: null, edges: null, relations: null, agrees: null, verifiedAt: null });
+  });
+});
+
+describe("when a card reads a group's counts again", () => {
+  const at = (finishedAt: string, more: Partial<Job>) => job({ finishedAt, startedAt: finishedAt, ...more });
+
+  it("reads them when none were read, once for each write that came after the last read", () => {
+    const status = at("2026-11-13T10:00:00Z", { id: "s", kind: "status" });
+    const pass = at("2026-11-13T10:05:00Z", { id: "p", kind: "pass" });
+
+    expect(countsStale([])).toBe("none");
+    expect(countsStale([pass])).toBe("p");
+    expect(countsStale([status])).toBeNull();
+    expect(countsStale([pass, status])).toBe("p");
+    expect(countsStale([at("2026-11-13T10:06:00Z", { id: "s2", kind: "status" }), pass, status])).toBeNull();
+  });
+});

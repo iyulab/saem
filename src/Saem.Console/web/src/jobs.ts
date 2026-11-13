@@ -1,12 +1,15 @@
 import type { Answer, Catalog, CheckReport, GroupStatus, Job, JobKind, PairCandidate } from "./api";
 
-/** What a builder may ask a group's executor for from the screen, with what each does to the group's store. */
-export const asks: ReadonlyArray<{ kind: JobKind; title: string; writes: boolean; says: string }> = [
-  { kind: "verify", title: "Verify", writes: false, says: "Compare the store with what a pass would give now; writes nothing." },
-  { kind: "status", title: "Status", writes: false, says: "Read what the store holds in counts and times: the last pass, each relation's edges, each identity's things." },
-  { kind: "check", title: "Check", writes: false, says: "Check the declarations against the sources as the group's account." },
-  { kind: "changed-pass", title: "Changed rows pass", writes: true, says: "Read only the rows changed since the last pass and correct the store." },
-  { kind: "pass", title: "Whole pass", writes: true, says: "Read everything and make the store hold exactly what the sources give now." },
+/**
+ * What a builder may ask a group's executor for from the screen, with what each does to the group's copy (its store).
+ * `label` is the button's words; `term` is what the executor's own documentation calls it, kept in small print beside it.
+ */
+export const asks: ReadonlyArray<{ kind: JobKind; title: string; label: string; term: string; writes: boolean; says: string }> = [
+  { kind: "pass", title: "Whole pass", label: "Refresh from the source", term: "whole pass", writes: true, says: "Read everything the group's account may see and make the group's copy match it exactly." },
+  { kind: "changed-pass", title: "Changed rows pass", label: "Only what changed", term: "changed-rows pass", writes: true, says: "Read only the rows the source changed since the last pass and correct the group's copy for them." },
+  { kind: "verify", title: "Verify", label: "Verify the copy", term: "verify", writes: false, says: "Compare the group's copy with what a pass would give now; writes nothing." },
+  { kind: "check", title: "Check", label: "Check the declarations", term: "check", writes: false, says: "Check the declarations against the sources as the group's account." },
+  { kind: "status", title: "Status", label: "Read the counts", term: "status", writes: false, says: "Read what the group's copy holds in counts and times: the last pass, each relation's edges, each identity's things." },
 ];
 
 export const isRunning = (job: Job) => job.state === "running";
@@ -143,4 +146,91 @@ export type Settled = { jobs: Answer<Job[]>; unreached: string | null };
 export function settle(before: Settled | null, answer: Answer<Job[]>): Settled {
   const silent = !answer.ok && (answer.status === 0 || answer.status >= 500);
   return silent && before?.jobs.ok === true ? { jobs: before.jobs, unreached: "problem" in answer ? answer.problem : "The console gave no answer." } : { jobs: answer, unreached: null };
+}
+
+
+/** A time as a person says it: how long ago, to the unit that matters. */
+export function ago(then: string | null | undefined, now: Date): string | null {
+  if (!then) {
+    return null;
+  }
+  const seconds = Math.max(0, Math.round((now.getTime() - new Date(then).getTime()) / 1000));
+  if (seconds < 90) {
+    return "just now";
+  }
+  if (seconds < 3600) {
+    return `${Math.round(seconds / 60)} min ago`;
+  }
+  if (seconds < 86400) {
+    return `${Math.round(seconds / 3600)} h ago`;
+  }
+  return `${Math.round(seconds / 86400)} d ago`;
+}
+
+/** What a finished job says in one line a person reads: the numbers a pass prints, in the order they are asked about. */
+export type Outcome = { title: string; facts: string[]; tone: "ok" | "warn" | "bad"; took: string };
+
+const passCounts = /(\d+) edge\(s\) written, (\d+) unchanged, (\d+) retired/;
+const verifyCounts = /(\d+) edge\(s\) as the sources give them, (\d+) missing, (\d+) different, (\d+) no longer given/;
+
+/** A job in plain words: which ask it was, and what it did — wrote · kept · retired for a pass, agreed or not for a verify. Null for a job still running. */
+export function outcomeOf(job: Job, now: Date): Outcome | null {
+  if (isRunning(job)) {
+    return null;
+  }
+  const ask = asks.find((a) => a.kind === job.kind);
+  const title = `${ask?.label ?? job.kind} · asked by ${job.requestedBy}`;
+  const duration = took(job, now);
+  if (job.state !== "succeeded") {
+    return { title, facts: [job.state === "cancelled" ? "Stopped before it finished" : `Failed (exit ${job.exitCode ?? "?"})`], tone: "bad", took: duration };
+  }
+  const pass = passCounts.exec(job.output);
+  if (pass && (job.kind === "pass" || job.kind === "changed-pass")) {
+    return { title, facts: [`wrote ${pass[1]}`, `kept ${pass[2]}`, `retired ${pass[3]}`], tone: "ok", took: duration };
+  }
+  const verify = verifyCounts.exec(job.output);
+  if (verify && job.kind === "verify") {
+    const differs = Number(verify[2]) + Number(verify[3]) + Number(verify[4]);
+    return { title, facts: differs === 0 ? [`${verify[1]} edge${verify[1] === "1" ? "" : "s"}, all as the source gives them`] : [`${verify[2]} missing`, `${verify[3]} different`, `${verify[4]} no longer given`], tone: differs === 0 ? "ok" : "warn", took: duration };
+  }
+  const report = checkReport(job);
+  if (report) {
+    return { title, facts: [report.holds ? "every declaration holds" : `${violations(job).length} finding(s)`], tone: report.holds ? "ok" : "warn", took: duration };
+  }
+  return { title, facts: [], tone: "ok", took: duration };
+}
+
+/** The newest finished job of one of these kinds, from jobs that come newest first. */
+export const latestOf = (jobs: readonly Job[], kinds: readonly JobKind[]): Job | undefined =>
+  jobs.find((j) => kinds.includes(j.kind) && j.state === "succeeded");
+
+/** The group's copy in a few facts, from the newest status job and the newest verify. */
+export function copyFacts(jobs: readonly Job[]) {
+  const status = latestOf(jobs, ["status"]);
+  const report = status ? statusOf(status) : null;
+  const refreshed = latestOf(jobs, ["pass", "changed-pass"]);
+  const verify = latestOf(jobs, ["verify"]);
+  const pass = latestOf(jobs, ["pass", "changed-pass"]);
+  const lastPass = pass ? passCounts.exec(pass.output) : null;
+  return {
+    lastPass: lastPass ? { kind: pass!.kind, wrote: Number(lastPass[1]), kept: Number(lastPass[2]), retired: Number(lastPass[3]), by: pass!.requestedBy } : null,
+    asOf: [report?.asOf, refreshed?.finishedAt].filter((x): x is string => !!x).sort().pop() ?? null,
+    edges: report ? report.relations.reduce((sum, r) => sum + r.edges, 0) : null,
+    relations: report ? report.relations.length : null,
+    agrees: verify ? verify.exitCode === 0 : null,
+    verifiedAt: verify?.finishedAt ?? null,
+  };
+}
+
+/**
+ * Whether the counts a card shows are older than the group's last write — or were never read — so that reading them again is the
+ * card's next step. A job's id is returned so one write is answered with one read, not a loop. Jobs come newest first.
+ */
+export function countsStale(jobs: readonly Job[]): string | null {
+  const status = latestOf(jobs, ["status"]);
+  const write = latestOf(jobs, ["pass", "changed-pass", "fit", "judge"]);
+  if (!status) {
+    return write?.id ?? "none";
+  }
+  return write && write.finishedAt && status.finishedAt && write.finishedAt > status.finishedAt ? write.id : null;
 }

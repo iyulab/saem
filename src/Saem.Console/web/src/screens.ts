@@ -1,18 +1,19 @@
 export type Screen = "overview" | "catalog" | "review" | "draft" | "graph" | "local" | "check" | "groups" | "judgments";
 
 /**
- * The console's screens. The four a person uses to get from proposals to a declared catalog sit in the bar;
- * the rest (`more`) wait behind one "More" so a first-time reader is not shown nine tabs for a job of four.
+ * The console's screens. The four a person uses to get from proposals to a declared catalog sit in the bar, with Groups —
+ * where a builder asks each group for its copy of the relations; the rest (`more`) wait behind one "More" so a first-time
+ * reader is not shown nine tabs for a job of five.
  */
 export const screens: ReadonlyArray<{ screen: Screen; title: string; builders?: boolean; more?: boolean }> = [
   { screen: "overview", title: "Overview" },
   { screen: "catalog", title: "Catalog" },
   { screen: "review", title: "Review", builders: true },
   { screen: "draft", title: "Draft", builders: true },
+  { screen: "groups", title: "Groups", builders: true },
   { screen: "graph", title: "Knowledge graph", more: true },
   { screen: "local", title: "Local graph", builders: true, more: true },
   { screen: "check", title: "Check", builders: true, more: true },
-  { screen: "groups", title: "Groups", builders: true, more: true },
   { screen: "judgments", title: "Judgments", builders: true, more: true },
 ];
 

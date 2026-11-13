@@ -715,6 +715,12 @@ this is the executor's secret, which lets it ask that executor for work and reac
 store nor its sources. An executor that cannot be reached, or that refuses the secret, is a `502` that says
 which group and does not repeat the secret.
 
+The Groups screen shows each such group as a card: when its copy of the relations was last refreshed and whether the
+last verify found it matching the source, how many edges it holds, what the last pass wrote, kept and retired, and the
+three things a builder asks of it most — refresh from the source (a whole pass), only what changed (a changed-rows
+pass) and verify; check, status and fit sit behind *Other asks*. A card reads the executor's counts when it is shown and
+again after the group's copy was written.
+
 #### Deploying the console
 
 - **Build.** Two steps, in this order: `npm ci && npm run build` in `src/Saem.Console/web/` (it writes

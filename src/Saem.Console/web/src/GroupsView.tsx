@@ -1,27 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, whyNot, type Answer, type Catalog, type Job, type JobKind } from "./api";
-import { asks, cancelWarning, checkReport, fitIdentities, fitSays, isRunning, runningJob, settle, type Settled, statusOf, summary, took, violations } from "./jobs";
+import { ago, asks, cancelWarning, checkReport, copyFacts, countsStale, fitIdentities, fitSays, isRunning, outcomeOf, runningJob, settle, type Settled, statusOf, summary, took, violations } from "./jobs";
 
 const POLL_MS = 2000;
 
 /**
- * The groups' executors: what each has been asked for and what it said, and what a builder may ask next. The console
- * only relays — a group's executor holds its sources and its store — so what appears is what the executor printed,
- * except a check's lines and cited records, which the console leaves out.
+ * The groups, side by side: for each, what its copy of the relations holds and when it was last refreshed, what a builder may
+ * ask next, and what the last thing asked said. The console only relays — a group's executor holds its sources and its store —
+ * so what appears is what the executor printed, except a check's lines and cited records, which the console leaves out.
  */
 export function GroupsView() {
   const [groups, setGroups] = useState<Answer<Array<{ group: string }>> | null>(null);
-  const [group, setGroup] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<Answer<Catalog> | null>(null);
 
   useEffect(() => {
     api.catalog().then(setCatalog);
-    api.executors().then((answer) => {
-      setGroups(answer);
-      if (answer.ok && answer.value.length > 0) {
-        setGroup(answer.value[0].group);
-      }
-    });
+    api.executors().then(setGroups);
   }, []);
 
   if (groups === null) {
@@ -30,36 +24,43 @@ export function GroupsView() {
   if (!groups.ok) {
     return <p role="alert">{whyNot(groups, "Only builders ask a group's executor.")}</p>;
   }
-  if (groups.value.length === 0) {
-    return (
-      <section>
-        <h1>Groups</h1>
+  const fits = catalog?.ok ? fitIdentities(catalog.value) : [];
+  return (
+    <section className="groups">
+      <h1>Groups</h1>
+      <p className="lead">
+        Each group keeps its own copy of the relations its account can see in the sources. A person is answered from their group's copy — and still only with what the source shows that person.
+      </p>
+      {groups.value.length === 0 ? (
         <p className="muted">
           No executor is set. Name each group's <code>saem-materialize serve</code> in <code>Saem:Console:Executors</code>.
         </p>
-      </section>
-    );
-  }
-
-  return (
-    <section>
-      <h1>Groups</h1>
-      <div className="start">
-        <label>
-          Group{" "}
-          <select value={group ?? ""} onChange={(e) => setGroup(e.target.value)} aria-label="Group">
-            {groups.value.map((g) => (
-              <option key={g.group}>{g.group}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-      {group && <Executor key={group} group={group} fits={catalog?.ok ? fitIdentities(catalog.value) : []} />}
+      ) : (
+        <div className="group-cards">
+          {groups.value.map((g) => (
+            <GroupCard key={g.group} group={g.group} fits={fits} />
+          ))}
+        </div>
+      )}
+      <aside className="note">
+        <h2>How a question is answered</h2>
+        <p>
+          A person asks from a start. A step that needs the other direction of a relation — <em>which work orders make this item?</em> — is answered from their group's copy, each hop saying which group's copy and when it was read. Someone in no group is told that step has no copy to read; forward steps still answer.
+        </p>
+        <dl>
+          <dt>Refresh (whole pass)</dt>
+          <dd>reads everything the group's account may see and makes the copy match it.</dd>
+          <dt>Only what changed (changed-rows pass)</dt>
+          <dd>reads just the rows the source changed since the last pass. It cannot see a row that was retired — a whole pass does.</dd>
+          <dt>Wrote · kept · retired</dt>
+          <dd>how many edges the pass added or corrected, left as they were, and took out because the source no longer gives them.</dd>
+        </dl>
+      </aside>
     </section>
   );
 }
 
-function Executor({ group, fits }: { group: string; fits: string[] }) {
+function GroupCard({ group, fits }: { group: string; fits: string[] }) {
   const [settled, setSettled] = useState<Settled | null>(null);
   const jobs = settled?.jobs ?? null;
   const [open, setOpen] = useState<string | null>(null);
@@ -68,6 +69,7 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
   const [identity, setIdentity] = useState(fits[0] ?? "");
   const [refused, setRefused] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const readCountsFor = useRef<string | null>(null);
 
   const load = useCallback(() => {
     api.jobs(group).then((answer) => {
@@ -88,6 +90,15 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
     return () => clearInterval(timer);
   }, [running?.id, load]);
 
+  // A copy's counts are one read-only ask away: read them when the card is first shown, and again after the group's copy was written.
+  useEffect(() => {
+    const stale = jobs?.ok ? countsStale(list) : null;
+    if (stale && stale !== readCountsFor.current && !running) {
+      readCountsFor.current = stale;
+      api.startJob(group, "status").then(load);
+    }
+  }, [jobs, running, list, group, load]);
+
   const ask = (kind: JobKind, forIdentity?: string) => {
     setConfirm(null);
     setRefused(null);
@@ -102,53 +113,98 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
   };
 
   if (jobs === null) {
-    return <p>Loading…</p>;
+    return <article className="group-card">Loading…</article>;
   }
   if (!jobs.ok) {
-    return <p role="alert">{whyNot(jobs, "The executor could not be asked.")}</p>;
+    return (
+      <article className="group-card">
+        <h2>{group}</h2>
+        <p role="alert">{whyNot(jobs, "The executor could not be asked.")}</p>
+      </article>
+    );
   }
 
+  const facts = copyFacts(list);
+  const last = list.find((j) => !isRunning(j) && j.kind !== "status");
+  const outcome = last ? outcomeOf(last, now) : null;
   const shown = list.find((j) => j.id === open) ?? list[0];
+  const primary = asks.filter((a) => a.kind === "pass" || a.kind === "changed-pass" || a.kind === "verify");
+  const secondary = asks.filter((a) => a.kind === "check" || a.kind === "status");
+  const button = (a: (typeof asks)[number], first: boolean) => (
+    <button
+      key={a.kind}
+      className={first ? "button" : "outline"}
+      title={`${a.says} (${a.term})`}
+      disabled={running !== undefined}
+      onClick={() => (a.writes ? setConfirm({ kind: a.kind }) : ask(a.kind))}
+    >
+      {a.label}
+    </button>
+  );
   return (
-    <>
+    <article className="group-card" aria-label={`Group ${group}`}>
+      <h2>{group}</h2>
+      <p className="muted small">Keeps its own copy of the relations its account can see · own store, own secret</p>
+      <dl className="facts">
+        <dt>Last refresh</dt>
+        <dd>
+          {facts.asOf ? `${new Date(facts.asOf).toLocaleString()} · ${ago(facts.asOf, now)}` : "never — nothing has been read into this copy yet"}
+          {facts.agrees === true && <span className="badge ok">matches the source</span>}
+          {facts.agrees === false && <span className="badge warn">differs from the source</span>}
+        </dd>
+        <dt>Last pass</dt>
+        <dd>
+          {facts.lastPass ? (
+            <>
+              <span className="figures">
+                wrote {facts.lastPass.wrote} · kept {facts.lastPass.kept} · retired {facts.lastPass.retired}
+              </span>{" "}
+              <span className="muted">
+                ({asks.find((a) => a.kind === facts.lastPass!.kind)?.label.toLowerCase()}, asked by {facts.lastPass.by})
+              </span>
+            </>
+          ) : (
+            <span className="muted">none yet in this executor's memory</span>
+          )}
+        </dd>
+        <dt>Holds</dt>
+        <dd>{facts.edges === null ? "reading…" : `${facts.edges} edge${facts.edges === 1 ? "" : "s"} across ${facts.relations} relation${facts.relations === 1 ? "" : "s"}`}</dd>
+        <dt>Answers</dt>
+        <dd>
+          people whose sign-in names <strong>{group}</strong>
+        </dd>
+      </dl>
+      <div className="actions-row">
+        {primary.map((a, i) => button(a, i === 0))}
+        {running && (
+          <button className="link" onClick={() => (cancelWarning(running) === null ? api.cancelJob(group, running.id).then(load) : setStopping(running))}>
+            Cancel the running {running.kind} <span className="muted">({running.requestedBy})</span>
+          </button>
+        )}
+      </div>
+      <details className="inline">
+        <summary>Other asks</summary>
+        <div className="actions-row">
+          {secondary.map((a) => button(a, false))}
+          {fits.length > 0 && (
+            <span>
+              <select value={identity || fits[0]} onChange={(e) => setIdentity(e.target.value)} aria-label="Identity to fit">
+                {fits.map((name) => (
+                  <option key={name}>{name}</option>
+                ))}
+              </select>{" "}
+              <button className="outline" title={fitSays} disabled={running !== undefined} onClick={() => setConfirm({ kind: "fit", identity: identity || fits[0] })}>
+                Fit
+              </button>
+            </span>
+          )}
+        </div>
+      </details>
       {settled?.unreached && (
         <p className="muted" role="status">
           {settled.unreached} Showing what was last read; asking again.
         </p>
       )}
-      <div className="start">
-        {asks.map((a) => (
-          <button
-            key={a.kind}
-            className="button"
-            title={a.says}
-            disabled={running !== undefined}
-            onClick={() => (a.writes ? setConfirm({ kind: a.kind }) : ask(a.kind))}
-          >
-            {a.title}
-          </button>
-        ))}
-        {fits.length > 0 && (
-          <span>
-            <select value={identity || fits[0]} onChange={(e) => setIdentity(e.target.value)} aria-label="Identity to fit">
-              {fits.map((name) => (
-                <option key={name}>{name}</option>
-              ))}
-            </select>{" "}
-            <button className="button" title={fitSays} disabled={running !== undefined} onClick={() => setConfirm({ kind: "fit", identity: identity || fits[0] })}>
-              Fit
-            </button>
-          </span>
-        )}
-        {running && (
-          <button
-            className="link"
-            onClick={() => (cancelWarning(running) === null ? api.cancelJob(group, running.id).then(load) : setStopping(running))}
-          >
-            Cancel the running {running.kind} <span className="muted">({running.requestedBy})</span>
-          </button>
-        )}
-      </div>
       {stopping && running?.id === stopping.id && (
         <p className="refusal" role="alertdialog">
           {cancelWarning(stopping)}{" "}
@@ -168,7 +224,7 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
       )}
       {confirm && (
         <p className="refusal" role="alertdialog">
-          {confirm.kind === "fit" ? `${fitSays} (${confirm.identity})` : asks.find((a) => a.kind === confirm.kind)?.says} It writes to <strong>{group}</strong>'s store.{" "}
+          {confirm.kind === "fit" ? `${fitSays} (${confirm.identity})` : asks.find((a) => a.kind === confirm.kind)?.says} It writes to <strong>{group}</strong>'s copy.{" "}
           <button className="button" onClick={() => ask(confirm.kind, confirm.identity)}>
             Run it
           </button>{" "}
@@ -182,35 +238,53 @@ function Executor({ group, fits }: { group: string; fits: string[] }) {
           {refused}
         </p>
       )}
-      {list.length === 0 && <p className="muted">This executor has not run a job since it started.</p>}
-      {list.length > 0 && (
-        <div className="graph">
-          <table>
-            <thead>
-              <tr>
-                <th>Job</th>
-                <th>Started</th>
-                <th>Took</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((j) => (
-                <tr key={j.id} className={j.state === "failed" ? "worse" : undefined}>
-                  <td>
-                    <button className="link" onClick={() => setOpen(j.id)} aria-current={j.id === shown?.id}>
-                      {summary(j)}
-                    </button>
-                  </td>
-                  <td className="muted">{new Date(j.startedAt).toLocaleString()}</td>
-                  <td className="muted">{took(j, now)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {shown && <JobDetail job={shown} />}
-        </div>
+      {running && (
+        <p className="result" role="status">
+          <strong>{asks.find((a) => a.kind === running.kind)?.label ?? running.kind}</strong> · asked by {running.requestedBy}
+          <br />
+          <span className="muted">Running… {took(running, now)}</span>
+        </p>
       )}
-    </>
+      {!running && outcome && (
+        <p className={`result ${outcome.tone}`} role="status">
+          <strong>{outcome.title}</strong>
+          <br />
+          {outcome.facts.length > 0 && <span className="figures">{outcome.facts.join(" · ")} · </span>}
+          <span className="muted">done in {outcome.took}</span>
+        </p>
+      )}
+      {!running && !outcome && <p className="muted">Nothing has been asked of this group since its executor started.</p>}
+      {list.length > 0 && (
+        <details className="inline">
+          <summary>Everything this executor ran ({list.length})</summary>
+          <div className="graph">
+            <table>
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Started</th>
+                  <th>Took</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((j) => (
+                  <tr key={j.id} className={j.state === "failed" ? "worse" : undefined}>
+                    <td>
+                      <button className="link" onClick={() => setOpen(j.id)} aria-current={j.id === shown?.id}>
+                        {summary(j)}
+                      </button>
+                    </td>
+                    <td className="muted">{new Date(j.startedAt).toLocaleString()}</td>
+                    <td className="muted">{took(j, now)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {shown && <JobDetail job={shown} />}
+          </div>
+        </details>
+      )}
+    </article>
   );
 }
 
