@@ -133,10 +133,10 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
   const shown = list.find((j) => j.id === open) ?? list[0];
   const primary = asks.filter((a) => a.kind === "pass" || a.kind === "changed-pass" || a.kind === "verify");
   const secondary = asks.filter((a) => a.kind === "check" || a.kind === "status");
-  const button = (a: (typeof asks)[number], first: boolean) => (
+  const button = (a: (typeof asks)[number], tier: "primary" | "secondary" | "quiet") => (
     <button
       key={a.kind}
-      className={first ? "button" : "outline"}
+      className={tier === "primary" ? "button" : tier === "secondary" ? "outline" : "quiet"}
       title={`${a.says} (${a.term})`}
       disabled={running !== undefined}
       onClick={() => (a.writes ? setConfirm({ kind: a.kind }) : ask(a.kind))}
@@ -163,7 +163,7 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
         </dd>
       </dl>
       <div className="actions-row">
-        {primary.map((a, i) => button(a, i === 0))}
+        {primary.map((a) => button(a, a.kind === "pass" ? "primary" : a.kind === "changed-pass" ? "secondary" : "quiet"))}
         {running && (
           <button className="link" onClick={() => (cancelWarning(running) === null ? api.cancelJob(group, running.id).then(load) : setStopping(running))}>
             Cancel the running {running.kind} <span className="muted">({running.requestedBy})</span>
@@ -173,7 +173,7 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
       <details className="inline">
         <summary>More options</summary>
         <div className="actions-row">
-          {secondary.map((a) => button(a, false))}
+          {secondary.map((a) => button(a, "quiet"))}
           {fits.length > 0 && (
             <span>
               <select value={identity || fits[0]} onChange={(e) => setIdentity(e.target.value)} aria-label="Identity to fit">
