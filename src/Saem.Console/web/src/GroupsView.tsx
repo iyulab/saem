@@ -45,16 +45,19 @@ export function GroupsView() {
       <aside className="note">
         <h2>How a question is answered</h2>
         <p>
-          A question that goes against a relation — <em>which work orders make this item?</em> — is answered from the asker's group copy, and says which copy and when it was read. Someone in no group is told there is no copy to read; questions that follow a relation forward still answer.
+          A question that asks the other way round — <em>which work orders make this item?</em> — is answered from the asker's group copy, and says which copy and when it was read. Someone in no group is told there is no copy to read.
         </p>
-        <dl>
-          <dt>Refresh (whole pass)</dt>
-          <dd>reads everything the group's account may see and makes the copy match it.</dd>
-          <dt>Only what changed (changed-rows pass)</dt>
-          <dd>reads just the rows the source changed since the last pass. It cannot see a row that was retired — a whole pass does.</dd>
-          <dt>Wrote · kept · retired</dt>
-          <dd>how many links the pass added or corrected, left as they were, and took out because the source no longer has them.</dd>
-        </dl>
+        <details className="inline">
+          <summary>What the words mean</summary>
+          <dl>
+            <dt>Refresh from the source</dt>
+            <dd>reads everything the group's account may see and makes the copy match it (a whole pass).</dd>
+            <dt>Only what changed</dt>
+            <dd>reads just the rows the source changed since the last refresh (a changed-rows pass). It cannot see a row that was retired — a refresh does.</dd>
+            <dt>wrote · kept · retired</dt>
+            <dd>links added or corrected, links left as they were, links taken out because the source no longer has them.</dd>
+          </dl>
+        </details>
       </aside>
     </section>
   );
@@ -153,7 +156,7 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
           {facts.agrees === false && <span className="badge warn">differs from the source</span>}
         </dd>
         <dt>Holds</dt>
-        <dd>{facts.edges === null ? "reading…" : `${facts.edges} link${facts.edges === 1 ? "" : "s"} · ${facts.relations} relation${facts.relations === 1 ? "" : "s"}`}</dd>
+        <dd>{facts.edges === null ? "reading…" : `${facts.edges} link${facts.edges === 1 ? "" : "s"} between records`}</dd>
         <dt>Answers</dt>
         <dd>
           people whose sign-in names <strong>{group}</strong>

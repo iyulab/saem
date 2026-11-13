@@ -192,7 +192,7 @@ export function outcomeOf(job: Job, now: Date): Outcome | null {
   const verify = verifyFirst;
   if (verify) {
     const differs = Number(verify[2]) + Number(verify[3]) + Number(verify[4]);
-    return { title, facts: differs === 0 ? [`${verify[1]} edge${verify[1] === "1" ? "" : "s"}, all as the source gives them`] : [`${verify[2]} missing`, `${verify[3]} different`, `${verify[4]} no longer given`], tone: differs === 0 ? "ok" : "warn", took: duration };
+    return { title, facts: differs === 0 ? [`matches the source (${verify[1]} link${verify[1] === "1" ? "" : "s"})`] : [`${verify[2]} missing`, `${verify[3]} different`, `${verify[4]} no longer given`], tone: differs === 0 ? "ok" : "warn", took: duration };
   }
   const report = checkReport(job);
   if (report) {

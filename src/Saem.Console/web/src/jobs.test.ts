@@ -219,7 +219,7 @@ describe("a job in the words a person reads", () => {
     const agrees = outcomeOf(done({ kind: "verify", output: "group g: 9 edge(s) as the sources give them, 0 missing, 0 different, 0 no longer given, 0 document(s) skipped" }), now);
     const differs = outcomeOf(done({ kind: "verify", exitCode: 1, output: "group g: 9 edge(s) as the sources give them, 2 missing, 0 different, 1 no longer given, 0 document(s) skipped" }), now);
 
-    expect(agrees).toMatchObject({ facts: ["9 edges, all as the source gives them"], tone: "ok" });
+    expect(agrees).toMatchObject({ facts: ["matches the source (9 links)"], tone: "ok" });
     expect(differs).toMatchObject({ facts: ["2 missing", "0 different", "1 no longer given"], tone: "warn" });
     const failedVerify = outcomeOf(done({ kind: "verify", state: "failed", exitCode: 1, output: "group g: 9 edge(s) as the sources give them, 2 missing, 0 different, 1 no longer given, 0 document(s) skipped" }), now);
     expect(failedVerify).toMatchObject({ facts: ["2 missing", "0 different", "1 no longer given"], tone: "warn" });
