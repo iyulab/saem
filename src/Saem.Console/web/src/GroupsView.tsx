@@ -236,6 +236,12 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
           <br />
           {outcome.facts.length > 0 && <span className="figures">{outcome.facts.join(" · ")} · </span>}
           <span className="muted">done in {outcome.took}</span>
+          {last?.kind === "verify" && outcome.tone === "warn" && (
+            <>
+              <br />
+              <span className="muted small">The copy no longer matches the source. “Refresh from the source” brings it back.</span>
+            </>
+          )}
           {last && (last.kind === "pass" || last.kind === "changed-pass") && outcome.facts.length === 3 && (
             <>
               <br />
@@ -247,7 +253,7 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
       {!running && !outcome && <p className="muted">Nothing has been asked of this group yet.</p>}
       {list.length > 0 && (
         <details className="inline">
-          <summary>History ({list.length})</summary>
+          <summary>History ({list.filter((j) => j.kind !== "status").length})</summary>
           <div className="graph">
             <table>
               <thead>

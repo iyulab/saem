@@ -221,6 +221,9 @@ describe("a job in the words a person reads", () => {
 
     expect(agrees).toMatchObject({ facts: ["9 edges, all as the source gives them"], tone: "ok" });
     expect(differs).toMatchObject({ facts: ["2 missing", "0 different", "1 no longer given"], tone: "warn" });
+    const failedVerify = outcomeOf(done({ kind: "verify", state: "failed", exitCode: 1, output: "group g: 9 edge(s) as the sources give them, 2 missing, 0 different, 1 no longer given, 0 document(s) skipped" }), now);
+    expect(failedVerify).toMatchObject({ facts: ["2 missing", "0 different", "1 no longer given"], tone: "warn" });
+    expect(copyFacts([job({ kind: "verify", state: "failed", exitCode: 1, finishedAt: "2026-11-13T10:00:00Z" })]).agrees).toBe(false);
   });
 
   it("says a failed or stopped job plainly and has nothing to say of one still running", () => {

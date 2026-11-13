@@ -181,15 +181,16 @@ export function outcomeOf(job: Job, now: Date): Outcome | null {
   const ask = asks.find((a) => a.kind === job.kind);
   const title = `${ask?.label ?? job.kind} · asked by ${job.requestedBy}`;
   const duration = took(job, now);
-  if (job.state !== "succeeded") {
+  const verifyFirst = job.kind === "verify" ? verifyCounts.exec(job.output) : null;
+  if (job.state !== "succeeded" && !verifyFirst) {
     return { title, facts: [job.state === "cancelled" ? "Stopped before it finished" : `Failed (exit ${job.exitCode ?? "?"})`], tone: "bad", took: duration };
   }
   const pass = passCounts.exec(job.output);
   if (pass && (job.kind === "pass" || job.kind === "changed-pass")) {
     return { title, facts: [`wrote ${pass[1]}`, `kept ${pass[2]}`, `retired ${pass[3]}`], tone: "ok", took: duration };
   }
-  const verify = verifyCounts.exec(job.output);
-  if (verify && job.kind === "verify") {
+  const verify = verifyFirst;
+  if (verify) {
     const differs = Number(verify[2]) + Number(verify[3]) + Number(verify[4]);
     return { title, facts: differs === 0 ? [`${verify[1]} edge${verify[1] === "1" ? "" : "s"}, all as the source gives them`] : [`${verify[2]} missing`, `${verify[3]} different`, `${verify[4]} no longer given`], tone: differs === 0 ? "ok" : "warn", took: duration };
   }
@@ -209,7 +210,7 @@ export function copyFacts(jobs: readonly Job[]) {
   const status = latestOf(jobs, ["status"]);
   const report = status ? statusOf(status) : null;
   const refreshed = latestOf(jobs, ["pass", "changed-pass"]);
-  const verify = latestOf(jobs, ["verify"]);
+  const verify = jobs.find((j) => j.kind === "verify" && !isRunning(j) && j.exitCode !== null && j.finishedAt !== null);
   const pass = latestOf(jobs, ["pass", "changed-pass"]);
   const lastPass = pass ? passCounts.exec(pass.output) : null;
   return {
