@@ -304,8 +304,8 @@ reads from the start instead.
 
 **What the pass reads, sends and writes.** Authoring is an administrator's act, not a person's lookup: the pass reads the
 sampled records with the administrator's own Formbase key (`SAEM_FORMBASE_TOKEN`), whatever any one person may see,
-sends those records to the model endpoint you name, and the review and the proposals files carry them too (the records each
-declaration was drawn from). Choose the model endpoint as you would choose where the records themselves may be stored, keep
+sends those records to the model endpoint you name, and the review file carries them too (the records each declaration was
+drawn from; the proposals file holds the declarations and what the pass was made with, not the records). Choose the model endpoint as you would choose where the records themselves may be stored, keep
 the files where only the administrator reads them, and do not commit them to a repository others read.
 
 ```sh
