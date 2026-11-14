@@ -277,6 +277,47 @@ public sealed class AuthorCommandTests : IDisposable
         Assert.Contains("- attempt 1: HttpRequestException: stream cut", review, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_draft_is_not_written_over_the_catalog_in_force_unless_told_in_so_many_words_and_nothing_is_read_first()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const string Catalog = """[{"kind":"entityType","name":"Item","system":"erp","table":"items","key":"item_code","fields":{"name":"item_name"}}]""";
+        var options = await PrepareAsync(catalog: Catalog);
+        var overCatalog = options with { DraftPath = options.CatalogPath, Overwrite = true };
+        var sampler = new Sampler();
+
+        var refused = await Assert.ThrowsAsync<AuthorRunException>(() =>
+            AuthorRun.RunAsync(overCatalog, new Proposer(), sampler, new NoStructures(), [], TextWriter.Null, ct));
+
+        Assert.Contains("is the catalog in force", refused.Message, StringComparison.Ordinal);
+        Assert.Contains("--replace-catalog", refused.Message, StringComparison.Ordinal);
+        Assert.Equal(Catalog, await File.ReadAllTextAsync(options.CatalogPath, ct));
+        Assert.Equal(0, sampler.Calls);
+        Assert.False(File.Exists(options.ReviewPath));
+
+        await AuthorRun.RunAsync(overCatalog with { ReplaceCatalog = true }, new Proposer(), sampler, new NoStructures(), [], TextWriter.Null, ct);
+        Assert.NotEqual(Catalog, await File.ReadAllTextAsync(options.CatalogPath, ct));
+    }
+
+    [Fact]
+    public async Task The_catalog_is_recognised_by_its_file_not_by_how_it_is_spelled()
+    {
+        var options = await PrepareAsync(catalog: "[]");
+        var respelled = options with { DraftPath = Path.Combine(_dir, ".", "ONTOLOGY.JSON"), Overwrite = true };
+
+        var refused = await Assert.ThrowsAsync<AuthorRunException>(() =>
+            AuthorRun.RunAsync(respelled, new Proposer(), new Sampler(), new NoStructures(), [], TextWriter.Null, TestContext.Current.CancellationToken));
+
+        Assert.Contains("is the catalog in force", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Replacing_the_catalog_is_a_flag_of_its_own()
+    {
+        Assert.False(AuthorOptions.Parse([.. Required, "--overwrite"], _ => null).ReplaceCatalog);
+        Assert.True(AuthorOptions.Parse([.. Required, "--overwrite", "--replace-catalog"], _ => null).ReplaceCatalog);
+    }
+
     private async Task<AuthorOptions> PrepareAsync(string? catalog, string sources = """{"work_orders":{"system":"mes","table":"work_orders","keyField":"wo_no"}}""")
     {
         var ct = TestContext.Current.CancellationToken;

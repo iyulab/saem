@@ -298,7 +298,8 @@ file that would replace the catalog.
 documents are read from a Formbase instance, the declarations in force from the catalog file, and
 the subjects from a sources file that says where each one's rows stand for a lookup. Out come three
 files, a review, a draft catalog and the pass's proposals; nothing else is written, and an existing file
-is replaced only with `--overwrite`. A subject is sampled from the most recent end of its stream by
+is replaced only with `--overwrite`; the catalog in force is never the draft's destination unless
+`--replace-catalog` says so too (a draft written over it is in force before anyone has reviewed it). A subject is sampled from the most recent end of its stream by
 default, so a form revised since it was first filled in is read as it stands now; `--sample oldest`
 reads from the start instead.
 
@@ -312,7 +313,8 @@ the files where only the administrator reads them, and do not commit them to a r
 # sources.json: { "items": { "system": "forms", "table": "items", "keyField": "item_code", "record": ["fb_doc_id"] } }
 SAEM_MODEL_API_KEY=… saem-author --formbase http://localhost:8080 --sources sources.json \
   --catalog ontology.json --model-endpoint https://models.example/v1 --model <name> --model-stream \
-  --draft ontology.json --overwrite        # the review is then `git diff ontology.json` + review.md
+  --draft ontology.json --overwrite --replace-catalog   # catalog under version control: the review is then `git diff ontology.json` + review.md
+# without --replace-catalog the draft goes to its own file (default draft.json) and the catalog is untouched until a person adopts it
 ```
 
 The pass also keeps what it proposed (`--proposals`, default `proposals.json`), since the review edits the

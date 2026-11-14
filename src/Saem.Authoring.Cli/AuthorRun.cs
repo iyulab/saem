@@ -45,6 +45,15 @@ internal static class AuthorRun
         ArgumentNullException.ThrowIfNull(retries);
         ArgumentNullException.ThrowIfNull(log);
 
+        // A proposal has no effect until a person adopts it: the draft goes beside the catalog in force, not over it,
+        // unless the caller says in so many words that the catalog's own diff is the review.
+        if (!options.ReplaceCatalog && SameFile(options.DraftPath, options.CatalogPath))
+        {
+            throw new AuthorRunException(
+                $"'{options.DraftPath}' is the catalog in force; a draft written there is in force before anyone has reviewed it. "
+                + "Point --draft at another file, or pass --replace-catalog (with --overwrite) when the catalog is under version control and its diff is the review.");
+        }
+
         foreach (var output in new[] { options.ReviewPath, options.DraftPath, options.ProposalsPath })
         {
             if (!options.Overwrite && File.Exists(output))
@@ -102,6 +111,10 @@ internal static class AuthorRun
 
         return text.ToString();
     }
+
+    /// <summary>Whether two paths name the same file — compared case-insensitively, so a case-folding file system cannot be used to slip past.</summary>
+    private static bool SameFile(string left, string right) =>
+        string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
 
     private static async Task<IReadOnlyDictionary<string, SubjectSource>> ReadSourcesAsync(string path, CancellationToken cancellationToken)
     {

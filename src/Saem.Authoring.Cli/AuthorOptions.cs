@@ -25,7 +25,8 @@ internal sealed record AuthorOptions(
     string ReviewPath,
     string DraftPath,
     string ProposalsPath,
-    bool Overwrite)
+    bool Overwrite,
+    bool ReplaceCatalog = false)
 {
     public const string FormbaseTokenVariable = "SAEM_FORMBASE_TOKEN";
     public const string ModelApiKeyVariable = "SAEM_MODEL_API_KEY";
@@ -55,8 +56,11 @@ internal sealed record AuthorOptions(
                                          Newest reads the form as it stands now; oldest reads from the start of the
                                          stream, where a form revised since may show none of its revised fields.
           --review <path>                Where the review document goes (default review.md).
-          --draft <path>                 Where the draft catalog goes (default draft.json). Pass the catalog
-                                         itself, with --overwrite, to review the draft as a diff of that file.
+          --draft <path>                 Where the draft catalog goes (default draft.json). The catalog itself
+                                         is refused unless --replace-catalog is also given: a draft written
+                                         there is in force before anyone has reviewed it.
+          --replace-catalog              Allow --draft to be the --catalog file (with --overwrite), for a catalog
+                                         under version control whose diff is the review.
           --proposals <path>             Where the pass's proposals are kept until the review is settled
                                          (default proposals.json) — read by saem-author settle.
           --overwrite                    Replace an output file if it exists.
@@ -87,7 +91,7 @@ internal sealed record AuthorOptions(
         for (var i = 0; i < args.Count; i++)
         {
             var arg = args[i];
-            if (arg is "--model-stream" or "--overwrite")
+            if (arg is "--model-stream" or "--overwrite" or "--replace-catalog")
             {
                 flags.Add(arg);
             }
@@ -132,7 +136,8 @@ internal sealed record AuthorOptions(
             ReviewPath: values.GetValueOrDefault("--review", "review.md"),
             DraftPath: values.GetValueOrDefault("--draft", "draft.json"),
             ProposalsPath: values.GetValueOrDefault("--proposals", "proposals.json"),
-            Overwrite: flags.Contains("--overwrite"));
+            Overwrite: flags.Contains("--overwrite"),
+            ReplaceCatalog: flags.Contains("--replace-catalog"));
 
         string Required(string name) =>
             values.TryGetValue(name, out var value) ? value : throw new AuthorUsageException($"{name} is required.");
