@@ -173,6 +173,17 @@ export type Outcome = { title: string; facts: string[]; tone: "ok" | "warn" | "b
 const passCounts = /(\d+) edge\(s\) written, (\d+) unchanged, (\d+) retired/;
 const verifyCounts = /(\d+) edge\(s\) as the sources give them, (\d+) missing, (\d+) different, (\d+) no longer given/;
 
+const WhyShown = 160;
+
+/** The last line a job printed that says anything — where an executor puts why it stopped — shortened to a line a card can show. */
+function lastLine(output: string): string | null {
+  const line = output.split("\n").map((l) => l.trim()).filter((l) => l.length > 0).pop();
+  if (!line) {
+    return null;
+  }
+  return line.length > WhyShown ? `${line.slice(0, WhyShown)}…` : line;
+}
+
 /** A job in plain words: which ask it was, and what it did — wrote · kept · retired for a pass, agreed or not for a verify. Null for a job still running. */
 export function outcomeOf(job: Job, now: Date): Outcome | null {
   if (isRunning(job)) {
@@ -183,7 +194,11 @@ export function outcomeOf(job: Job, now: Date): Outcome | null {
   const duration = took(job, now);
   const verifyFirst = job.kind === "verify" ? verifyCounts.exec(job.output) : null;
   if (job.state !== "succeeded" && !verifyFirst) {
-    return { title, facts: [job.state === "cancelled" ? "Stopped before it finished" : `Failed (exit ${job.exitCode ?? "?"})`], tone: "bad", took: duration };
+    if (job.state === "cancelled") {
+      return { title, facts: ["Stopped before it finished"], tone: "bad", took: duration };
+    }
+    const why = lastLine(job.output);
+    return { title, facts: why ? [`Failed (exit ${job.exitCode ?? "?"})`, why] : [`Failed (exit ${job.exitCode ?? "?"})`], tone: "bad", took: duration };
   }
   const pass = passCounts.exec(job.output);
   if (pass && (job.kind === "pass" || job.kind === "changed-pass")) {
@@ -212,13 +227,17 @@ export function copyFacts(jobs: readonly Job[]) {
   const refreshed = latestOf(jobs, ["pass", "changed-pass"]);
   const verify = jobs.find((j) => j.kind === "verify" && !isRunning(j) && j.exitCode !== null && j.finishedAt !== null);
   const pass = latestOf(jobs, ["pass", "changed-pass"]);
+  // A verdict is about the copy as it was when the verify ran: a pass that finished after it — one that failed may have written too —
+  // has changed the copy, so the verdict no longer says anything of it until the verify is asked again.
+  const wrote = jobs.find((j) => (j.kind === "pass" || j.kind === "changed-pass") && !isRunning(j) && j.finishedAt !== null);
+  const verdictStands = verify !== undefined && !(wrote !== undefined && new Date(wrote.finishedAt!).getTime() > new Date(verify.finishedAt!).getTime());
   const lastPass = pass ? passCounts.exec(pass.output) : null;
   return {
     lastPass: lastPass ? { kind: pass!.kind, wrote: Number(lastPass[1]), kept: Number(lastPass[2]), retired: Number(lastPass[3]), by: pass!.requestedBy } : null,
     asOf: [report?.asOf, refreshed?.finishedAt].filter((x): x is string => !!x).sort().pop() ?? null,
     edges: report ? report.relations.reduce((sum, r) => sum + r.edges, 0) : null,
     relations: report ? report.relations.length : null,
-    agrees: verify ? verify.exitCode === 0 : null,
+    agrees: verify && verdictStands ? verify.exitCode === 0 : null,
     verifiedAt: verify?.finishedAt ?? null,
   };
 }

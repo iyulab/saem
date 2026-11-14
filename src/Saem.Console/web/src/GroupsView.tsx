@@ -154,6 +154,7 @@ function GroupCard({ group, fits }: { group: string; fits: string[] }) {
           {facts.asOf ? `${new Date(facts.asOf).toLocaleString()} · ${ago(facts.asOf, now)}` : "never — nothing has been read into this copy yet"}
           {facts.agrees === true && <span className="badge ok">matches the source</span>}
           {facts.agrees === false && <span className="badge warn">differs from the source</span>}
+          {facts.agrees === null && facts.verifiedAt && <span className="muted small"> · not verified since the last refresh</span>}
         </dd>
         <dt>Holds</dt>
         <dd>{facts.edges === null ? "reading…" : `${facts.edges} link${facts.edges === 1 ? "" : "s"} between records`}</dd>

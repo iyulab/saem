@@ -232,6 +232,25 @@ describe("a job in the words a person reads", () => {
     expect(outcomeOf(job({ kind: "pass", state: "running", exitCode: null, finishedAt: null }), now)).toBeNull();
   });
 
+  it("says why a failed job failed when its output ends in a line saying so, and keeps that line short", () => {
+    const why = "The source's table 'work_orders' has two rows with the key 'WO-1'.";
+    expect(outcomeOf(done({ kind: "pass", state: "failed", exitCode: 1, output: `reading work_orders\n${why}\n\n` }), now)).toMatchObject({ facts: ["Failed (exit 1)", why], tone: "bad" });
+    expect(outcomeOf(done({ kind: "pass", state: "failed", exitCode: 1, output: "x".repeat(400) }), now)?.facts[1]).toHaveLength(161);
+    expect(outcomeOf(done({ kind: "pass", state: "failed", exitCode: 1, output: "  \n" }), now)?.facts).toEqual(["Failed (exit 1)"]);
+  });
+
+  it("does not let a verify's verdict stand for a copy that a later write has changed", () => {
+    const verify = done({ kind: "verify", exitCode: 0, startedAt: "2026-11-13T09:00:00Z", finishedAt: "2026-11-13T09:00:05Z" });
+    const later = done({ kind: "pass", startedAt: "2026-11-13T09:30:00Z", finishedAt: "2026-11-13T09:30:10Z", output: "group g: 1 edge(s) written, 0 unchanged, 0 retired" });
+    const earlier = done({ kind: "pass", startedAt: "2026-11-13T08:30:00Z", finishedAt: "2026-11-13T08:30:10Z", output: "group g: 1 edge(s) written, 0 unchanged, 0 retired" });
+    const failedLater = done({ kind: "changed-pass", state: "failed", exitCode: 1, startedAt: "2026-11-13T09:40:00Z", finishedAt: "2026-11-13T09:40:03Z" });
+
+    expect(copyFacts([later, verify]).agrees).toBeNull();
+    expect(copyFacts([failedLater, verify]).agrees).toBeNull();
+    expect(copyFacts([verify, earlier]).agrees).toBe(true);
+    expect(copyFacts([later, verify]).verifiedAt).toBe("2026-11-13T09:00:05Z");
+  });
+
   it("reads how long ago in the unit that matters", () => {
     expect(ago("2026-11-13T09:59:30Z", now)).toBe("just now");
     expect(ago("2026-11-13T09:40:00Z", now)).toBe("20 min ago");
