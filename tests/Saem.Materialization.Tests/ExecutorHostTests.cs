@@ -171,6 +171,21 @@ public sealed class ExecutorHostTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    /// <summary>A member nobody reads is a typo or a field of another version — said and named, never taken for «nothing said».</summary>
+    [Theory]
+    [InlineData("""{"kind":"echo","requestedBy":"p","requestedby":"someone else"}""", "requestedby")]
+    [InlineData("""{"kind":"echo","requestedBy":"p","arguments":{"frist":"x"}}""", "frist")]
+    [InlineData("""{"kind":"echo","requestedBy":"p","arguments":{"identity":"x","same":true,"extra":1}}""", "extra")]
+    public async Task A_member_nobody_reads_is_refused_and_named_and_no_job_starts(string body, string member)
+    {
+        using var response = await _http.PostAsync("jobs", new StringContent(body, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains(member, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        using var listed = await _http.GetAsync("jobs", TestContext.Current.CancellationToken);
+        Assert.DoesNotContain("echo", await listed.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task The_recent_jobs_are_listed_newest_first_and_an_unknown_one_is_not_found()
     {

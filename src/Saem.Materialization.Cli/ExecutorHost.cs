@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -56,9 +57,18 @@ internal static class ExecutorHost
             JobRequest? request;
             try
             {
-                request = await http.Request.ReadFromJsonAsync<JobRequest>(aborted);
+                var body = await http.Request.ReadFromJsonAsync<JsonElement>(aborted);
+
+                // A member nobody reads is a typo, a field of another version, or an attempt to be someone else (requestedby): it is
+                // refused and named, never taken for «nothing said». Names are compared as written — the body is read by exactly these.
+                if (Unread(body) is { } unread)
+                {
+                    return Results.BadRequest(new { error = $"{unread} is not read here; the members are: kind, requestedBy, arguments (identity, first, second, same)." });
+                }
+
+                request = body.Deserialize<JobRequest>(JsonSerializerOptions.Web);
             }
-            catch (Exception e) when (e is System.Text.Json.JsonException or BadHttpRequestException or InvalidOperationException)
+            catch (Exception e) when (e is JsonException or BadHttpRequestException or InvalidOperationException)
             {
                 return Results.BadRequest(new { error = "The request is a JSON object with a kind and requestedBy." });
             }
@@ -110,6 +120,44 @@ internal static class ExecutorHost
         }
 
         return matches;
+    }
+
+    private const int NameShown = 64;
+
+    private static readonly string[] RequestMembers = ["kind", "requestedBy", "arguments"];
+
+    private static readonly string[] ArgumentMembers = ["identity", "first", "second", "same"];
+
+    /// <summary>The first member of a request (or of its arguments) that nobody reads, shortened to be shown.</summary>
+    private static string? Unread(JsonElement body)
+    {
+        if (body.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var member in body.EnumerateObject())
+        {
+            if (!RequestMembers.Contains(member.Name, StringComparer.Ordinal))
+            {
+                return Shown(member.Name);
+            }
+        }
+
+        if (body.TryGetProperty("arguments", out var arguments) && arguments.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var member in arguments.EnumerateObject())
+            {
+                if (!ArgumentMembers.Contains(member.Name, StringComparer.Ordinal))
+                {
+                    return Shown(member.Name);
+                }
+            }
+        }
+
+        return null;
+
+        static string Shown(string name) => name.Length > NameShown ? name[..NameShown] + "…" : name;
     }
 
     private sealed record JobRequest(string? Kind, string? RequestedBy, JobArguments? Arguments);
