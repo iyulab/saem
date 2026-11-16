@@ -53,7 +53,8 @@ not read its row.
    docker compose -f deploy/compose.yaml run --rm correct   # work order WO-2701 now points at item I-500
    ```
 
-   then, in **Groups**, press **Only what changed** for both groups and **Verify the copy**: each copy matches the source.
+   then, in **Groups**, press **Only what changed** for both groups and **Verify the copy**: each copy matches the source. This
+   changes the sample, whose answers the check knows as filed — so run the check before it, not after.
 
 To ask the MCP server yourself, take a token for a person from the issuer — `POST http://issuer.localhost:58080/rig/token` with
 `grant_type=client_credentials`, `client_id=<person>`, `client_secret=<any non-empty value; this issuer does not check it>`,
