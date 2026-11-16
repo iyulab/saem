@@ -56,6 +56,19 @@ public sealed class ExecutorHostTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_health_probe_answers_without_a_secret_and_nothing_else_does()
+    {
+        using var bare = new HttpClient { BaseAddress = _http.BaseAddress };
+
+        using var health = await bare.GetAsync(ExecutorHost.HealthPath.TrimStart('/'), TestContext.Current.CancellationToken);
+        using var jobs = await bare.GetAsync("jobs", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+        Assert.Equal("", await health.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(HttpStatusCode.Unauthorized, jobs.StatusCode);
+    }
+
+    [Fact]
     public async Task A_caller_without_one_of_the_secrets_is_refused()
     {
         using var bare = new HttpClient { BaseAddress = _http.BaseAddress };

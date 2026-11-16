@@ -30,6 +30,17 @@ public sealed class ConsoleAccessTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_health_probe_answers_without_a_session_and_says_nothing_else()
+    {
+        using var anonymous = _server.Client();
+
+        using var response = await anonymous.GetAsync("health", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task No_token_is_unauthorized_and_a_token_in_no_mapped_group_is_forbidden()
     {
         using var anonymous = _server.Client();
@@ -42,10 +53,11 @@ public sealed class ConsoleAccessTests : IAsyncLifetime
     /// <summary>
     /// "No token is unauthorized" held to the routes as the host maps them, not to the one named above: a route that
     /// answers a caller presenting nothing is an unlisted member of the public surface. The two a browser needs before
-    /// it has a session — sign in and sign out — are the only routes that are not behind a token.
+    /// it has a session — sign in and sign out — and the probe an orchestrator asks (<c>/health</c>, which says the host is
+    /// up and nothing else) are the only routes that are not behind a token.
     /// </summary>
     [Fact]
-    public async Task Every_mapped_route_but_sign_in_and_sign_out_is_unauthorized_without_a_token()
+    public async Task Every_mapped_route_but_sign_in_sign_out_and_the_health_probe_is_unauthorized_without_a_token()
     {
         using var anonymous = _server.Client();
         var answered = new List<string>();
@@ -59,7 +71,7 @@ public sealed class ConsoleAccessTests : IAsyncLifetime
                     RoutePatternParameterPart => "probe",
                     _ => string.Empty,
                 }))));
-            if (path is "/login" or "/logout")
+            if (path is "/login" or "/logout" or SaemConsole.HealthPath)
             {
                 continue;
             }

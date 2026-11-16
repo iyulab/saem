@@ -22,6 +22,9 @@ internal static class ExecutorHost
 
     private const int MaxRequestedByLength = 256;
 
+    /// <summary>Where the executor answers that it is up, without a secret.</summary>
+    public const string HealthPath = "/health";
+
     /// <summary>The executor, built and not yet started.</summary>
     /// <param name="listen">The address to serve on.</param>
     /// <param name="secrets">The bearer secrets a caller may present; there are at most two, so one is replaced without refusing callers.</param>
@@ -41,6 +44,13 @@ internal static class ExecutorHost
 
         app.Use(async (http, next) =>
         {
+            // A container orchestrator's probe carries no secret and learns nothing but that the host is up.
+            if (http.Request.Path == HealthPath && HttpMethods.IsGet(http.Request.Method))
+            {
+                http.Response.StatusCode = StatusCodes.Status200OK;
+                return;
+            }
+
             if (!Presents(http.Request, digests))
             {
                 http.Response.Headers.WWWAuthenticate = "Bearer";

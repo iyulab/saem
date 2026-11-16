@@ -91,6 +91,9 @@ public static class ConsoleAuthentication
 /// </summary>
 public static class SaemConsole
 {
+    /// <summary>Where the console answers that it is up, without a session (a probe carries none).</summary>
+    public const string HealthPath = "/health";
+
     /// <summary>Adds the console's services, read from <paramref name="configuration"/>.</summary>
     public static IServiceCollection AddSaemConsole(this IServiceCollection services, IConfiguration configuration)
     {
@@ -298,6 +301,9 @@ public static class SaemConsole
 
             return Results.NoContent();
         });
+
+        // A container orchestrator's probe: it says the host is up and nothing else — no catalog, no session, no person.
+        app.MapGet(HealthPath, () => Results.Ok()).AllowAnonymous();
 
         var api = app.MapGroup("/api").RequireAuthorization(ConsoleRoles.AnyRole);
         CatalogApi.Map(api);

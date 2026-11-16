@@ -117,12 +117,17 @@ public static class SaemMcpServer
     private static PresentedToken? PresentedTokenOf(IServiceProvider services) =>
         PresentedToken.FromAuthorization(services.GetRequiredService<IHttpContextAccessor>().HttpContext?.Request.Headers.Authorization);
 
+    /// <summary>Where the host answers that it is up, without a token (a probe carries none).</summary>
+    public const string HealthPath = "/health";
+
     /// <summary>Maps the MCP endpoint at <paramref name="pattern"/>; every request to it needs a valid token.</summary>
     public static WebApplication MapSaemMcp(this WebApplication app, string pattern = "/mcp")
     {
         ArgumentNullException.ThrowIfNull(app);
         app.UseAuthentication();
         app.UseAuthorization();
+        // A container orchestrator's probe: it says the host is up and nothing else — no catalog, no source, no person.
+        app.MapGet(HealthPath, () => Results.Ok()).AllowAnonymous();
         app.MapMcp(pattern).RequireAuthorization();
         return app;
     }
