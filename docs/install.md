@@ -60,7 +60,7 @@ SAEM_MODEL_API_KEY=...
 ```
 
 and run `docker compose -f deploy/compose.yaml run --rm author`. Up to 20 documents of each form type are sent to that endpoint,
-and to nothing else. The draft it writes replaces the sample draft and waits for a person to confirm it in the console.
+and to nothing else. The draft it writes replaces the sample draft and waits for a person to confirm it in the console. The model drafts only what the catalog in force does not declare yet: run it before confirming the sample, or it has little to add.
 
 ## Stop, start, remove
 
