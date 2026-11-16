@@ -1,0 +1,156 @@
+# saem, built from this source tree, on one machine: the services below, a development issuer and a forms source to try them on.
+#
+#   sh deploy/install.sh                                    # writes deploy/.env with generated secrets
+#   docker compose -f deploy/compose.yaml up -d --build --wait
+#
+# EVALUATION ONLY. The issuer mints a token for anyone who asks and the console is served over plain HTTP on this machine's
+# loopback address: neither belongs on a network. See docs/install.md for what to change before they do.
+
+name: saem
+
+x-probe: &probe
+  interval: 3s
+  timeout: 3s
+  retries: 40
+  start_period: 5s
+
+# The one address the issuer is known by — to the people's browsers (which read `*.localhost` as this machine) and to the
+# containers (which read it from the network alias below). The same name and port on both sides is what lets a token's
+# issuer and the discovery document agree.
+x-issuer: &issuer http://issuer.localhost:${SAEM_ISSUER_PORT:?run deploy/install.sh first}/rig
+
+x-logging: &quiet-probes
+  # A probe every few seconds is not worth a line, nor is a request that succeeds; one that fails is.
+  Logging__LogLevel__Microsoft.AspNetCore: Warning
+
+services:
+  issuer:
+    image: ghcr.io/navikt/mock-oauth2-server:6.0.4
+    environment:
+      JSON_CONFIG_PATH: /config/config.json
+      SERVER_PORT: ${SAEM_ISSUER_PORT}
+    volumes:
+      - ./issuer.json:/config/config.json:ro
+    ports:
+      - "127.0.0.1:${SAEM_ISSUER_PORT}:${SAEM_ISSUER_PORT}"
+    networks:
+      default:
+        aliases: [issuer.localhost]
+
+  forms-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: ${SAEM_PG_PASSWORD}
+      POSTGRES_DB: forms
+      MORPH_PASSWORD: ${SAEM_MORPH_DB_PASSWORD}
+      FORMBASE_PASSWORD: ${SAEM_FORMBASE_DB_PASSWORD}
+    volumes:
+      - forms-db:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      <<: *probe
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d forms"]
+
+  # The forms source: where a form's records live once projected, read as the person asking — saem exchanges the person's token
+  # for one meant for MorphDB, and MorphDB's row-level security decides what comes back.
+  forms:
+    image: ${SAEM_MORPHDB_IMAGE:-ghcr.io/iyulab/morphdb:0.37.0}
+    environment:
+      ConnectionStrings__MorphDB: Host=forms-db;Port=5432;Database=forms;Username=morph;Password=${SAEM_MORPH_DB_PASSWORD}
+      Security__MasterSecret: ${SAEM_FORMS_MASTER_SECRET}
+      Security__Tokens__Issuer: *issuer
+      Security__Tokens__MetadataAddress: http://issuer.localhost:${SAEM_ISSUER_PORT}/rig/.well-known/openid-configuration
+      Security__Tokens__RequireHttpsMetadata: "false"
+      Security__Tokens__Audience: morphdb
+      <<: *quiet-probes
+    depends_on:
+      forms-db: {condition: service_healthy}
+      issuer: {condition: service_started}
+    healthcheck:
+      <<: *probe
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+
+  # One-shot jobs that set the source up. They are safe to run again.
+  source-project:
+    build: {context: .., dockerfile: deploy/Dockerfile, target: provision}
+    entrypoint: ["/provision/source-project.sh"]
+    environment:
+      SAEM_FORMS_MASTER_SECRET: ${SAEM_FORMS_MASTER_SECRET}
+      SAEM_SOURCE_PROJECT_ID: ${SAEM_SOURCE_PROJECT_ID}
+    depends_on:
+      forms: {condition: service_healthy}
+    restart: "no"
+
+  formbase:
+    image: ${SAEM_FORMBASE_IMAGE:-ghcr.io/iyulab/formbase:0.36.0}
+    environment:
+      Formbase__Store: Durable
+      ConnectionStrings__Formbase: Host=forms-db;Database=formbase;Username=formbase;Password=${SAEM_FORMBASE_DB_PASSWORD}
+      Formbase__Schema: ${SAEM_SOURCE_SCHEMA}
+      Formbase__MorphDb__Url: http://forms:8080
+      Formbase__MorphDb__ProjectId: ${SAEM_SOURCE_PROJECT_ID}
+      Formbase__MorphDb__Secret: ${SAEM_FORMS_MASTER_SECRET}
+      PGGSSENCMODE: disable
+      <<: *quiet-probes
+    depends_on:
+      source-project: {condition: service_completed_successfully}
+    healthcheck:
+      <<: *probe
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+
+  mcp:
+    build: {context: .., dockerfile: deploy/Dockerfile, target: mcp}
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Saem__Ontology: /data/catalog.json
+      Saem__Identity__Authority: *issuer
+      Saem__Identity__Audience: saem
+      Saem__Identity__RequireHttpsMetadata: "false"
+      Saem__Sources__MorphDb__forms__Url: http://forms:8080
+      Saem__Sources__MorphDb__forms__ProjectId: ${SAEM_SOURCE_PROJECT_ID}
+      Saem__Sources__MorphDb__forms__Audience: morphdb
+      Saem__Sources__TokenExchange__TokenEndpoint: http://issuer.localhost:${SAEM_ISSUER_PORT}/rig/token
+      Saem__Sources__TokenExchange__ClientId: saem
+      Saem__Sources__TokenExchange__ClientSecret: ${SAEM_EXCHANGE_CLIENT_SECRET}
+      <<: *quiet-probes
+    volumes:
+      - state:/data
+    ports:
+      - "127.0.0.1:${SAEM_MCP_PORT}:8080"
+    depends_on:
+      forms: {condition: service_healthy}
+      issuer: {condition: service_started}
+    healthcheck:
+      <<: *probe
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+
+  console:
+    build: {context: .., dockerfile: deploy/Dockerfile, target: console}
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Saem__Console__Identity__Authority: *issuer
+      Saem__Console__Identity__RequireHttpsMetadata: "false"
+      Saem__Console__Identity__Audience: saem-console
+      Saem__Console__Identity__ClientId: saem-console
+      Saem__Console__Identity__ClientSecret: ${SAEM_CONSOLE_CLIENT_SECRET}
+      Saem__Console__Identity__Scopes__0: saem-rig
+      Saem__Console__Roles__Builders__0: g-plant
+      Saem__Console__Ontology: /data/catalog.json
+      Saem__Console__Draft: /data/draft.json
+      Saem__Console__Proposals: /data/proposals.json
+      Saem__Console__Confirmations: /data/confirmations.jsonl
+      Saem__Console__SettledRecords: /data/settled.jsonl
+      <<: *quiet-probes
+    volumes:
+      - state:/data
+    ports:
+      - "127.0.0.1:${SAEM_CONSOLE_PORT}:8080"
+    depends_on:
+      issuer: {condition: service_started}
+    healthcheck:
+      <<: *probe
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+
+volumes:
+  forms-db:
+  state:

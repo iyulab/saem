@@ -1,0 +1,9 @@
+# What a build context for deploy/Dockerfile leaves out: build output, installed packages, tests, and the history.
+**/bin
+**/obj
+**/node_modules
+src/Saem.Console/wwwroot
+tests
+TestResults
+.git
+.github
