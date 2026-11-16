@@ -1,0 +1,41 @@
+[
+  {
+    "kind": "entityType",
+    "name": "items",
+    "system": "forms",
+    "table": "items",
+    "key": "item_code",
+    "fields": {
+      "item_name": "item_name",
+      "owner": "owner",
+      "code": "item_code"
+    },
+    "record": [
+      "fb_doc_id"
+    ]
+  },
+  {
+    "kind": "entityType",
+    "name": "work_orders",
+    "system": "forms",
+    "table": "work_orders",
+    "key": "wo_no",
+    "fields": {
+      "item_code": "item_code",
+      "owner": "owner",
+      "qty": "qty"
+    },
+    "record": [
+      "fb_doc_id"
+    ],
+    "changedAt": "_updated_at"
+  },
+  {
+    "kind": "relation",
+    "name": "item",
+    "from": "work_orders",
+    "via": "item_code",
+    "to": "items",
+    "inverse": "produced_by"
+  }
+]

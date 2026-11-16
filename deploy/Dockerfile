@@ -53,5 +53,14 @@ ENTRYPOINT ["dotnet", "saem-author.dll"]
 FROM alpine:3.22 AS provision
 RUN apk add --no-cache curl jq
 COPY deploy/provision /provision
-USER nobody
+# The data and secrets directories belong to the unprivileged user the other images run as (uid 1654), so a named volume
+# mounted on them starts with that owner.
+RUN mkdir /data /secrets && chown 1654:1654 /data /secrets
+USER 1654
 ENTRYPOINT ["/bin/sh"]
+
+# The check against the sample (deploy/check/check.py): Python's standard library only.
+FROM python:3.13-alpine AS check
+COPY deploy/check /check
+USER 1654
+ENTRYPOINT ["python", "/check/check.py"]

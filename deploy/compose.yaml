@@ -19,6 +19,10 @@ x-probe: &probe
 # issuer and the discovery document agree.
 x-issuer: &issuer http://issuer.localhost:${SAEM_ISSUER_PORT:?run deploy/install.sh first}/rig
 
+x-bash-probe: &http-health
+  <<: *probe
+  test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+
 x-logging: &quiet-probes
   # A probe every few seconds is not worth a line, nor is a request that succeeds; one that fails is.
   Logging__LogLevel__Microsoft.AspNetCore: Warning
@@ -66,9 +70,7 @@ services:
     depends_on:
       forms-db: {condition: service_healthy}
       issuer: {condition: service_started}
-    healthcheck:
-      <<: *probe
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+    healthcheck: *http-health
 
   # One-shot jobs that set the source up. They are safe to run again.
   source-project:
@@ -94,9 +96,87 @@ services:
       <<: *quiet-probes
     depends_on:
       source-project: {condition: service_completed_successfully}
-    healthcheck:
-      <<: *probe
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+    healthcheck: *http-health
+
+  # Each group has an account on the source and a store of its own; MorphDB issues the secrets, so they pass through a volume
+  # only the services that need them read.
+  group-accounts:
+    build: {context: .., dockerfile: deploy/Dockerfile, target: provision}
+    entrypoint: ["/provision/group-accounts.sh"]
+    environment:
+      SAEM_FORMS_MASTER_SECRET: ${SAEM_FORMS_MASTER_SECRET}
+      SAEM_SOURCE_PROJECT_ID: ${SAEM_SOURCE_PROJECT_ID}
+      SAEM_G_PLANT_PROJECT_ID: ${SAEM_G_PLANT_PROJECT_ID}
+      SAEM_G_OFFICE_PROJECT_ID: ${SAEM_G_OFFICE_PROJECT_ID}
+    volumes:
+      - secrets:/secrets
+    depends_on:
+      source-project: {condition: service_completed_successfully}
+    restart: "no"
+
+  formbase-g-plant: &group-store
+    image: ${SAEM_FORMBASE_IMAGE:-ghcr.io/iyulab/formbase:0.36.0}
+    entrypoint: ["sh", "-c", ". /secrets/g-plant.env && exec dotnet Formbase.Host.dll"]
+    environment: &group-store-env
+      Formbase__Store: Durable
+      ConnectionStrings__Formbase: Host=forms-db;Database=formbase;Username=formbase;Password=${SAEM_FORMBASE_DB_PASSWORD}
+      Formbase__Schema: ${SAEM_G_PLANT_SCHEMA}
+      Formbase__MorphDb__Url: http://forms:8080
+      Formbase__MorphDb__ProjectId: ${SAEM_G_PLANT_PROJECT_ID}
+      Formbase__Access__Keys__0: ${SAEM_G_PLANT_ACCESS_KEY}
+      PGGSSENCMODE: disable
+      <<: *quiet-probes
+    volumes:
+      - secrets:/secrets:ro
+    depends_on:
+      group-accounts: {condition: service_completed_successfully}
+    healthcheck: *http-health
+
+  formbase-g-office:
+    <<: *group-store
+    entrypoint: ["sh", "-c", ". /secrets/g-office.env && exec dotnet Formbase.Host.dll"]
+    environment:
+      <<: *group-store-env
+      Formbase__Schema: ${SAEM_G_OFFICE_SCHEMA}
+      Formbase__MorphDb__ProjectId: ${SAEM_G_OFFICE_PROJECT_ID}
+      Formbase__Access__Keys__0: ${SAEM_G_OFFICE_ACCESS_KEY}
+
+  seed:
+    build: {context: .., dockerfile: deploy/Dockerfile, target: provision}
+    entrypoint: ["/provision/seed.sh"]
+    environment:
+      SAEM_FORMS_MASTER_SECRET: ${SAEM_FORMS_MASTER_SECRET}
+      SAEM_SOURCE_PROJECT_ID: ${SAEM_SOURCE_PROJECT_ID}
+    volumes:
+      - state:/data
+    depends_on:
+      formbase: {condition: service_healthy}
+    restart: "no"
+
+  # One executor for each group: it holds that group's account on the source and no other's.
+  executor-g-plant: &executor
+    build: {context: .., dockerfile: deploy/Dockerfile, target: executor}
+    entrypoint: ["sh", "-c", ". /secrets/g-plant.env && exec dotnet saem-materialize.dll serve --catalog /data/catalog.json --sources /data/groups/g-plant/sources.json --group g-plant --base-iri https://example.org/saem/ontology/ --store http://formbase-g-plant:8080 --listen http://0.0.0.0:8080"]
+    environment:
+      SAEM_STORE_TOKEN: ${SAEM_G_PLANT_ACCESS_KEY}
+      SAEM_EXECUTOR_SECRET: ${SAEM_G_PLANT_EXECUTOR_SECRET}
+    volumes:
+      - state:/data
+      - secrets:/secrets:ro
+    depends_on:
+      seed: {condition: service_completed_successfully}
+      formbase-g-plant: {condition: service_healthy}
+    healthcheck: *http-health
+
+  executor-g-office:
+    <<: *executor
+    entrypoint: ["sh", "-c", ". /secrets/g-office.env && exec dotnet saem-materialize.dll serve --catalog /data/catalog.json --sources /data/groups/g-office/sources.json --group g-office --base-iri https://example.org/saem/ontology/ --store http://formbase-g-office:8080 --listen http://0.0.0.0:8080"]
+    environment:
+      SAEM_STORE_TOKEN: ${SAEM_G_OFFICE_ACCESS_KEY}
+      SAEM_EXECUTOR_SECRET: ${SAEM_G_OFFICE_EXECUTOR_SECRET}
+    depends_on:
+      seed: {condition: service_completed_successfully}
+      formbase-g-office: {condition: service_healthy}
 
   mcp:
     build: {context: .., dockerfile: deploy/Dockerfile, target: mcp}
@@ -112,6 +192,11 @@ services:
       Saem__Sources__TokenExchange__TokenEndpoint: http://issuer.localhost:${SAEM_ISSUER_PORT}/rig/token
       Saem__Sources__TokenExchange__ClientId: saem
       Saem__Sources__TokenExchange__ClientSecret: ${SAEM_EXCHANGE_CLIENT_SECRET}
+      Saem__Materialization__BaseIri: https://example.org/saem/ontology/
+      Saem__Materialization__Groups__g-plant__Url: http://formbase-g-plant:8080
+      Saem__Materialization__Groups__g-plant__AccessKey: ${SAEM_G_PLANT_ACCESS_KEY}
+      Saem__Materialization__Groups__g-office__Url: http://formbase-g-office:8080
+      Saem__Materialization__Groups__g-office__AccessKey: ${SAEM_G_OFFICE_ACCESS_KEY}
       <<: *quiet-probes
     volumes:
       - state:/data
@@ -120,9 +205,8 @@ services:
     depends_on:
       forms: {condition: service_healthy}
       issuer: {condition: service_started}
-    healthcheck:
-      <<: *probe
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      seed: {condition: service_completed_successfully}
+    healthcheck: *http-health
 
   console:
     build: {context: .., dockerfile: deploy/Dockerfile, target: console}
@@ -140,6 +224,10 @@ services:
       Saem__Console__Proposals: /data/proposals.json
       Saem__Console__Confirmations: /data/confirmations.jsonl
       Saem__Console__SettledRecords: /data/settled.jsonl
+      Saem__Console__Executors__g-plant__Address: http://executor-g-plant:8080
+      Saem__Console__Executors__g-plant__Secret: ${SAEM_G_PLANT_EXECUTOR_SECRET}
+      Saem__Console__Executors__g-office__Address: http://executor-g-office:8080
+      Saem__Console__Executors__g-office__Secret: ${SAEM_G_OFFICE_EXECUTOR_SECRET}
       <<: *quiet-probes
     volumes:
       - state:/data
@@ -147,10 +235,31 @@ services:
       - "127.0.0.1:${SAEM_CONSOLE_PORT}:8080"
     depends_on:
       issuer: {condition: service_started}
-    healthcheck:
-      <<: *probe
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]
+      seed: {condition: service_completed_successfully}
+    healthcheck: *http-health
+
+  # Not part of the running stack: `docker compose run --rm check` asks the sample the questions its answers are known for.
+  check:
+    build: {context: .., dockerfile: deploy/Dockerfile, target: check}
+    profiles: [check]
+    environment:
+      SAEM_ISSUER_URL: *issuer
+      SAEM_G_PLANT_EXECUTOR_SECRET: ${SAEM_G_PLANT_EXECUTOR_SECRET}
+      SAEM_G_OFFICE_EXECUTOR_SECRET: ${SAEM_G_OFFICE_EXECUTOR_SECRET}
+      SAEM_G_PLANT_ACCESS_KEY: ${SAEM_G_PLANT_ACCESS_KEY}
+      SAEM_G_OFFICE_ACCESS_KEY: ${SAEM_G_OFFICE_ACCESS_KEY}
+      SAEM_G_PLANT_PROJECT_ID: ${SAEM_G_PLANT_PROJECT_ID}
+      SAEM_G_OFFICE_PROJECT_ID: ${SAEM_G_OFFICE_PROJECT_ID}
+    volumes:
+      - state:/data:ro
+      - secrets:/secrets:ro
+    depends_on:
+      mcp: {condition: service_healthy}
+      executor-g-plant: {condition: service_healthy}
+      executor-g-office: {condition: service_healthy}
+    restart: "no"
 
 volumes:
   forms-db:
   state:
+  secrets:
