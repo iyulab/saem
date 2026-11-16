@@ -86,7 +86,7 @@ rm deploy/.env                                        # then `sh deploy/install.
 
 Each group's executor accepts the secret the console presents to it. To replace `g-plant`'s, put a new value in `deploy/.env` as
 `SAEM_G_PLANT_EXECUTOR_SECRET` (24 or more characters; for example `od -An -tx1 -N24 /dev/urandom | tr -d ' \n'`) and run
-`docker compose -f deploy/compose.yaml up -d executor-g-plant console`. The old value is then refused by the executor.
+`docker compose -f deploy/compose.yaml up -d executor-g-plant console`. The old value is then refused by the executor. This is the secret the install enforces: the development issuer does not check the console's client secrets, so replacing those protects nothing.
 
 ## What this install does not promise
 
