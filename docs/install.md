@@ -78,7 +78,8 @@ and to nothing else. The draft it writes replaces the sample draft and waits for
 ```sh
 docker compose -f deploy/compose.yaml stop            # keeps the data; `up -d --wait` starts it again
 docker compose -f deploy/compose.yaml down -v         # removes the containers, the networks and every volume
-docker compose -f deploy/compose.yaml down -v --rmi all   # the same, and the images this install built or pulled
+docker compose -f deploy/compose.yaml --profile author --profile check --profile correct down -v --rmi all
+                                                      # the same, and every image this install built or pulled
 rm deploy/.env                                        # then `sh deploy/install.sh` makes a new install
 ```
 
