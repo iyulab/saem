@@ -3,6 +3,7 @@
 
     docker compose -f deploy/compose.yaml run --rm check            # read-only after asking each group for a whole pass
     docker compose -f deploy/compose.yaml run --rm check --change   # also corrects and retires a filed row (once per install)
+    docker compose -f deploy/compose.yaml run --rm check --short-read   # last: files ~1050 rows and breaks a source read (see short_read)
 
 What it asks, as the people the sample names: the answer key as alice and the refusals for bob; the groups' partitions as
 pat, quinn, olive and a person in no group; that no CANARY mark reaches anyone who may not read its row; that every cited
@@ -84,7 +85,7 @@ class Install:
         return next(k for k, v in type_["fields"].items() if v == column)
 
     def token(self, who: str) -> str:
-        body = urllib.parse.urlencode({"grant_type": "client_credentials", "client_id": who, "client_secret": "unused", "scope": "saem-rig", "audience": "saem"}).encode()
+        body = urllib.parse.urlencode({"grant_type": "client_credentials", "client_id": who, "client_secret": os.environ.get("SAEM_CHECK_CLIENT_SECRET", ""), "scope": "saem-rig", "audience": "saem"}).encode()
         with urllib.request.urlopen(urllib.request.Request(ISSUER + "/token", data=body)) as r:
             return json.load(r)["access_token"]
 
@@ -255,6 +256,8 @@ def main() -> None:
 
     if "--change" in sys.argv:
         change(inst)
+    if "--short-read" in sys.argv:
+        short_read(inst)
 
     width = max(len(r["Check"]) for r in ROWS)
     for r in ROWS:
@@ -291,6 +294,40 @@ def change(inst: Install) -> None:
     row("change after the whole pass", "WO-2702" not in claims_of(p500), f"I-500 answers {sorted(claims_of(p500))}")
     same = sum(1 for i, was in before.items() if http("GET", f"{FORMBASE}/documents/{i}")[1] == was)
     row("change originals unchanged", same == len(before), f"{same} of {len(before)} documents filed before the change are byte-identical now")
+
+
+def edge_count(inst: Install, group: str) -> int:
+    raw = inst.job(group, "status").get("report") or {}
+    report = (json.loads(raw) if isinstance(raw, str) else raw).get("status") or {}
+    return sum(r["edges"] for r in report.get("relations", []))
+
+
+def short_read(inst: Install) -> None:
+    """A source read that is cut short retires nothing. More rows are filed than one page of the source holds, then the source is
+    made to fail on its last row (the policy divides by zero there), so a whole pass reads the first page and breaks on the second:
+    the pass must fail and the group's copy must keep every edge it had. Mutating and last: it files ~1050 rows."""
+    group, master, project = "g-plant", os.environ["SAEM_FORMS_MASTER_SECRET"], os.environ["SAEM_SOURCE_PROJECT_ID"]
+    hdr = {"Content-Type": "application/json"}
+    for n in range(1050):
+        k = f"WO-F{n:04d}"
+        http("POST", f"{FORMBASE}/formtypes/work_orders/documents?recordKey={k}", hdr, {"wo_no": k, "item_code": "I-300", "qty": 1, "owner": "pat"})
+    http("POST", f"{FORMBASE}/formtypes/work_orders/documents?recordKey=WO-ZZ9999", hdr, {"wo_no": "WO-ZZ9999", "item_code": "I-300", "qty": 1, "owner": "pat"})
+    http("POST", f"{FORMBASE}/formtypes/work_orders/projection")
+    first = inst.job(group, "pass")
+    held = edge_count(inst, group)
+    row("short-read filled", first["state"] == "succeeded" and held > 1000, f"{group} holds {held} edges after a whole pass over more rows than one page of the source")
+    headers = {"Authorization": "Bearer " + master, "X-Project-Id": project, **hdr}
+    _, text = http("GET", FORMS + "/api/security/policies/work_orders", headers)
+    policy = next(p for p in json.loads(text) if p["name"] == "who_reads_work_orders")
+    broken = f"({policy['expression']}) AND (qty / (CASE WHEN wo_no = 'WO-ZZ9999' THEN 0 ELSE 1 END)) >= 0"
+    status, _ = http("PATCH", FORMS + f"/api/security/policies/{policy['id']}", headers, {"expression": broken})
+    cut = inst.job(group, "pass")
+    after = edge_count(inst, group)
+    row("short-read fails the pass", status in (200, 204) and cut["state"] == "failed", f"policy rewritten ({status}); the pass over a source that breaks on its second page: {cut['state']} (exit {cut.get('exitCode')})")
+    row("short-read retires nothing", after == held, f"edges held before {held} · after {after} — edges retired by the short read: {held - after} (threshold = 0)")
+    http("PATCH", FORMS + f"/api/security/policies/{policy['id']}", headers, {"expression": policy["expression"]})
+    healed = inst.job(group, "pass")
+    row("short-read the source back, the pass succeeds", healed["state"] == "succeeded", first_line(healed))
 
 
 if __name__ == "__main__":

@@ -238,6 +238,15 @@ services:
       seed: {condition: service_completed_successfully}
     healthcheck: *http-health
 
+  # Not part of the running stack: `docker compose run --rm correct` files one corrected work order in the source (docs/install.md).
+  correct:
+    build: {context: .., dockerfile: deploy/Dockerfile, target: provision}
+    profiles: [correct]
+    entrypoint: ["/provision/correct.sh"]
+    depends_on:
+      formbase: {condition: service_healthy}
+    restart: "no"
+
   # Not part of the running stack: `docker compose run --rm check` asks the sample the questions its answers are known for.
   check:
     build: {context: .., dockerfile: deploy/Dockerfile, target: check}
@@ -250,6 +259,9 @@ services:
       SAEM_G_OFFICE_ACCESS_KEY: ${SAEM_G_OFFICE_ACCESS_KEY}
       SAEM_G_PLANT_PROJECT_ID: ${SAEM_G_PLANT_PROJECT_ID}
       SAEM_G_OFFICE_PROJECT_ID: ${SAEM_G_OFFICE_PROJECT_ID}
+      SAEM_CHECK_CLIENT_SECRET: ${SAEM_EXCHANGE_CLIENT_SECRET}
+      SAEM_FORMS_MASTER_SECRET: ${SAEM_FORMS_MASTER_SECRET}
+      SAEM_SOURCE_PROJECT_ID: ${SAEM_SOURCE_PROJECT_ID}
     volumes:
       - state:/data:ro
       - secrets:/secrets:ro

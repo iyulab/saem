@@ -21,10 +21,12 @@ docker compose -f deploy/compose.yaml up -d --build --wait    # every service re
 
 `deploy/.env` holds the ports and every secret, generated on the spot; keep it private. `install.sh` refuses to overwrite it.
 
+Then open <http://localhost:58081> and press **Sign in**: you are signed in as `pat`, a builder in the group `g-plant`. Overview
+says *Nothing is declared yet* — the sample catalog waits as a draft, which *Try the sample* confirms.
+
 ## Sign in
 
-Open <http://localhost:58081>. The console sends you to the development issuer at `http://issuer.localhost:58080` and back; it
-signs you in as `pat`, a builder in the group `g-plant`. Your browser reads `*.localhost` as this machine; if yours does not,
+Signing in sends you to the development issuer at `http://issuer.localhost:58080` and back. Your browser reads `*.localhost` as this machine; if yours does not,
 add `127.0.0.1 issuer.localhost` to your hosts file. Change the ports in `deploy/.env` before the first start if they are taken.
 
 ## Try the sample
@@ -45,9 +47,17 @@ not read its row.
    It ends with `check: all pass`. `--change` also corrects and retires a filed row and checks the changed-rows pass against a
    whole one; it changes the sample, so run it once and last.
 
+4. To see a correction travel, file one in the source and read it back:
+
+   ```sh
+   docker compose -f deploy/compose.yaml run --rm correct   # work order WO-2701 now points at item I-500
+   ```
+
+   then, in **Groups**, press **Only what changed** for both groups and **Verify the copy**: each copy matches the source.
+
 To ask the MCP server yourself, take a token for a person from the issuer — `POST http://issuer.localhost:58080/rig/token` with
-`grant_type=client_credentials`, `client_id=<person>`, `audience=saem`, `scope=saem-rig` — and call the `lookup` tool at
-`http://localhost:58082/mcp`.
+`grant_type=client_credentials`, `client_id=<person>`, `client_secret=<any non-empty value; this issuer does not check it>`,
+`audience=saem`, `scope=saem-rig` — and call the `lookup` tool at `http://localhost:58082/mcp`.
 
 ## Connect a model (optional)
 
@@ -67,6 +77,7 @@ and to nothing else. The draft it writes replaces the sample draft and waits for
 ```sh
 docker compose -f deploy/compose.yaml stop            # keeps the data; `up -d --wait` starts it again
 docker compose -f deploy/compose.yaml down -v         # removes the containers, the networks and every volume
+docker compose -f deploy/compose.yaml down -v --rmi all   # the same, and the images this install built or pulled
 rm deploy/.env                                        # then `sh deploy/install.sh` makes a new install
 ```
 
@@ -82,5 +93,9 @@ Each group's executor accepts the secret the console presents to it. To replace 
   README describes, and serve the console over HTTPS.
 - **One machine, one instance of each host.** Several instances need a shared key ring for the console's sessions and affinity
   or a refresh-token reuse window at the issuer (see the README).
+- **Keeping the record of who looked where.** The MCP server writes it to its log; the install does not keep that log past
+  `down`, and each executor's job history lives in its memory. Send the log to your own pipeline.
+- **Services that guard each other on the compose network.** They trust one another there (the source Formbase takes writes
+  without a credential); only the console, the MCP server and the issuer are published, on the loopback address.
 - **A deployment topology** beyond this compose file, **how long data is kept or how it is deleted**, and **how a catalog changes
   between versions** of saem. None of these is designed here.
