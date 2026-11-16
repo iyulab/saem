@@ -259,6 +259,32 @@ services:
       executor-g-office: {condition: service_healthy}
     restart: "no"
 
+  # Optional: drafts the ontology from the filed forms with a model you name in deploy/.env (docs/install.md). A sample of the
+  # forms' documents goes to that endpoint and nowhere else; the draft it writes waits for a person to confirm it in the console.
+  author:
+    build: {context: .., dockerfile: deploy/Dockerfile, target: author}
+    profiles: [author]
+    entrypoint:
+      - sh
+      - -c
+      - |
+        if [ -z "$$SAEM_MODEL_ENDPOINT" ] || [ -z "$$SAEM_MODEL" ]; then
+          echo "No model is configured: set SAEM_MODEL_ENDPOINT, SAEM_MODEL and SAEM_MODEL_API_KEY in deploy/.env. The sample works without one." >&2
+          exit 2
+        fi
+        exec dotnet saem-author.dll --formbase http://formbase:8080 --sources /data/sources.json --catalog /data/catalog.json \
+          --model-endpoint "$$SAEM_MODEL_ENDPOINT" --model "$$SAEM_MODEL" --model-stream \
+          --review /data/review.md --draft /data/draft.json --proposals /data/proposals.json --overwrite
+    environment:
+      SAEM_MODEL_ENDPOINT: ${SAEM_MODEL_ENDPOINT:-}
+      SAEM_MODEL: ${SAEM_MODEL:-}
+      SAEM_MODEL_API_KEY: ${SAEM_MODEL_API_KEY:-}
+    volumes:
+      - state:/data
+    depends_on:
+      formbase: {condition: service_healthy}
+    restart: "no"
+
 volumes:
   forms-db:
   state:

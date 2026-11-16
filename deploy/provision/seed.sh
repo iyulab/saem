@@ -57,6 +57,7 @@ done
 
 # What the sources say (cited by the form document), the catalog in force (empty until a person confirms the draft), and the
 # sample catalog as that draft.
+printf '{"items":{"system":"forms","table":"items","keyField":"item_code","record":["fb_doc_id"]},"work_orders":{"system":"forms","table":"work_orders","keyField":"wo_no","record":["fb_doc_id"]}}' > "$data/sources.json"
 printf '[]' > "$data/catalog.json"
 cp /provision/sample/draft.json "$data/draft.json"
 for g in g-plant g-office; do

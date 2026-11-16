@@ -223,8 +223,9 @@ def main() -> None:
 
     hops = [h for q in ("Q1", "Q2") for c in seen[q].get("claims", []) for h in c.get("path", [])]
     row("groups partitions named", bool(hops) and all(h.get("partition") and h.get("partitionAsOf") for h in hops), f"{len(hops)} hops, each names its partition and the time its edges were read")
-    row("groups two answers", claims_of(seen["Q1"]) != claims_of(seen["Q2"]) and {h["partition"] for c in seen["Q1"]["claims"] for h in c["path"]} == {"g-plant"}
-        and {h["partition"] for c in seen["Q2"]["claims"] for h in c["path"]} == {"g-office"}, "pat is answered from g-plant's partition, olive from g-office's")
+    partitions = lambda a: {h.get("partition") for c in a.get("claims", []) for h in c.get("path", [])}
+    row("groups two answers", claims_of(seen["Q1"]) != claims_of(seen["Q2"]) and partitions(seen["Q1"]) == {"g-plant"} and partitions(seen["Q2"]) == {"g-office"},
+        "pat is answered from g-plant's partition, olive from g-office's")
     parts = seen["Q3"].get("partitions", [])
     row("groups blocked bit", len(parts) == 1 and parts[0].get("name") == "g-plant" and parts[0].get("blocked") is True, f"quinn's partition report: {[(p.get('name'), 'blocked' if p.get('blocked') else 'open') for p in parts]}")
     row("groups one bit only", bool(parts) and set(parts[0]) <= {"name", "asOf", "blocked", "incomplete", "statements"}, "the partition says its name, read time, blocked and incomplete — no key, no count")

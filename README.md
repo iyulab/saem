@@ -725,6 +725,8 @@ again after the group's copy was written.
 
 #### Deploying the console
 
+To try everything on one machine — the console, the MCP server, an executor for each of two groups, a forms source and a sample — see [docs/install.md](docs/install.md); it is for evaluation.
+
 - **Build.** Two steps, in this order: `npm ci && npm run build` in `src/Saem.Console/web/` (it writes
   `wwwroot/`), then `dotnet publish src/Saem.Console`, which takes `wwwroot/` along. A publish without the
   first step serves the API and no page.

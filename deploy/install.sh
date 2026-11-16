@@ -33,5 +33,11 @@ SAEM_G_PLANT_ACCESS_KEY=$(secret)
 SAEM_G_OFFICE_ACCESS_KEY=$(secret)
 SAEM_G_PLANT_EXECUTOR_SECRET=$(secret)
 SAEM_G_OFFICE_EXECUTOR_SECRET=$(secret)
+
+# A model is optional: the sample works without one. Setting these three lets \`docker compose run --rm author\` draft the ontology
+# from the filed forms — up to 20 documents of each form type are sent to this endpoint, and to nothing else.
+# SAEM_MODEL_ENDPOINT=https://your-model-host/v1/
+# SAEM_MODEL=your-model-name
+# SAEM_MODEL_API_KEY=
 ENV
 echo "Wrote deploy/.env"
