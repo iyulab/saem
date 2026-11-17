@@ -70,16 +70,9 @@ try
     await AuthorRun.RunAsync(options, proposer, connector, connector, retries, Console.Out, cancellation.Token, DescribeProposer());
     return 0;
 }
-catch (Exception e) when (e is AuthorRunException or OntologyDeclarationException or FormbaseConnectorException or HttpRequestException or FormatException
-                          or InvalidOperationException or TaskCanceledException { InnerException: TimeoutException })
+catch (Exception e)
 {
-    Console.Error.WriteLine(e.Message);
-    return 1;
-}
-catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-{
-    Console.Error.WriteLine("Cancelled.");
-    return 130;
+    return RunFailure.Report(e, cancellation.IsCancellationRequested, Console.Error);
 }
 
 static async Task<int> Settle(string[] args)
@@ -101,10 +94,9 @@ static async Task<int> Settle(string[] args)
         Console.Error.WriteLine("Run saem-author settle --help for the arguments.");
         return 2;
     }
-    catch (Exception e) when (e is AuthorRunException or OntologyDeclarationException)
+    catch (Exception e)
     {
-        Console.Error.WriteLine(e.Message);
-        return 1;
+        return RunFailure.Report(e, cancelled: false, Console.Error);
     }
 }
 
@@ -130,6 +122,10 @@ static async Task<int> Diff(string[] args)
     {
         Console.Error.WriteLine(e.Message);
         return 2;
+    }
+    catch (Exception e)
+    {
+        return RunFailure.Report(e, cancelled: false, Console.Error);
     }
 }
 
