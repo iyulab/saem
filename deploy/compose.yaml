@@ -84,7 +84,7 @@ services:
     restart: "no"
 
   formbase:
-    image: ${SAEM_FORMBASE_IMAGE:-ghcr.io/iyulab/formbase:0.36.0}
+    image: ${SAEM_FORMBASE_IMAGE:-ghcr.io/iyulab/formbase:0.37.0}
     environment:
       Formbase__Store: Durable
       ConnectionStrings__Formbase: Host=forms-db;Database=formbase;Username=formbase;Password=${SAEM_FORMBASE_DB_PASSWORD}
@@ -115,7 +115,7 @@ services:
     restart: "no"
 
   formbase-g-plant: &group-store
-    image: ${SAEM_FORMBASE_IMAGE:-ghcr.io/iyulab/formbase:0.36.0}
+    image: ${SAEM_FORMBASE_IMAGE:-ghcr.io/iyulab/formbase:0.37.0}
     entrypoint: ["sh", "-c", ". /secrets/g-plant.env && exec dotnet Formbase.Host.dll"]
     environment: &group-store-env
       Formbase__Store: Durable
