@@ -69,6 +69,24 @@ public sealed class RepeatConsistencyTests
     }
 
     [Fact]
+    public void A_relation_is_asked_with_the_records_of_the_type_it_points_to_and_an_entity_type_is_not()
+    {
+        IReadOnlyDictionary<string, string?> order = new Dictionary<string, string?> { ["wo"] = "WO-1", ["item"] = "I-100" };
+        IReadOnlyDictionary<string, string?> other = new Dictionary<string, string?> { ["code"] = "I-900", ["name"] = "Washer" };
+        IReadOnlyDictionary<string, string?> pointed = new Dictionary<string, string?> { ["code"] = "I-100", ["name"] = "Bolt" };
+        var item = new EntityTypeDeclaration("Item", "mes", "items", "code", new Dictionary<string, string> { ["name"] = "name" });
+
+        var targets = RepeatConsistency.TargetsOf(MadeOf, [("d-1", order)], [("d-8", other), ("d-9", pointed)], item.Key);
+        var relation = RepeatConsistency.Prompt(MadeOf, [("d-1", order)], targets);
+
+        Assert.Equal(["d-9", "d-8"], targets.Select(t => t.Record));
+        Assert.Contains("Records of the type the relation points to ('Item'):", relation, StringComparison.Ordinal);
+        Assert.Contains("- record d-9: code = I-100; name = Bolt;", relation, StringComparison.Ordinal);
+        Assert.Contains("(none of its records could be read)", RepeatConsistency.Prompt(MadeOf, [("d-1", order)], []), StringComparison.Ordinal);
+        Assert.DoesNotContain("points to", RepeatConsistency.Prompt(WorkOrder, [("d-1", order)], targets), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Repeats_that_differ_leave_the_proposal_wobbling_with_every_vote_kept()
     {
         var calls = 0;

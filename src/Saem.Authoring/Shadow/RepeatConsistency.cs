@@ -22,7 +22,7 @@ public static class RepeatConsistency
     public const string Layer = "repeat-consistency";
 
     /// <summary>The version of the rules below; a change to them — the wording included — is a new version.</summary>
-    public const int Version = 1;
+    public const int Version = 2;
 
     /// <summary>How many times each proposal is asked about.</summary>
     public const int DefaultRepeats = 5;
@@ -31,13 +31,14 @@ public static class RepeatConsistency
     public const int MaxItems = 10;
 
     private const int MaxRecords = 5;
+    private const int MaxTargetRecords = 3;
     private const int MaxFields = 30;
     private const int MaxValueLength = 200;
 
     private static readonly string[] Verdicts = ["supported", "unsupported", "unsure"];
 
     /// <summary>A fingerprint of the wording the model is asked with.</summary>
-    public static string PromptFingerprint { get; } = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Wording))).ToLowerInvariant()[..8];
+    public static string PromptFingerprint { get; } = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Wording + "\n" + TargetHeading + "\n" + NoTargets))).ToLowerInvariant()[..8];
 
     private const string Wording = """
         You check one proposal against the records it was drawn from, and against nothing else.
@@ -46,6 +47,12 @@ public static class RepeatConsistency
         and "unsure" when they do not settle it.
         Reply with JSON only, no other text: {"verdict": "supported" | "unsupported" | "unsure", "reason": "<one sentence>"}
         """;
+
+    /// <summary>What a relation's prompt says above the records of the type it points to (version 2; version 1 showed none).</summary>
+    private const string TargetHeading = "Records of the type the relation points to ('{0}'):";
+
+    /// <summary>What a relation's prompt says when none of the target type's records could be read.</summary>
+    private const string NoTargets = "(none of its records could be read)";
 
     /// <summary>The proposal's own statement of what it claims, in words a reader of the records can check.</summary>
     public static string Describe(Declaration declaration) => declaration switch
@@ -59,7 +66,13 @@ public static class RepeatConsistency
     };
 
     /// <summary>The whole question put to the model for one proposal.</summary>
-    public static string Prompt(Declaration declaration, IReadOnlyList<(string Record, IReadOnlyDictionary<string, string?> Fields)> records)
+    /// <param name="declaration">The proposal.</param>
+    /// <param name="records">The records the proposal cites.</param>
+    /// <param name="targets">For a relation, the records of the type it points to; ignored for any other proposal.</param>
+    public static string Prompt(
+        Declaration declaration,
+        IReadOnlyList<(string Record, IReadOnlyDictionary<string, string?> Fields)> records,
+        IReadOnlyList<(string Record, IReadOnlyDictionary<string, string?> Fields)>? targets = null)
     {
         var text = new StringBuilder(Wording).AppendLine().AppendLine().Append("Proposal: ").AppendLine(Describe(declaration)).AppendLine().AppendLine("Records:");
         foreach (var (record, fields) in records.Take(MaxRecords))
@@ -74,7 +87,50 @@ public static class RepeatConsistency
             text.AppendLine();
         }
 
+        if (declaration is RelationDeclaration relation)
+        {
+            text.AppendLine().AppendLine(TargetHeading.Replace("{0}", relation.To, StringComparison.Ordinal));
+            if (targets is not { Count: > 0 })
+            {
+                text.AppendLine(NoTargets);
+            }
+            else
+            {
+                foreach (var (record, fields) in targets.Take(MaxTargetRecords))
+                {
+                    text.Append("- record ").Append(record).Append(':');
+                    foreach (var (name, value) in fields.Take(MaxFields))
+                    {
+                        var shown = value is null ? "(none)" : value.Length > MaxValueLength ? value[..MaxValueLength] + "…" : value;
+                        text.Append(' ').Append(name).Append(" = ").Append(shown).Append(';');
+                    }
+
+                    text.AppendLine();
+                }
+            }
+        }
+
         return text.ToString();
+    }
+
+    /// <summary>
+    /// The records of the type <paramref name="relation"/> points to that the pass drew, the ones whose key is a value the
+    /// relation's own records hold in the field it follows first — then the others — as many as a prompt carries.
+    /// </summary>
+    internal static List<(string Record, IReadOnlyDictionary<string, string?> Fields)> TargetsOf(
+        RelationDeclaration relation,
+        IReadOnlyList<(string Record, IReadOnlyDictionary<string, string?> Fields)> own,
+        IReadOnlyList<(string Record, IReadOnlyDictionary<string, string?> Fields)>? ofTarget,
+        string? targetKey)
+    {
+        if (ofTarget is not { Count: > 0 })
+        {
+            return [];
+        }
+
+        var wanted = own.Select(r => r.Fields.GetValueOrDefault(relation.Via)).Where(v => !string.IsNullOrWhiteSpace(v)).ToHashSet(StringComparer.Ordinal);
+        var pointedAt = ofTarget.Where(t => targetKey is not null && t.Fields.GetValueOrDefault(targetKey) is { } key && wanted.Contains(key));
+        return [.. pointedAt.Concat(ofTarget.Except(pointedAt)).Take(MaxTargetRecords)];
     }
 
     /// <summary>What a repeat said: one of <c>supported</c>, <c>unsupported</c>, <c>unsure</c> — or <c>invalid</c> when the answer cannot be read as one.</summary>
@@ -160,7 +216,18 @@ public static class RepeatConsistency
                 continue;
             }
 
-            var prompt = Prompt(declaration, shown);
+            IReadOnlyList<(string Record, IReadOnlyDictionary<string, string?> Fields)>? targets = null;
+            if (declaration is RelationDeclaration relation && items.FirstOrDefault(i => i.Declaration is EntityTypeDeclaration e && e.Name == relation.To) is { Declaration: EntityTypeDeclaration target } targetItem)
+            {
+                var ofTarget = targetItem.Cites
+                    .Select(c => (Cite: c, Reading: c.Subject is null ? new CitedReading(CitedStanding.NotCheckable, SourceRecheck.NoFields) : readings[(c.Subject, c.Record)]))
+                    .Where(f => f.Reading.Standing is CitedStanding.Standing or CitedStanding.Superseded)
+                    .Select(f => (f.Cite.Record, f.Reading.Fields))
+                    .ToList();
+                targets = TargetsOf(relation, shown, ofTarget, target.Key);
+            }
+
+            var prompt = Prompt(declaration, shown, targets);
             var votes = new List<string>();
             var failures = new List<string>();
             for (var repeat = 1; repeat <= repeats; repeat++)
