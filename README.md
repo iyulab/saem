@@ -335,6 +335,16 @@ refused or answer from somewhere else — and **additive**, everything new. A de
 one removed and one added. Each line names the declaration and the change, the breaking ones first,
 under the two catalog versions an answer carries; the exit status is 1 when any change breaks.
 
+`saem-author shadow --proposals proposals.json --formbase http://localhost:8080` looks again, in Formbase,
+at the documents a pass drew its proposals from — each entity type's and relation's, read back from the
+form type's stream: still the current version of its record, corrected since, retired, or gone, and whether
+the field the proposal depends on is carried. No model is asked. What it finds is appended to
+`shadow-judgments.jsonl` beside the proposals; nothing that authors, reviews or settles reads that file,
+so deleting it leaves everything else as it was. A fresh pass is nearly always found whole — the check is
+for what moves in Formbase between the sample and the review, and run again later it appends again. It
+says the line from a proposal to its records still holds, not that the records bear out what the proposal
+says.
+
 A model call that fails transiently — a dropped stream, a 5xx — is tried again (`--retries`, default
 one), and the review lists every retried attempt. Secrets come from the environment
 (`SAEM_MODEL_API_KEY`, and `SAEM_FORMBASE_TOKEN` when something in front of Formbase asks for one),

@@ -77,6 +77,9 @@ internal sealed record AuthorOptions(
 
         Before a changed catalog goes in force, sort the change into what breaks and what only adds:
           saem-author diff --before <file> --after <file>
+
+        To look again, in the source, at the records a pass's proposals were drawn from (writes only its own ledger):
+          saem-author shadow --proposals <file> --formbase <url>
         """;
 
     /// <summary>Reads the command line, and the secrets from <paramref name="environment"/>.</summary>

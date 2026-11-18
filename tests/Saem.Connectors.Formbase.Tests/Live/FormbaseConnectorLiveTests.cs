@@ -140,6 +140,39 @@ public class FormbaseConnectorLiveTests
     /// a port another service already listens on, say. Without it the first write below fails with a bare
     /// status from whatever answered, in the test's own preparation rather than in the connector.
     /// </summary>
+    /// <summary>
+    /// Cited documents read again across the process boundary: the current version of a record stands, the version a correction
+    /// replaced is superseded, a record taken out is retired whichever of its documents was cited, and an id Formbase never gave is missing.
+    /// </summary>
+    [Fact]
+    public async Task Cited_documents_are_read_again_from_the_stream_as_it_stands_now()
+    {
+        using var http = Formbase();
+        var ct = TestContext.Current.CancellationToken;
+        var type = "workorders-" + Guid.NewGuid().ToString("N")[..12];
+
+        async Task<string> PostAsync(string? recordKey, object body)
+        {
+            using var response = await http.PostAsJsonAsync($"formtypes/{type}/documents" + (recordKey is null ? "" : $"?recordKey={recordKey}"), body, ct);
+            response.EnsureSuccessStatusCode();
+            return (await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct)).GetProperty("documentId").GetGuid().ToString();
+        }
+
+        var firstOfOne = await PostAsync("wo-1", new { wo = "WO-1", note = "first" });
+        var correctedOne = await PostAsync("wo-1", new { wo = "WO-1", note = "corrected" });
+        var keyless = await PostAsync(null, new { wo = "WO-2" });
+        var takenOut = await PostAsync("wo-3", new { wo = "WO-3" });
+        (await http.DeleteAsync($"formtypes/{type}/records?recordKey=wo-3", ct)).EnsureSuccessStatusCode();
+        var never = Guid.NewGuid().ToString();
+
+        var read = await new FormbaseConnector(http).ReadCitedAsync(SubjectRef.Create(type), [firstOfOne, correctedOne, keyless, takenOut, never], ct);
+
+        Assert.Equal(
+            [DocumentStanding.Superseded, DocumentStanding.Standing, DocumentStanding.Standing, DocumentStanding.Retired, DocumentStanding.Missing],
+            [read[firstOfOne].Standing, read[correctedOne].Standing, read[keyless].Standing, read[takenOut].Standing, read[never].Standing]);
+        Assert.Equal(("WO-1", "corrected"), (read[correctedOne].Fields["wo"], read[correctedOne].Fields["note"]));
+    }
+
     private static async Task AssertAnswersAsFormbaseAsync(HttpClient http, CancellationToken ct)
     {
         string? observed;

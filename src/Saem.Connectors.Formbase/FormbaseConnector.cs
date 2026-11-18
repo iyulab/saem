@@ -201,6 +201,96 @@ public sealed class FormbaseConnector(HttpClient http, string? formbaseNamespace
     }
 
     /// <summary>
+    /// Reads again the documents a claim cited, from the form type's raw stream as it stands now, and says for each
+    /// how it stands: still the current version of its record, corrected since, retired, or not there at all — and
+    /// the fields it carries. A document is named by its Formbase document id, the id a sampled record carries, so a
+    /// citation is checked against the stream and not against the sample it was drawn from.
+    /// </summary>
+    /// <remarks>
+    /// Reads the form type's whole stream once: a record's later documents can be anywhere after the one cited.
+    /// A repeated section has no documents of its own — its rows are cut by Formbase and named by it — so a
+    /// citation of one is reported <see cref="DocumentStanding.NotCheckable"/> without a read.
+    /// </remarks>
+    /// <param name="subject">The form type the documents were cited of.</param>
+    /// <param name="documentIds">The cited ids, as <see cref="RawRecord.Id"/> carries them.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>One reading for each id asked about, keyed by the id as given.</returns>
+    public async Task<IReadOnlyDictionary<string, DocumentReading>> ReadCitedAsync(
+        SubjectRef subject, IReadOnlyCollection<string> documentIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(documentIds);
+        var none = new Dictionary<string, string?>();
+        var readings = new Dictionary<string, DocumentReading>(StringComparer.Ordinal);
+        if (documentIds.Count == 0)
+        {
+            return readings;
+        }
+
+        var declaration = await ReadDeclarationAsync(subject, cancellationToken).ConfigureAwait(false);
+        if (declaration?.SectionOf is not null)
+        {
+            foreach (var id in documentIds)
+            {
+                readings[id] = new DocumentReading(DocumentStanding.NotCheckable, none);
+            }
+
+            return readings;
+        }
+
+        var sectionFields = (declaration?.Relations ?? []).Select(r => r.SectionField).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        var wanted = documentIds.ToHashSet(StringComparer.Ordinal);
+
+        // Ascending watermarks: the last document met for a record key is its current one.
+        var current = new Dictionary<string, (long Watermark, bool Retired)>(StringComparer.Ordinal);
+        var found = new Dictionary<string, DocumentResponse>(StringComparer.Ordinal);
+        long after = 0;
+        while (true)
+        {
+            var page = await ReadPageAsync(subject, after, MaxPageSize, ofSection: false, cancellationToken).ConfigureAwait(false);
+            foreach (var document in page.Documents)
+            {
+                if (document.RecordKey is { } key)
+                {
+                    current[key] = (document.Watermark, document.Retired);
+                }
+
+                if (wanted.Contains(document.DocumentId.ToString()))
+                {
+                    found[document.DocumentId.ToString()] = document;
+                }
+            }
+
+            if (page.Documents.Count == 0 || page.Documents[^1].Watermark >= page.RawHead)
+            {
+                break;
+            }
+
+            after = page.Documents[^1].Watermark;
+        }
+
+        foreach (var id in documentIds)
+        {
+            if (!found.TryGetValue(id, out var document))
+            {
+                readings[id] = new DocumentReading(DocumentStanding.Missing, none);
+                continue;
+            }
+
+            var standing = DocumentStanding.Standing;
+            if (document.RecordKey is { } key && current.TryGetValue(key, out var latest))
+            {
+                standing = latest.Retired ? DocumentStanding.Retired
+                    : latest.Watermark != document.Watermark ? DocumentStanding.Superseded
+                    : DocumentStanding.Standing;
+            }
+
+            readings[id] = new DocumentReading(standing, Flatten(document.Body).Where(f => !sectionFields.Contains(f.Key)).ToDictionary());
+        }
+
+        return readings;
+    }
+
+    /// <summary>
     /// The standing documents of <paramref name="formType"/>, oldest first, up to <paramref name="maxCount"/>
     /// — the fold described on <see cref="SampleAsync"/>, taken from the start of the stream or from its end.
     /// </summary>

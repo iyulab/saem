@@ -193,6 +193,86 @@ public sealed class AuthorCommandTests : IDisposable
         Assert.Equal(lines.Length, (await File.ReadAllLinesAsync(records, ct)).Length);
     }
 
+    [Fact]
+    public async Task A_run_keeps_the_records_each_proposal_was_drawn_from_with_the_subject_of_each()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var options = await PrepareAsync(catalog: null);
+
+        await AuthorRun.RunAsync(options, new Proposer(), new Sampler(), new NoStructures(), [], TextWriter.Null, ct);
+
+        var evidence = ProposedDeclarations.Parse(await File.ReadAllTextAsync(options.ProposalsPath, ct)).Evidence;
+        Assert.NotNull(evidence);
+        var cited = Assert.Single(evidence["entityType:WorkOrder"]);
+        Assert.Equal("wo-1", cited.Record);
+        Assert.False(string.IsNullOrWhiteSpace(cited.Subject));
+    }
+
+    [Fact]
+    public void A_shadow_command_line_is_read_and_its_ledger_goes_beside_the_proposals_unless_named()
+    {
+        var options = ShadowOptions.Parse(["--proposals", "out/proposals.json", "--formbase", "http://forms.test", "--formbase-namespace", "plant"], name => name == AuthorOptions.FormbaseTokenVariable ? "t" : null);
+
+        Assert.Equal((new Uri("http://forms.test/"), "plant", "t", "out/proposals.json"), (options.Formbase, options.FormbaseNamespace, options.FormbaseToken, options.ProposalsPath));
+        Assert.Equal(Path.Combine(Path.GetFullPath("out"), "shadow-judgments.jsonl"), options.LedgerPath);
+        Assert.Equal("elsewhere.jsonl", ShadowOptions.Parse(["--proposals", "p.json", "--formbase", "http://forms.test", "--ledger", "elsewhere.jsonl"], _ => null).LedgerPath);
+    }
+
+    [Theory]
+    [InlineData(new[] { "--formbase", "http://forms.test" }, "--proposals is required.")]
+    [InlineData(new[] { "--proposals", "p.json" }, "--formbase is required.")]
+    [InlineData(new[] { "--proposals", "p.json", "--formbase", "ftp://forms.test" }, "--formbase takes an http(s) address, not 'ftp://forms.test'.")]
+    [InlineData(new[] { "--proposals", "p.json", "--formbase", "http://forms.test", "--model", "m" }, "Unknown argument '--model'.")]
+    [InlineData(new[] { "--proposals", "--formbase", "http://forms.test" }, "--proposals needs a value.")]
+    public void A_malformed_shadow_command_line_is_refused(string[] args, string message) =>
+        Assert.Equal(message, Assert.Throws<AuthorUsageException>(() => ShadowOptions.Parse(args, _ => null)).Message);
+
+    [Fact]
+    public async Task A_shadow_run_looks_again_at_what_a_run_cited_and_writes_only_its_ledger()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var options = await PrepareAsync(catalog: null);
+        await AuthorRun.RunAsync(options, new Proposer(), new Sampler(), new NoStructures(), [], TextWriter.Null, ct);
+        var before = (await File.ReadAllTextAsync(options.ReviewPath, ct), await File.ReadAllTextAsync(options.DraftPath, ct), await File.ReadAllTextAsync(options.ProposalsPath, ct));
+        var shadow = new ShadowOptions(new Uri("http://forms.test/"), null, null, options.ProposalsPath, Path.Combine(_dir, "shadow-judgments.jsonl"));
+        var log = new StringWriter();
+
+        await ShadowRun.RunAsync(shadow, new Standing("WO-1"), DateTimeOffset.UnixEpoch, log, ct);
+        await ShadowRun.RunAsync(shadow, new Standing(null), DateTimeOffset.UnixEpoch.AddDays(1), log, ct);
+
+        var rows = await Shadow.ShadowLedger.ReadAsync(shadow.LedgerPath, ct);
+        Assert.Equal([Shadow.ShadowVerdict.Supported, Shadow.ShadowVerdict.Unsupported], rows.Select(r => r.Verdict));
+        Assert.Equal(before, (await File.ReadAllTextAsync(options.ReviewPath, ct), await File.ReadAllTextAsync(options.DraftPath, ct), await File.ReadAllTextAsync(options.ProposalsPath, ct)));
+        Assert.Contains("1 proposals looked at — 1 supported, 0 unsupported, 0 unreadable", log.ToString(), StringComparison.Ordinal);
+        Assert.Contains("none carries 'wo_no'", log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_shadow_run_over_proposals_kept_before_citations_were_says_so_and_writes_nothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var proposals = Path.Combine(_dir, "old.json");
+        await File.WriteAllTextAsync(proposals, new ProposedDeclarations("pass-1", []).ToJson(), ct);
+        var shadow = new ShadowOptions(new Uri("http://forms.test/"), null, null, proposals, Path.Combine(_dir, "shadow-judgments.jsonl"));
+        var log = new StringWriter();
+
+        await ShadowRun.RunAsync(shadow, new Standing("x"), DateTimeOffset.UnixEpoch, log, ct);
+
+        Assert.False(File.Exists(shadow.LedgerPath));
+        Assert.Contains("kept no record of what its proposals were drawn from", log.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_shadow_run_over_proposals_it_cannot_read_names_the_file()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var shadow = new ShadowOptions(new Uri("http://forms.test/"), null, null, Path.Combine(_dir, "missing.json"), Path.Combine(_dir, "shadow-judgments.jsonl"));
+
+        var refused = await Assert.ThrowsAsync<AuthorRunException>(() => ShadowRun.RunAsync(shadow, new Standing("x"), DateTimeOffset.UnixEpoch, TextWriter.Null, ct));
+
+        Assert.Contains("missing.json", refused.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(new[] { "--proposals", "p.json", "--catalog", "c.json" }, "--records is required.")]
     [InlineData(new[] { "--proposals", "p.json", "--catalog", "c.json", "--records", "r.jsonl", "--by", "x" }, "Unknown argument '--by'.")]
@@ -391,6 +471,15 @@ public sealed class AuthorCommandTests : IDisposable
             Calls++;
             return Task.FromResult<IReadOnlyList<RawRecord>>([new("wo-1", new Dictionary<string, string?> { ["wo_no"] = "WO-1" })]);
         }
+    }
+
+    /// <summary>A source in which every cited record stands and carries the work order number it is given; none when it is given none.</summary>
+    private sealed class Standing(string? workOrder) : Shadow.ICitationSource
+    {
+        public Task<IReadOnlyDictionary<string, Shadow.CitedReading>> ReadAsync(string subject, IReadOnlyCollection<string> recordIds, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, Shadow.CitedReading>>(recordIds.ToDictionary(
+                id => id,
+                _ => new Shadow.CitedReading(Shadow.CitedStanding.Standing, new Dictionary<string, string?> { ["wo_no"] = workOrder })));
     }
 
     private sealed class NoStructures : IStructureSource

@@ -242,7 +242,7 @@ public class FormbaseConnectorSampleDirectionTests
 
     private static FormbaseConnector Connector(InMemoryFormbase formbase, SampleDirection sample) => new(formbase.Client, sample: sample);
 
-    private sealed class InMemoryFormbase : HttpMessageHandler
+    internal sealed class InMemoryFormbase : HttpMessageHandler
     {
         private readonly List<(long Watermark, Guid Id, string FormType, JsonNode? Body, string? Key, bool Retired)> _documents = [];
         private readonly Dictionary<string, string> _declarations = new(StringComparer.Ordinal);
@@ -260,8 +260,13 @@ public class FormbaseConnectorSampleDirectionTests
         /// <summary>Runs once, after the first read of a form type's head.</summary>
         public Action? AfterHeadRead { get; set; }
 
-        public void Append(string formType, JsonNode? body, string? key = null, bool retired = false) =>
-            _documents.Add((_documents.Count + 1, Guid.NewGuid(), formType, body, key, retired));
+        /// <summary>Accepts a document and returns the id Formbase gave it.</summary>
+        public Guid Append(string formType, JsonNode? body, string? key = null, bool retired = false)
+        {
+            var id = Guid.NewGuid();
+            _documents.Add((_documents.Count + 1, id, formType, body, key, retired));
+            return id;
+        }
 
         public void Declare(string formType, string declaration) => _declarations[formType] = declaration;
 

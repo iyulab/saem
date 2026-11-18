@@ -83,10 +83,34 @@ internal static class AuthorRun
                 retries.Count);
         await File.WriteAllTextAsync(options.ReviewPath, drafted.ToReview() + (generation?.ToReviewSection() ?? "") + RetriesSection(retries), cancellationToken).ConfigureAwait(false);
         await File.WriteAllTextAsync(options.DraftPath, drafted.Draft.ToJson(), cancellationToken).ConfigureAwait(false);
-        await File.WriteAllTextAsync(options.ProposalsPath, new ProposedDeclarations(pass, drafted.Draft.Added, generation).ToJson(), cancellationToken).ConfigureAwait(false);
+        await File.WriteAllTextAsync(options.ProposalsPath, new ProposedDeclarations(pass, drafted.Draft.Added, generation, EvidenceOf(drafted)).ToJson(), cancellationToken).ConfigureAwait(false);
         await log.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
             $"{drafted.Draft.Added.Count} declarations drafted, {drafted.Draft.Notes.Count} not declared, {retries.Count} model calls retried. " +
             $"Review: {options.ReviewPath} · draft: {options.DraftPath} · proposals: {options.ProposalsPath}")).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The records each proposal was drawn from, keyed by the proposal's id and carrying each record's subject — what the review
+    /// shows as its evidence, kept with the proposals so that a later reading can go back to the records and look again.
+    /// </summary>
+    private static Dictionary<string, IReadOnlyList<PassCitation>> EvidenceOf(AuthoringPass drafted)
+    {
+        var subjects = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var record in drafted.Records)
+        {
+            subjects.TryAdd(record.Id, record.Subject?.Value);
+        }
+
+        var evidence = new Dictionary<string, IReadOnlyList<PassCitation>>(StringComparer.Ordinal);
+        foreach (var declaration in drafted.Draft.Added)
+        {
+            if (drafted.Draft.Evidence.TryGetValue(declaration.Name, out var records))
+            {
+                evidence[ProposedDeclarations.IdOf(declaration)] = [.. records.Select(id => new PassCitation(id, subjects.GetValueOrDefault(id)))];
+            }
+        }
+
+        return evidence;
     }
 
     /// <summary>

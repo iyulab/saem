@@ -17,6 +17,11 @@ if (args is ["diff", .. var diffArgs])
     return await Diff(diffArgs);
 }
 
+if (args is ["shadow", .. var shadowArgs])
+{
+    return await Shadow(shadowArgs);
+}
+
 if (args is [] or ["--help"] or ["-h"])
 {
     Console.WriteLine(AuthorOptions.Usage);
@@ -121,6 +126,38 @@ static async Task<int> Diff(string[] args)
     catch (OntologyDeclarationException e)
     {
         Console.Error.WriteLine(e.Message);
+        return 2;
+    }
+    catch (Exception e)
+    {
+        return RunFailure.Report(e, cancelled: false, Console.Error);
+    }
+}
+
+static async Task<int> Shadow(string[] args)
+{
+    if (args is [] or ["--help"] or ["-h"])
+    {
+        Console.WriteLine(ShadowOptions.Usage);
+        return args is [] ? 2 : 0;
+    }
+
+    try
+    {
+        var options = ShadowOptions.Parse(args, Environment.GetEnvironmentVariable);
+        using var formbase = new HttpClient { BaseAddress = options.Formbase };
+        if (options.FormbaseToken is { } token)
+        {
+            formbase.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        await ShadowRun.RunAsync(options, new FormbaseCitationSource(new FormbaseConnector(formbase, options.FormbaseNamespace)), DateTimeOffset.UtcNow, Console.Out, CancellationToken.None);
+        return 0;
+    }
+    catch (AuthorUsageException e)
+    {
+        Console.Error.WriteLine(e.Message);
+        Console.Error.WriteLine("Run saem-author shadow --help for the arguments.");
         return 2;
     }
     catch (Exception e)
