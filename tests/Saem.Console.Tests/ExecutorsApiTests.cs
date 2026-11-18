@@ -227,11 +227,28 @@ public sealed class ExecutorsApiTests
     [InlineData("not-an-address", "short-secret", "http(s) address")]
     [InlineData("ftp://e.test/", "the-plant-executor-secret-123456", "http(s) address")]
     [InlineData("https://e.test/", "short", "at least 24")]
+    [InlineData("http://executor.plant.example:8080/", "the-plant-executor-secret-123456", "AllowPlainHttp")]
+    [InlineData("http://executor-g-plant:8080", "the-plant-executor-secret-123456", "AllowPlainHttp")]
     public void Settings_that_cannot_reach_an_executor_are_named(string address, string secret, string message)
     {
         var options = new ConsoleExecutors { ["plant"] = new() { Address = address, Secret = secret } };
 
         Assert.Contains(message, options.Problem());
+    }
+
+    /// <summary>The secret travels in a request: it goes in the clear only to this machine, or where the settings say the network between is trusted.</summary>
+    [Theory]
+    [InlineData("https://executor.plant.example:8443/", false)]
+    [InlineData("http://localhost:8080/", false)]
+    [InlineData("http://127.0.0.1:8080/", false)]
+    [InlineData("http://[::1]:8080/", false)]
+    [InlineData("http://executor-g-plant:8080", true)]
+    [InlineData("http://executor.plant.example:8080/", true)]
+    public void An_executor_is_reached_over_https_or_on_this_machine_or_where_plain_http_is_allowed(string address, bool allowPlainHttp)
+    {
+        var options = new ConsoleExecutors { ["plant"] = new() { Address = address, Secret = "the-plant-executor-secret-123456", AllowPlainHttp = allowPlainHttp } };
+
+        Assert.Null(options.Problem());
     }
 
     private sealed class FakeExecutors : IConsoleExecutors

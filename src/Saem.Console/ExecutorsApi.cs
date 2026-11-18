@@ -18,6 +18,13 @@ public sealed class ConsoleExecutorOptions
 
     /// <summary>One of the executor's secrets (<c>SAEM_EXECUTOR_SECRET</c> there).</summary>
     public string Secret { get; set; } = "";
+
+    /// <summary>
+    /// Whether the console may ask this executor over plain <c>http</c> though it is not on this machine. The secret travels in every
+    /// request, so it goes in the clear only where the network between the two is one the deployment trusts — a container network on one
+    /// host, say — and the setting says so.
+    /// </summary>
+    public bool AllowPlainHttp { get; set; }
 }
 
 /// <summary>The executors the console may ask, by the group each one serves (<c>Saem:Console:Executors:&lt;group&gt;</c>).</summary>
@@ -35,6 +42,8 @@ public sealed class ConsoleExecutors : Dictionary<string, ConsoleExecutorOptions
     internal string? Problem() => this
         .Select(e => !Uri.TryCreate(e.Value.Address, UriKind.Absolute, out var address) || address.Scheme is not ("http" or "https")
             ? $"Saem:Console:Executors:{e.Key}:Address takes an http(s) address."
+            : address.Scheme == "http" && !address.IsLoopback && !e.Value.AllowPlainHttp
+                ? $"Saem:Console:Executors:{e.Key}:Address is plain http to a host that is not this machine, and the secret goes with every request: use https, or set Saem:Console:Executors:{e.Key}:AllowPlainHttp to true where the network between the console and the executor is trusted."
             : e.Value.Secret.Length < MinimumSecretLength ? $"Saem:Console:Executors:{e.Key}:Secret must be at least {MinimumSecretLength} characters." : null)
         .FirstOrDefault(p => p is not null);
 }

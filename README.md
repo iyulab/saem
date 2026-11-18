@@ -681,7 +681,8 @@ asks the MCP server for, as that person. Configuration: `Saem:Console:Ontology` 
 `Saem:Console:Identity` (issuer, audience, the console's client id and secret, sign-in scopes),
 `Saem:Console:Roles`, `Saem:Console:Lookup` (the MCP server, its audience, `PresentActor`),
 `Saem:Console:CheckReport` (the last `saem-materialize check --report` file, optional),
-`Saem:Console:Executors:<group>` (the address and secret of the group's `saem-materialize serve`, optional),
+`Saem:Console:Executors:<group>` (the address and secret of the group's `saem-materialize serve`, optional — the secret goes with
+every request, so the address is `https`, or `http` only to this machine, unless `…:AllowPlainHttp` is set where the network between is trusted),
 `Saem:Console:Draft` and `Saem:Console:Confirmations` (the draft a builder confirms and the file each confirmation is
 recorded in — set together, optional) and `Saem:Console:Proposals` (the proposals file `saem-author --proposals`
 wrote for that draft — needs the draft, optional) and `Saem:Console:SettledRecords` (the settled-records file

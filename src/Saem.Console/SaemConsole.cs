@@ -124,10 +124,10 @@ public static class SaemConsole
             {
                 foreach (var group in console.GetSection("Executors").GetChildren())
                 {
-                    executors[group.Key] = new ConsoleExecutorOptions { Address = group["Address"] ?? "", Secret = group["Secret"] ?? "" };
+                    executors[group.Key] = new ConsoleExecutorOptions { Address = group["Address"] ?? "", Secret = group["Secret"] ?? "", AllowPlainHttp = bool.TryParse(group["AllowPlainHttp"], out var plain) && plain };
                 }
             })
-            .Validate(executors => executors.Problem() is null, "Saem:Console:Executors names each group's executor: an http(s) Address and a Secret of at least 24 characters.")
+            .Validate(executors => executors.Problem() is null, "Saem:Console:Executors names each group's executor: an https Address (plain http only to this machine, or with AllowPlainHttp set) and a Secret of at least 24 characters.")
             .ValidateOnStart();
         services.AddHttpClient(nameof(HttpConsoleExecutors));
         services.AddSingleton<IConsoleExecutors, HttpConsoleExecutors>();

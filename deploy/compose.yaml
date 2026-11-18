@@ -225,8 +225,10 @@ services:
       Saem__Console__Confirmations: /data/confirmations.jsonl
       Saem__Console__SettledRecords: /data/settled.jsonl
       Saem__Console__Executors__g-plant__Address: http://executor-g-plant:8080
+      Saem__Console__Executors__g-plant__AllowPlainHttp: "true"
       Saem__Console__Executors__g-plant__Secret: ${SAEM_G_PLANT_EXECUTOR_SECRET}
       Saem__Console__Executors__g-office__Address: http://executor-g-office:8080
+      Saem__Console__Executors__g-office__AllowPlainHttp: "true"
       Saem__Console__Executors__g-office__Secret: ${SAEM_G_OFFICE_EXECUTOR_SECRET}
       <<: *quiet-probes
     volumes:

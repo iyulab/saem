@@ -93,6 +93,9 @@ Each group's executor accepts the secret the console presents to it. To replace 
 
 - **A production identity.** The issuer accepts any client and any secret; connect your own, as *Deploying the console* in the
   README describes, and serve the console over HTTPS.
+- **A network between the console and the executors.** The console asks each executor over plain HTTP on the compose network, with
+  `AllowPlainHttp` set for each — the secret travels in the clear there, which is why the install is one machine. Put the executors on
+  another host and the console refuses an `http` address until it is `https`.
 - **One machine, one instance of each host.** Several instances need a shared key ring for the console's sessions and affinity
   or a refresh-token reuse window at the issuer (see the README).
 - **Keeping the record of who looked where.** The MCP server writes it to its log; the install does not keep that log past
