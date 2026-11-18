@@ -37,57 +37,8 @@ public static class SourceRecheck
         ArgumentNullException.ThrowIfNull(proposals);
         ArgumentNullException.ThrowIfNull(source);
 
-        var items = new List<(Declaration Declaration, string Id, string? Field, IReadOnlyList<PassCitation> Cites)>();
-        var notJudged = new List<string>();
-        foreach (var declaration in proposals.Added)
-        {
-            string? field;
-            switch (declaration)
-            {
-                case EntityTypeDeclaration entity:
-                    field = entity.Key;
-                    break;
-                case RelationDeclaration relation:
-                    field = relation.Via;
-                    break;
-                default:
-                    continue;
-            }
-
-            var id = ProposedDeclarations.IdOf(declaration);
-            if (proposals.Evidence?.GetValueOrDefault(id) is { Count: > 0 } cites)
-            {
-                items.Add((declaration, id, field, cites));
-            }
-            else
-            {
-                notJudged.Add(id);
-            }
-        }
-
-        // Each subject's records are read once however many proposals cite them.
-        var readings = new Dictionary<(string Subject, string Record), CitedReading>();
-        var notes = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var subject in items.SelectMany(i => i.Cites).Select(c => c.Subject).OfType<string>().Distinct(StringComparer.Ordinal))
-        {
-            var ids = items.SelectMany(i => i.Cites).Where(c => c.Subject == subject).Select(c => c.Record).Distinct(StringComparer.Ordinal).ToList();
-            try
-            {
-                var read = await source.ReadAsync(subject, ids, cancellationToken).ConfigureAwait(false);
-                foreach (var id in ids)
-                {
-                    readings[(subject, id)] = read.GetValueOrDefault(id) ?? new CitedReading(CitedStanding.Missing, NoFields);
-                }
-            }
-            catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-            {
-                notes[subject] = $"The source of '{subject}' could not be read: {e.Message}";
-                foreach (var id in ids)
-                {
-                    readings[(subject, id)] = new CitedReading(CitedStanding.Unreadable, NoFields);
-                }
-            }
-        }
+        var (items, notJudged) = ItemsOf(proposals);
+        var (readings, notes) = await ReadAllAsync(items.SelectMany(i => i.Cites), source, cancellationToken).ConfigureAwait(false);
 
         var rows = new List<ShadowRow>();
         foreach (var (declaration, id, field, cites) in items)
@@ -131,5 +82,74 @@ public static class SourceRecheck
         return new SourceRecheckResult(rows, notJudged);
     }
 
-    private static readonly IReadOnlyDictionary<string, string?> NoFields = new Dictionary<string, string?>();
+
+    /// <summary>
+    /// Reads every cited record again, each subject's once however many proposals cite it. A subject that cannot be read has every
+    /// record of it reported <see cref="CitedStanding.Unreadable"/>, with the reason kept by subject.
+    /// </summary>
+    internal static async Task<(Dictionary<(string Subject, string Record), CitedReading> Readings, Dictionary<string, string> Notes)> ReadAllAsync(
+        IEnumerable<PassCitation> cited, ICitationSource source, CancellationToken cancellationToken)
+    {
+        var all = cited.ToList();
+        var readings = new Dictionary<(string Subject, string Record), CitedReading>();
+        var notes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var subject in all.Select(c => c.Subject).OfType<string>().Distinct(StringComparer.Ordinal))
+        {
+            var ids = all.Where(c => c.Subject == subject).Select(c => c.Record).Distinct(StringComparer.Ordinal).ToList();
+            try
+            {
+                var read = await source.ReadAsync(subject, ids, cancellationToken).ConfigureAwait(false);
+                foreach (var id in ids)
+                {
+                    readings[(subject, id)] = read.GetValueOrDefault(id) ?? new CitedReading(CitedStanding.Missing, NoFields);
+                }
+            }
+            catch (Exception e) when (e is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                notes[subject] = $"The source of '{subject}' could not be read: {e.Message}";
+                foreach (var id in ids)
+                {
+                    readings[(subject, id)] = new CitedReading(CitedStanding.Unreadable, NoFields);
+                }
+            }
+        }
+
+        return (readings, notes);
+    }
+
+    /// <summary>The proposals the check reads, each with the field it depends on and the records cited for it.</summary>
+    internal static (List<(Declaration Declaration, string Id, string? Field, IReadOnlyList<PassCitation> Cites)> Items, List<string> NotJudged) ItemsOf(ProposedDeclarations proposals)
+    {
+        var items = new List<(Declaration Declaration, string Id, string? Field, IReadOnlyList<PassCitation> Cites)>();
+        var notJudged = new List<string>();
+        foreach (var declaration in proposals.Added)
+        {
+            string? field;
+            switch (declaration)
+            {
+                case EntityTypeDeclaration entity:
+                    field = entity.Key;
+                    break;
+                case RelationDeclaration relation:
+                    field = relation.Via;
+                    break;
+                default:
+                    continue;
+            }
+
+            var id = ProposedDeclarations.IdOf(declaration);
+            if (proposals.Evidence?.GetValueOrDefault(id) is { Count: > 0 } cites)
+            {
+                items.Add((declaration, id, field, cites));
+            }
+            else
+            {
+                notJudged.Add(id);
+            }
+        }
+
+        return (items, notJudged);
+    }
+
+    internal static readonly IReadOnlyDictionary<string, string?> NoFields = new Dictionary<string, string?>();
 }

@@ -345,6 +345,13 @@ for what moves in Formbase between the sample and the review, and run again late
 says the line from a proposal to its records still holds, not that the records bear out what the proposal
 says.
 
+With `--repeat-consistency` (and `--model-endpoint`, `--model`, optionally `--repeats`, default 5) the same command also
+asks a model, one repeat after another, whether the records it just read support each proposal, and keeps
+what every repeat said: all alike is stable, otherwise wobbling. This finds whether the model says the same
+thing twice — one model can be steadily wrong — and the sampling is the endpoint's own. At most ten proposals
+are asked about; a call takes minutes. The records are sent to the model endpoint you name, as authoring
+already sends them.
+
 A model call that fails transiently — a dropped stream, a 5xx — is tried again (`--retries`, default
 one), and the review lists every retried attempt. Secrets come from the environment
 (`SAEM_MODEL_API_KEY`, and `SAEM_FORMBASE_TOKEN` when something in front of Formbase asks for one),

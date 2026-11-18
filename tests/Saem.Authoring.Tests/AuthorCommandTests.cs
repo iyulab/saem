@@ -222,10 +222,27 @@ public sealed class AuthorCommandTests : IDisposable
     [InlineData(new[] { "--formbase", "http://forms.test" }, "--proposals is required.")]
     [InlineData(new[] { "--proposals", "p.json" }, "--formbase is required.")]
     [InlineData(new[] { "--proposals", "p.json", "--formbase", "ftp://forms.test" }, "--formbase takes an http(s) address, not 'ftp://forms.test'.")]
-    [InlineData(new[] { "--proposals", "p.json", "--formbase", "http://forms.test", "--model", "m" }, "Unknown argument '--model'.")]
+    [InlineData(new[] { "--proposals", "p.json", "--formbase", "http://forms.test", "--api-key", "k" }, "Unknown argument '--api-key'.")]
     [InlineData(new[] { "--proposals", "--formbase", "http://forms.test" }, "--proposals needs a value.")]
     public void A_malformed_shadow_command_line_is_refused(string[] args, string message) =>
         Assert.Equal(message, Assert.Throws<AuthorUsageException>(() => ShadowOptions.Parse(args, _ => null)).Message);
+
+    [Fact]
+    public void The_repeat_options_are_read_and_belong_only_to_the_repeated_judgment()
+    {
+        string[] basic = ["--proposals", "p.json", "--formbase", "http://forms.test"];
+        var options = ShadowOptions.Parse([.. basic, "--repeat-consistency", "--model-endpoint", "https://model.test/v1", "--model", "m", "--repeats", "3", "--model-stream"],
+            name => name == "SAEM_MODEL_API_KEY" ? "k" : null);
+
+        Assert.Equal(new RepeatOptions(new Uri("https://model.test/v1/"), "m", "k", true, TimeSpan.FromMinutes(10), 1, 3), options.Repeat);
+        Assert.Null(ShadowOptions.Parse(basic, _ => null).Repeat);
+        Assert.Equal("The model options belong to --repeat-consistency, which is not given.",
+            Assert.Throws<AuthorUsageException>(() => ShadowOptions.Parse([.. basic, "--model", "m"], _ => null)).Message);
+        Assert.Equal("--repeat-consistency needs --model-endpoint.",
+            Assert.Throws<AuthorUsageException>(() => ShadowOptions.Parse([.. basic, "--repeat-consistency"], _ => null)).Message);
+        Assert.Equal("--repeats takes a whole number of at least 2, not '1'.",
+            Assert.Throws<AuthorUsageException>(() => ShadowOptions.Parse([.. basic, "--repeat-consistency", "--model-endpoint", "https://m.test/v1", "--model", "m", "--repeats", "1"], _ => null)).Message);
+    }
 
     [Fact]
     public async Task A_shadow_run_looks_again_at_what_a_run_cited_and_writes_only_its_ledger()

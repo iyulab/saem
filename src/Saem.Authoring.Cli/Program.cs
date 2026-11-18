@@ -151,7 +151,27 @@ static async Task<int> Shadow(string[] args)
             formbase.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
 
-        await ShadowRun.RunAsync(options, new FormbaseCitationSource(new FormbaseConnector(formbase, options.FormbaseNamespace)), DateTimeOffset.UtcNow, Console.Out, CancellationToken.None);
+        using var modelHttp = options.Repeat is { } repeat ? new HttpClient { BaseAddress = repeat.Endpoint, Timeout = repeat.Timeout } : null;
+        if (options.Repeat?.ApiKey is { } apiKey)
+        {
+            modelHttp!.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        }
+
+        Eyu.Core.Ports.IModelClient? asked = options.Repeat is { } r
+            ? new RetryingModelClient(
+                new HttpModelClient(modelHttp!, r.Model, stream: r.Stream),
+                r.Retries,
+                onRetry: retry => Console.Error.WriteLine($"model call attempt {retry.Attempt} failed ({retry.Failure.GetType().Name}: {retry.Failure.Message}); trying again."))
+            : null;
+
+        using var cancellation = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            cancellation.Cancel();
+        };
+
+        await ShadowRun.RunAsync(options, new FormbaseCitationSource(new FormbaseConnector(formbase, options.FormbaseNamespace)), DateTimeOffset.UtcNow, Console.Out, cancellation.Token, asked);
         return 0;
     }
     catch (AuthorUsageException e)

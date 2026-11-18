@@ -54,6 +54,15 @@ public static class ShadowVerdict
 
     /// <summary>The check could not be completed: the source could not be read, or a citation cannot be looked up again.</summary>
     public const string Unreadable = "unreadable";
+
+    /// <summary>Every repeat of a repeated judgment said the same thing — <c>stable:supported</c>, <c>stable:unsupported</c> or <c>stable:unsure</c>.</summary>
+    public const string StablePrefix = "stable:";
+
+    /// <summary>The repeats of a repeated judgment did not all say the same thing.</summary>
+    public const string Wobbling = "wobbling";
+
+    /// <summary>A repeat of a repeated judgment failed or could not be read, so the repeats cannot be compared.</summary>
+    public const string Incomplete = "incomplete";
 }
 
 /// <summary>
@@ -72,6 +81,8 @@ public static class ShadowVerdict
 /// <param name="Cites">What was found about each cited record.</param>
 /// <param name="Note">Why the check could not be completed, when it could not.</param>
 /// <param name="At">When the check ran.</param>
+/// <param name="Votes">For a repeated judgment, what each repeat said, in the order they were asked — <c>supported</c>, <c>unsupported</c>, <c>unsure</c>, or <c>invalid</c> for one that failed or could not be read.</param>
+/// <param name="PromptFingerprint">For a judgment a model made, a fingerprint of the wording it was asked with.</param>
 public sealed record ShadowRow(
     string Pass,
     string ItemId,
@@ -84,4 +95,6 @@ public sealed record ShadowRow(
     bool? FieldCarried,
     IReadOnlyList<ShadowCite> Cites,
     string? Note,
-    DateTimeOffset At);
+    DateTimeOffset At,
+    IReadOnlyList<string>? Votes = null,
+    string? PromptFingerprint = null);

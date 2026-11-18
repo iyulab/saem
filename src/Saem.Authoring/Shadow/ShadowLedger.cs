@@ -102,6 +102,22 @@ public static class ShadowLedger
                 writer.WriteString("note", row.Note);
             }
 
+            if (row.Votes is not null)
+            {
+                writer.WriteStartArray("votes");
+                foreach (var vote in row.Votes)
+                {
+                    writer.WriteStringValue(vote);
+                }
+
+                writer.WriteEndArray();
+            }
+
+            if (row.PromptFingerprint is not null)
+            {
+                writer.WriteString("prompt", row.PromptFingerprint);
+            }
+
             writer.WriteString("at", row.At.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture));
             writer.WriteEndObject();
         }
@@ -140,7 +156,9 @@ public static class ShadowLedger
                     c.TryGetProperty("subject", out var subject) ? subject.GetString() : null,
                     Standing(c.GetProperty("standing").GetString()!)))],
                 root.TryGetProperty("note", out var note) ? note.GetString() : null,
-                DateTimeOffset.Parse(root.GetProperty("at").GetString()!, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal));
+                DateTimeOffset.Parse(root.GetProperty("at").GetString()!, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal),
+                root.TryGetProperty("votes", out var votes) ? [.. votes.EnumerateArray().Select(v => v.GetString()!)] : null,
+                root.TryGetProperty("prompt", out var prompt) ? prompt.GetString() : null);
         }
         catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or FormatException)
         {

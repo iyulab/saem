@@ -1,4 +1,5 @@
 using System.Globalization;
+using Eyu.Core.Ports;
 using Eyu.Core.Primitives;
 using Saem.Authoring.Shadow;
 using Saem.Connectors.Formbase;
@@ -7,7 +8,8 @@ using Saem.Ontology;
 namespace Saem.Authoring.Cli;
 
 /// <summary>What one <c>saem-author shadow</c> is told: the pass's proposals, the Formbase to look in again, and where the findings are kept.</summary>
-internal sealed record ShadowOptions(Uri Formbase, string? FormbaseNamespace, string? FormbaseToken, string ProposalsPath, string LedgerPath)
+internal sealed record ShadowOptions(
+    Uri Formbase, string? FormbaseNamespace, string? FormbaseToken, string ProposalsPath, string LedgerPath, RepeatOptions? Repeat = null)
 {
     public const string Usage = """
         saem-author shadow — look again, in the source, at the records a pass's proposals were drawn from.
@@ -20,6 +22,17 @@ internal sealed record ShadowOptions(Uri Formbase, string? FormbaseNamespace, st
           --formbase-namespace <name>    The Formbase namespace to read; omitted, the instance's own.
           --ledger <path>                Where the findings are appended (default shadow-judgments.jsonl beside the proposals).
 
+        Also ask a model the same question about each proposal several times and record whether it says the same thing (it can be
+        steadily wrong; this finds only whether it wavers):
+          --repeat-consistency           Turn this on; it needs the next two.
+          --model-endpoint <url>         An OpenAI-compatible base address, version segment included (…/v1/).
+          --model <name>                 The model to ask.
+          --repeats <n>                  How many times each proposal is asked about (default 5).
+          --model-stream                 Ask for the answer as it is written (behind a gateway that cuts a slow first byte).
+          --model-timeout-minutes <n>    How long to wait on the model before a call fails (default 10).
+          --retries <n>                  How many more times a call that fails transiently is tried (default 1).
+        At most 10 proposals are asked about; a pass with more is stopped before any call. A model call takes minutes.
+
         For each entity type and relation the pass proposed, each cited document is read again from its form type's
         stream: still the current version of its record, corrected since, retired, or gone — and whether the
         field the proposal depends on is carried. No model is asked and nothing but the ledger is written; the
@@ -28,6 +41,7 @@ internal sealed record ShadowOptions(Uri Formbase, string? FormbaseNamespace, st
 
         Environment:
           SAEM_FORMBASE_TOKEN            One of Formbase's access keys, sent as a bearer token.
+          SAEM_MODEL_API_KEY             A bearer token sent to the model endpoint.
         """;
 
     /// <exception cref="AuthorUsageException">The command line is incomplete or malformed.</exception>
@@ -39,7 +53,17 @@ internal sealed record ShadowOptions(Uri Formbase, string? FormbaseNamespace, st
         for (var i = 0; i < args.Count; i++)
         {
             var arg = args[i];
-            if (arg is not ("--proposals" or "--formbase" or "--formbase-namespace" or "--ledger"))
+            if (arg is "--repeat-consistency" or "--model-stream")
+            {
+                if (!values.TryAdd(arg, "true"))
+                {
+                    throw new AuthorUsageException($"{arg} is given more than once.");
+                }
+
+                continue;
+            }
+
+            if (arg is not ("--proposals" or "--formbase" or "--formbase-namespace" or "--ledger" or "--model-endpoint" or "--model" or "--repeats" or "--model-timeout-minutes" or "--retries"))
             {
                 throw new AuthorUsageException($"Unknown argument '{arg}'.");
             }
@@ -57,6 +81,31 @@ internal sealed record ShadowOptions(Uri Formbase, string? FormbaseNamespace, st
 
         var proposals = values.TryGetValue("--proposals", out var p) ? p : throw new AuthorUsageException("--proposals is required.");
         var formbase = values.TryGetValue("--formbase", out var f) ? f : throw new AuthorUsageException("--formbase is required.");
+        RepeatOptions? repeat = null;
+        if (values.ContainsKey("--repeat-consistency"))
+        {
+            var endpoint = values.TryGetValue("--model-endpoint", out var e) ? e : throw new AuthorUsageException("--repeat-consistency needs --model-endpoint.");
+            repeat = new RepeatOptions(
+                Uri.TryCreate(endpoint.EndsWith('/') ? endpoint : endpoint + "/", UriKind.Absolute, out var model) && model.Scheme is "http" or "https"
+                    ? model
+                    : throw new AuthorUsageException($"--model-endpoint takes an http(s) address, not '{endpoint}'."),
+                values.TryGetValue("--model", out var name) ? name : throw new AuthorUsageException("--repeat-consistency needs --model."),
+                environment("SAEM_MODEL_API_KEY") is { Length: > 0 } key ? key : null,
+                values.ContainsKey("--model-stream"),
+                TimeSpan.FromMinutes(Count("--model-timeout-minutes", 10, 1)),
+                Count("--retries", 1, 0),
+                Count("--repeats", RepeatConsistency.DefaultRepeats, 2));
+        }
+        else if (values.Keys.Any(k => k is "--model-endpoint" or "--model" or "--repeats" or "--model-timeout-minutes" or "--retries" or "--model-stream"))
+        {
+            throw new AuthorUsageException("The model options belong to --repeat-consistency, which is not given.");
+        }
+
+        int Count(string name, int fallback, int minimum) =>
+            !values.TryGetValue(name, out var text) ? fallback
+            : int.TryParse(text, System.Globalization.NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number >= minimum ? number
+            : throw new AuthorUsageException($"{name} takes a whole number of at least {minimum}, not '{text}'.");
+
         return new ShadowOptions(
             Uri.TryCreate(formbase.EndsWith('/') ? formbase : formbase + "/", UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
                 ? uri
@@ -64,9 +113,13 @@ internal sealed record ShadowOptions(Uri Formbase, string? FormbaseNamespace, st
             values.GetValueOrDefault("--formbase-namespace"),
             environment(AuthorOptions.FormbaseTokenVariable) is { Length: > 0 } token ? token : null,
             proposals,
-            values.GetValueOrDefault("--ledger") ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(proposals)) ?? ".", "shadow-judgments.jsonl"));
+            values.GetValueOrDefault("--ledger") ?? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(proposals)) ?? ".", "shadow-judgments.jsonl"),
+            repeat);
     }
 }
+
+/// <summary>The model a repeated judgment asks, and how many times it asks each proposal.</summary>
+internal sealed record RepeatOptions(Uri Endpoint, string Model, string? ApiKey, bool Stream, TimeSpan Timeout, int Retries, int Repeats);
 
 /// <summary>The Formbase connector as the place cited documents are read again.</summary>
 internal sealed class FormbaseCitationSource(FormbaseConnector connector) : ICitationSource
@@ -92,7 +145,8 @@ internal sealed class FormbaseCitationSource(FormbaseConnector connector) : ICit
 internal static class ShadowRun
 {
     /// <exception cref="AuthorRunException">The proposals cannot be read.</exception>
-    public static async Task RunAsync(ShadowOptions options, ICitationSource source, DateTimeOffset at, TextWriter output, CancellationToken cancellationToken)
+    public static async Task RunAsync(
+        ShadowOptions options, ICitationSource source, DateTimeOffset at, TextWriter output, CancellationToken cancellationToken, IModelClient? model = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(source);
@@ -114,6 +168,13 @@ internal static class ShadowRun
             return;
         }
 
+        if (options.Repeat is not null && model is null)
+        {
+            throw new AuthorRunException("--repeat-consistency was given and no model to ask was.");
+        }
+
+        // The model is asked after the source is looked at, and the ledger takes what the first found before the second begins:
+        // a run of minutes that is stopped keeps what it had.
         var result = await SourceRecheck.JudgeAsync(proposals, source, at, cancellationToken).ConfigureAwait(false);
         await ShadowLedger.AppendAsync(options.LedgerPath, result.Rows, cancellationToken).ConfigureAwait(false);
 
@@ -128,6 +189,26 @@ internal static class ShadowRun
                 string.Join(", ", row.Cites.GroupBy(c => c.Standing).Select(g => $"{g.Count()} {g.Key}".ToLowerInvariant())) +
                 (row.FieldCarried == false ? $"; none carries '{row.Field}'" : "") +
                 (row.Note is null ? "" : $" — {row.Note}")).ConfigureAwait(false);
+        }
+
+        if (options.Repeat is { } repeat)
+        {
+            await output.WriteLineAsync($"Asking {repeat.Model} {repeat.Repeats} times about each proposal (prompt {RepeatConsistency.PromptFingerprint}); a call takes minutes.").ConfigureAwait(false);
+            var lines = new List<string>();
+            var asked = await RepeatConsistency.JudgeAsync(proposals, source, model!, repeat.Repeats, DateTimeOffset.UtcNow, lines.Add, cancellationToken).ConfigureAwait(false);
+            foreach (var line in lines)
+            {
+                await output.WriteLineAsync("  " + line).ConfigureAwait(false);
+            }
+
+            await ShadowLedger.AppendAsync(options.LedgerPath, asked.Rows, cancellationToken).ConfigureAwait(false);
+            var tally = asked.Rows.GroupBy(r => r.Verdict.StartsWith(ShadowVerdict.StablePrefix, StringComparison.Ordinal) ? "stable" : r.Verdict).ToDictionary(g => g.Key, g => g.Count());
+            await output.WriteLineAsync(string.Create(CultureInfo.InvariantCulture,
+                $"Repeat consistency: {asked.Rows.Count} proposals — {tally.GetValueOrDefault("stable")} stable, {tally.GetValueOrDefault(ShadowVerdict.Wobbling)} wobbling, {tally.GetValueOrDefault(ShadowVerdict.Incomplete)} incomplete.")).ConfigureAwait(false);
+            foreach (var row in asked.Rows)
+            {
+                await output.WriteLineAsync($"  {row.ItemId}: {row.Verdict} [{string.Join(", ", row.Votes ?? [])}]").ConfigureAwait(false);
+            }
         }
     }
 }
