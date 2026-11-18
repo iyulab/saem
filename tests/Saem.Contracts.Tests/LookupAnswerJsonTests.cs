@@ -38,7 +38,7 @@ public class LookupAnswerJsonTests
     [Fact]
     public void An_answer_names_its_case_and_reads_back_as_the_same_facts()
     {
-        var claim = new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [new Hop("supplied_by", Order, Supplier)]);
+        var claim = new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [[new Hop("supplied_by", Order, Supplier)]]);
 
         var json = Write(new Answered([claim]));
 
@@ -50,7 +50,7 @@ public class LookupAnswerJsonTests
         Assert.Equal("name", back.Field);
         Assert.Equal("Acme", back.Value.GetString());
         Assert.Equal([Erp], back.Sources);
-        Assert.Equal([new Hop("supplied_by", Order, Supplier)], back.Path);
+        Assert.Equal([new Hop("supplied_by", Order, Supplier)], back.Paths[0]);
     }
 
     [Fact]
@@ -70,16 +70,29 @@ public class LookupAnswerJsonTests
 
     /// <summary>A hop walked backwards names the partition it was read from; a forward hop carries no such property.</summary>
     [Fact]
+    public void A_claim_reads_back_with_every_way_it_was_reached()
+    {
+        var plant = new Hop("supplies", Supplier, Order) { Partition = "g-plant" };
+        var office = new Hop("supplies", Supplier, Order) { Partition = "g-office" };
+        var json = Write(new Answered([new Claim(Order, "qty", Value("5"), [Erp], [[plant], [office]])]));
+
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal(2, document.RootElement.GetProperty("claims")[0].GetProperty("paths").GetArrayLength());
+        Assert.False(document.RootElement.GetProperty("claims")[0].TryGetProperty("path", out _));
+        Assert.Equal([[plant], [office]], Assert.IsType<Answered>(Read(json)).Claims[0].Paths);
+    }
+
+    [Fact]
     public void A_backward_hop_carries_its_partition_and_a_forward_one_none()
     {
         var back = new Hop("supplies", Supplier, Order) { Partition = "g-plant" };
-        var json = Write(new Answered([new Claim(Order, "qty", Value("5"), [Erp], [new Hop("supplied_by", Order, Supplier), back])]));
+        var json = Write(new Answered([new Claim(Order, "qty", Value("5"), [Erp], [[new Hop("supplied_by", Order, Supplier), back]])]));
 
         using var document = JsonDocument.Parse(json);
-        var path = document.RootElement.GetProperty("claims")[0].GetProperty("path");
+        var path = document.RootElement.GetProperty("claims")[0].GetProperty("paths")[0];
         Assert.False(path[0].TryGetProperty("partition", out _));
         Assert.Equal("g-plant", path[1].GetProperty("partition").GetString());
-        Assert.Equal(back, Assert.IsType<Answered>(Read(json)).Claims[0].Path[1]);
+        Assert.Equal(back, Assert.IsType<Answered>(Read(json)).Claims[0].Paths[0][1]);
     }
 
     /// <summary>D-86 ⑤: a hop that crossed an identity says who held the two one, by name; a relation's hop says nothing of it.</summary>
@@ -88,12 +101,12 @@ public class LookupAnswerJsonTests
     public void A_hop_cites_the_row_the_person_read_there_when_it_says_so()
     {
         var cited = new Hop("supplied_by", Order, Supplier) { Source = new SourceRecord("erp", "items", "I-200") { ReadAt = new DateTimeOffset(2026, 10, 30, 3, 4, 5, TimeSpan.Zero) } };
-        var json = Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [cited])]));
+        var json = Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [[cited]])]));
 
         Assert.Contains("\"source\":{\"system\":\"erp\",\"table\":\"items\",\"record\":\"I-200\",\"readAt\":\"2026-10-30T03:04:05+00:00\"}", json, StringComparison.Ordinal);
-        Assert.Equal(cited, Assert.IsType<Answered>(Read(json)).Claims[0].Path[0]);
-        Assert.Contains("\"source\":{", json[json.IndexOf("\"path\"", StringComparison.Ordinal)..], StringComparison.Ordinal);
-        Assert.DoesNotContain("\"path\":[{\"relation\":\"supplied_by\",\"from\":{\"type\":\"Order\",\"key\":\"O-1\"},\"to\":{\"type\":\"Supplier\",\"key\":\"S-7\"},\"source\"", Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [new Hop("supplied_by", Order, Supplier)])])), StringComparison.Ordinal);
+        Assert.Equal(cited, Assert.IsType<Answered>(Read(json)).Claims[0].Paths[0][0]);
+        Assert.Contains("\"source\":{", json[json.IndexOf("\"paths\"", StringComparison.Ordinal)..], StringComparison.Ordinal);
+        Assert.DoesNotContain("\"paths\":[[{\"relation\":\"supplied_by\",\"from\":{\"type\":\"Order\",\"key\":\"O-1\"},\"to\":{\"type\":\"Supplier\",\"key\":\"S-7\"},\"source\"", Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [[new Hop("supplied_by", Order, Supplier)]])])), StringComparison.Ordinal);
         Assert.Equal("#/$defs/sourceRecord", ContractSchema.Answer.GetProperty("$defs").GetProperty("hop").GetProperty("properties").GetProperty("source").GetProperty("$ref").GetString());
     }
 
@@ -101,11 +114,11 @@ public class LookupAnswerJsonTests
     public void A_hop_across_an_identity_says_who_settled_it_by_name()
     {
         var same = new Hop("same_supplier", Supplier, Supplier with { Key = "S-9" }) { Partition = "g-plant", Identity = IdentityDecision.Confirmed };
-        var json = Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [same])]));
+        var json = Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [[same]])]));
 
         Assert.Contains("\"identity\":\"confirmed\"", json, StringComparison.Ordinal);
-        Assert.Equal(same, Assert.IsType<Answered>(Read(json)).Claims[0].Path[0]);
-        Assert.DoesNotContain("identity", Write(new Answered([new Claim(Order, "qty", Value("5"), [Erp], [new Hop("supplied_by", Order, Supplier)])])), StringComparison.Ordinal);
+        Assert.Equal(same, Assert.IsType<Answered>(Read(json)).Claims[0].Paths[0][0]);
+        Assert.DoesNotContain("identity", Write(new Answered([new Claim(Order, "qty", Value("5"), [Erp], [[new Hop("supplied_by", Order, Supplier)]])])), StringComparison.Ordinal);
         Assert.Equal(
             Enum.GetValues<IdentityDecision>().Select(d => JsonSerializer.Serialize(d, ContractJson.Default.IdentityDecision).Trim('"')),
             ContractSchema.Answer.GetProperty("$defs").GetProperty("hop").GetProperty("properties").GetProperty("identity").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
@@ -154,16 +167,16 @@ public class LookupAnswerJsonTests
     [Fact]
     public void A_projection_behind_its_documents_travels_by_name_and_is_left_out_when_current()
     {
-        var answered = new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp with { Projection = SourceProjection.Stale }], [])]);
+        var answered = new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp with { Projection = SourceProjection.Stale }], [[]])]);
         var refused = new Refused(new Refusal(RefusalReason.NoVisibleResult, 0, null, "erp") { Projection = SourceProjection.Unverified });
 
         Assert.Contains("\"projection\":\"stale\"", Write(answered), StringComparison.Ordinal);
         Assert.Equal(SourceProjection.Stale, Assert.IsType<Answered>(Read(Write(answered))).Claims[0].Sources[0].Projection);
         Assert.Equal(SourceProjection.Unverified, Assert.IsType<Refused>(Read(Write(refused))).Refusal.Projection);
-        var incomplete = new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp with { Projection = SourceProjection.Incomplete }], [])]);
+        var incomplete = new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp with { Projection = SourceProjection.Incomplete }], [[]])]);
         Assert.Contains("\"projection\":\"incomplete\"", Write(incomplete), StringComparison.Ordinal);
         Assert.Equal(SourceProjection.Incomplete, Assert.IsType<Answered>(Read(Write(incomplete))).Claims[0].Sources[0].Projection);
-        Assert.DoesNotContain("projection", Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [])])), StringComparison.Ordinal);
+        Assert.DoesNotContain("projection", Write(new Answered([new Claim(Supplier, "name", Value("\"Acme\""), [Erp], [[]])])), StringComparison.Ordinal);
         Assert.Equal(
             Enum.GetValues<SourceProjection>().Select(p => JsonSerializer.Serialize(p, ContractJson.Default.SourceProjection).Trim('"')),
             ContractSchema.Answer.GetProperty("$defs").GetProperty("sourceProjection").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
@@ -172,7 +185,7 @@ public class LookupAnswerJsonTests
     [Fact]
     public void A_claims_field_kind_travels_by_name_and_is_left_out_when_undeclared()
     {
-        var claim = new Claim(Supplier, "note", Value("\"call before noon\""), [Erp], []) { FieldKind = FieldKind.FreeText };
+        var claim = new Claim(Supplier, "note", Value("\"call before noon\""), [Erp], [[]]) { FieldKind = FieldKind.FreeText };
 
         Assert.Contains("\"fieldKind\":\"freeText\"", Write(new Answered([claim])), StringComparison.Ordinal);
         Assert.Equal(FieldKind.FreeText, Assert.IsType<Answered>(Read(Write(new Answered([claim])))).Claims[0].FieldKind);
@@ -229,7 +242,7 @@ public class LookupAnswerJsonTests
     [Fact]
     public void An_empty_field_travels_as_null_and_stays_a_claim()
     {
-        var json = Write(new Answered([new Claim(Supplier, "fax", Value("null"), [Erp], [])]));
+        var json = Write(new Answered([new Claim(Supplier, "fax", Value("null"), [Erp], [[]])]));
 
         var read = Assert.IsType<Answered>(Read(json));
         Assert.Equal(JsonValueKind.Null, Assert.Single(read.Claims).Value.ValueKind);
@@ -246,7 +259,7 @@ public class LookupAnswerJsonTests
 
     [Theory]
     [InlineData("""{"kind":"answered","claims":[]}""", "claims")]
-    [InlineData("""{"kind":"answered","claims":[{"entity":{"type":"Supplier","key":"S-7"},"field":"name","value":"Acme","sources":[],"path":[]}]}""", "sources")]
+    [InlineData("""{"kind":"answered","claims":[{"entity":{"type":"Supplier","key":"S-7"},"field":"name","value":"Acme","sources":[],"paths":[[]]}]}""", "sources")]
     public void A_payload_the_shape_forbids_is_refused_while_it_is_read(string json, string rule)
     {
         // The same constructor rule that refuses the value in memory — not a parser that happened to fail.

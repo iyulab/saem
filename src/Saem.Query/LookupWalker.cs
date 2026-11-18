@@ -226,7 +226,7 @@ public sealed class LookupWalker
             if (step is null)
             {
                 var projection = await StateAsync(states, at, cancellationToken).ConfigureAwait(false);
-                return With(new Answered([.. survivors.SelectMany(s => Answer(at, s.Row, _time.GetUtcNow(), projection, plan.Read, s.Branch.Hops).Claims)]));
+                return With(new Answered(OneClaimPerFact(survivors.SelectMany(s => Answer(at, s.Row, _time.GetUtcNow(), projection, plan.Read, s.Branch.Hops).Claims))));
             }
 
             var to = ontology.EntityTypes[step.Reaches];
@@ -457,10 +457,37 @@ public sealed class LookupWalker
     {
         var entity = new EntityKey(type.Name, row.Key);
         var source = new SourceRecord(type.System, type.Table, RecordOf(type, row)) { ReadAt = readAt, Projection = projection };
-        return new Answered([.. read.Select(field => new Claim(entity, field, row.Values[type.Fields[field]], [source], [.. hops])
+        return new Answered([.. read.Select(field => new Claim(entity, field, row.Values[type.Fields[field]], [source], [[.. hops]])
         {
             FieldKind = type.Kinds?.TryGetValue(field, out var kind) == true ? kind : null,
         })]);
+    }
+
+    /// <summary>
+    /// A fact reached by several ways is one claim: the same field of the same entity with the same value, with each way
+    /// the walk reached the entity and each record the value was read from — a way or a record said twice is said once.
+    /// </summary>
+    private static List<Claim> OneClaimPerFact(IEnumerable<Claim> claims)
+    {
+        var merged = new List<Claim>();
+        var at = new Dictionary<(EntityKey, string, string), int>();
+        foreach (var claim in claims)
+        {
+            var identity = (claim.Entity, claim.Field, claim.Value.GetRawText());
+            if (!at.TryGetValue(identity, out var index))
+            {
+                at.Add(identity, merged.Count);
+                merged.Add(claim);
+                continue;
+            }
+
+            var first = merged[index];
+            var sources = first.Sources.Concat(claim.Sources.Where(s => !first.Sources.Any(f => (f.System, f.Table, f.Record) == (s.System, s.Table, s.Record)))).ToList();
+            var paths = first.Paths.Concat(claim.Paths.Where(p => !first.Paths.Any(f => f.SequenceEqual(p)))).ToList();
+            merged[index] = new Claim(first.Entity, first.Field, first.Value, sources, paths) { FieldKind = first.FieldKind };
+        }
+
+        return merged;
     }
 
     /// <summary>The record <paramref name="row"/> is, as read from its source just now.</summary>

@@ -86,13 +86,13 @@ public static class ContractSchema
             },
             "claim": {
               "type": "object",
-              "required": ["entity", "field", "value", "sources", "path"],
+              "required": ["entity", "field", "value", "sources", "paths"],
               "properties": {
                 "entity": { "$ref": "#/$defs/entityKey" },
                 "field": { "type": "string" },
                 "value": {},
                 "sources": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/sourceRecord" } },
-                "path": { "type": "array", "items": { "$ref": "#/$defs/hop" } },
+                "paths": { "type": "array", "minItems": 1, "items": { "type": "array", "items": { "$ref": "#/$defs/hop" } } },
                 "fieldKind": { "enum": ["text", "freeText", "number", "date", "key"] }
               }
             },

@@ -146,11 +146,12 @@ def citations(inst: Install, answers: list[dict]) -> tuple[int, int]:
                     bad += 1
                 elif claim["entity"]["key"] not in json.dumps(doc["body"]) or str(claim["value"]) not in {str(v) for v in doc["body"].values()}:
                     bad += 1
-            for hop in claim.get("path", []):
-                src = hop.get("source")
-                if src:
-                    total += 1
-                    bad += src["record"] not in inst.doc_ids
+            for path in claim.get("paths", []):
+                for hop in path:
+                    src = hop.get("source")
+                    if src:
+                        total += 1
+                        bad += src["record"] not in inst.doc_ids
     return total, bad
 
 

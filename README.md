@@ -111,8 +111,8 @@ individuals are not reflected in edge visibility — group partitioning narrows 
 does not eliminate it.
 
 **Explainability is non-negotiable, and it is enforced by the contract — not by a prompt.**
-A response is a structure of `{claim, sources[], path[]}`, and **a claim with no sources cannot be
-expressed at all**. Natural language is a rendering of that structure. When a query returns
+A response is a structure of `{claim, sources[], paths[]}`, and **a claim with no sources cannot be
+expressed at all**. A fact is stated once: when the walk reaches it by several ways, the claim carries each way in `paths[]`. Natural language is a rendering of that structure. When a query returns
 nothing, saem refuses without invoking the model. If a principle is non-negotiable, the format
 must not be able to express a violation. This costs real coverage, real latency, and — deliberately —
 **synthesis**: "defects on this line are trending up" is a claim that lives in no single record.

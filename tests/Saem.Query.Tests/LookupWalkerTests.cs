@@ -77,7 +77,7 @@ public class LookupWalkerTests
 
         var claim = Assert.Single(Assert.IsType<Answered>(forward).Claims);
         Assert.Equal(new EntityKey("Part", "7"), claim.Entity);
-        Assert.Equal(new EntityKey("Part", "7"), Assert.Single(claim.Path).To);
+        Assert.Equal(new EntityKey("Part", "7"), Assert.Single(claim.Paths[0]).To);
         Assert.Equal("Valve", Assert.Single(Assert.IsType<Answered>(started).Claims).Value.GetString());
     }
 
@@ -116,9 +116,9 @@ public class LookupWalkerTests
 
         var claims = Assert.IsType<Answered>(answer).Claims;
         Assert.Equal([("WO-1", 50), ("WO-3", 10)], claims.Select(c => (c.Entity.Key, c.Value.GetInt32())));
-        Assert.Equal(["supplies", "ordered_by"], claims[0].Path.Select(h => h.Relation));
-        Assert.Equal(new EntityKey("Item", "I-100"), claims[0].Path[0].To);
-        Assert.All(claims[0].Path, h => Assert.Equal("g-plant", h.Partition));
+        Assert.Equal(["supplies", "ordered_by"], claims[0].Paths[0].Select(h => h.Relation));
+        Assert.Equal(new EntityKey("Item", "I-100"), claims[0].Paths[0][0].To);
+        Assert.All(claims[0].Paths[0], h => Assert.Equal("g-plant", h.Partition));
         Assert.Equal([new PartitionRead("g-plant", null, Blocked: false, Incomplete: false)], answer.Partitions);
     }
 
@@ -153,7 +153,7 @@ public class LookupWalkerTests
 
         var claim = Assert.Single(Assert.IsType<Answered>(answer).Claims);
         Assert.Equal(new EntityKey("Supplier", "S-1"), claim.Entity);
-        Assert.Equal(["supplies", "supplied_by"], claim.Path.Select(h => h.Relation));
+        Assert.Equal(["supplies", "supplied_by"], claim.Paths[0].Select(h => h.Relation));
     }
 
     /// <summary>D-84 ①: the limit bounds a step across all its ways back — none of the step's candidates is read when they exceed it.</summary>
@@ -330,7 +330,7 @@ public class LookupWalkerTests
                 new Hop("orders_item", new EntityKey("WorkOrder", "WO-2"), new EntityKey("Item", "I-200")) { Source = Read("mes", "work_orders", "WO-2") },
                 new Hop("supplied_by", new EntityKey("Item", "I-200"), new EntityKey("Supplier", "S-2")) { Source = Read("erp", "visible_items", "I-200") },
             ],
-            claim.Path);
+            claim.Paths[0]);
     }
 
     [Fact]
@@ -369,7 +369,7 @@ public class LookupWalkerTests
 
         var claims = Assert.IsType<Answered>(answer).Claims;
         Assert.Equal(["Bracket", "S-1"], claims.Select(c => c.Value.GetString()));
-        Assert.All(claims, c => Assert.Empty(c.Path));
+        Assert.All(claims, c => Assert.Empty(c.Paths[0]));
     }
 
     /// <summary>
@@ -449,7 +449,7 @@ public class LookupWalkerTests
         var claims = Assert.IsType<Answered>(answer).Claims;
         Assert.Equal([("WO-1", 50), ("WO-3", 10)], claims.Select(c => (c.Entity.Key, c.Value.GetInt32())));
         Assert.Equal([new SourceRecord("mes", "work_orders", "WO-1") { ReadAt = ReadAt }], claims[0].Sources);
-        Assert.Equal([Backwards("I-100", "WO-1", "g-plant")], claims[0].Path);
+        Assert.Equal([Backwards("I-100", "WO-1", "g-plant")], claims[0].Paths[0]);
     }
 
     [Fact]
@@ -461,7 +461,7 @@ public class LookupWalkerTests
 
         var answer = await Back(new FakeSessions("alice"), plant, "Item", "I-100", ["ordered_by"], ["quantity"]);
 
-        Assert.All(Assert.IsType<Answered>(answer).Claims, c => Assert.Equal(asOf, Assert.Single(c.Path).PartitionAsOf));
+        Assert.All(Assert.IsType<Answered>(answer).Claims, c => Assert.Equal(asOf, Assert.Single(c.Paths[0]).PartitionAsOf));
         Assert.Equal(["g-plant"], plant.AsOfAsked);
     }
 
@@ -572,13 +572,13 @@ public class LookupWalkerTests
     }
 
     [Fact]
-    public async Task Two_partitions_are_answered_each_on_its_own_never_merged()
+    public async Task Two_partitions_that_lead_to_one_fact_are_two_paths_of_one_claim_each_naming_its_own_partition()
     {
         var both = new Partitions { ["g-office"] = [("orders_item", "I-100", "WO-1")], ["g-plant"] = [("orders_item", "I-100", "WO-1")] };
 
         var answer = await Back(new FakeSessions("alice"), both, "Item", "I-100", ["ordered_by"], ["quantity"]);
 
-        Assert.Equal(["g-office", "g-plant"], Assert.IsType<Answered>(answer).Claims.Select(c => c.Path[^1].Partition));
+        Assert.Equal(["g-office", "g-plant"], Assert.Single(Assert.IsType<Answered>(answer).Claims).Paths.Select(p => p[^1].Partition));
     }
 
     /// <summary>T-41: a person in no group with a partition is refused with that reason, and no source is read.</summary>
@@ -610,7 +610,7 @@ public class LookupWalkerTests
         Assert.Equal(["WO-1", "WO-3"], claims.Select(c => c.Entity.Key));
         Assert.Equal(
             [new Hop("orders_item", new EntityKey("WorkOrder", "WO-3"), new EntityKey("Item", "I-100")) { Source = Read("mes", "work_orders", "WO-3") }, Backwards("I-100", "WO-1", "g-plant")],
-            claims[0].Path);
+            claims[0].Paths[0]);
     }
 
     // g-plant's identities: I-100 is one thing with materials M-1 and M-2.
@@ -640,7 +640,7 @@ public class LookupWalkerTests
 
         var claims = Assert.IsType<Answered>(answer).Claims;
         Assert.Equal([("M-1", "Bracket"), ("M-2", "Bracket (old code)")], claims.Select(c => (c.Entity.Key, c.Value.GetString())));
-        Assert.Equal([Same("Item", "I-100", "Material", "M-1")], claims[0].Path);
+        Assert.Equal([Same("Item", "I-100", "Material", "M-1")], claims[0].Paths[0]);
         Assert.Equal([new PartitionRead("g-plant", null, Blocked: false, Incomplete: false)], answer.Partitions);
         // The entity crossed from is read first, as the person (D-86), and then each member as the person.
         Assert.Equal(["erp visible_items item_code=I-100 []", "mes materials mat_no=M-1 [mat_name]", "mes materials mat_no=M-2 [mat_name]"], sessions.Reads);
@@ -683,7 +683,7 @@ public class LookupWalkerTests
         Assert.Equal("Hanbit Parts", claim.Value.GetString());
         Assert.Equal(
             [Same("Material", "M-1", "Item", "I-100"), new Hop("supplied_by", new EntityKey("Item", "I-100"), new EntityKey("Supplier", "S-1")) { Source = Read("erp", "visible_items", "I-100") }],
-            claim.Path);
+            claim.Paths[0]);
     }
 
     /// <summary>D-84 ①: an identity step is bounded as a backward one is — more members than the limit and none is read.</summary>

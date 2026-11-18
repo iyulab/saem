@@ -271,7 +271,7 @@ public sealed class LookupToolTests : IAsyncLifetime
 
         var claim = Assert.Single(result.StructuredContent!.Value.GetProperty("claims").EnumerateArray());
         Assert.Equal("Bracket", claim.GetProperty("value").GetString());
-        var hop = Assert.Single(claim.GetProperty("path").EnumerateArray());
+        var hop = Assert.Single(Assert.Single(claim.GetProperty("paths").EnumerateArray()).EnumerateArray());
         Assert.Equal("producesItem", hop.GetProperty("relation").GetString());
         // The text content carries the same contract JSON, for clients that do not read structured content.
         var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;

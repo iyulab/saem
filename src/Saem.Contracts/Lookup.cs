@@ -172,6 +172,15 @@ public sealed record Answered : LookupAnswer
             throw new ArgumentException("An answer carries at least one claim; a lookup that found nothing is refused.", nameof(claims));
         }
 
+        var seen = new HashSet<(EntityKey, string, string)>();
+        foreach (var claim in claims)
+        {
+            if (!seen.Add((claim.Entity, claim.Field, claim.Value.GetRawText())))
+            {
+                throw new ArgumentException("A fact is stated once: two claims for the same field of the same entity with the same value are one claim with two paths.", nameof(claims));
+            }
+        }
+
         Claims = claims;
     }
 
@@ -212,7 +221,8 @@ public sealed record Candidate(EntityKey Entity, SourceRecord Source);
 
 /// <summary>
 /// One fact: a field of an entity and its value, with the source records the value was read from and
-/// the relations the walk followed to reach the entity. A fact without a source cannot be built.
+/// the ways the walk reached the entity. A fact without a source cannot be built, and a fact the walk reached
+/// by several ways is stated once, with each way.
 /// </summary>
 public sealed record Claim
 {
@@ -220,23 +230,29 @@ public sealed record Claim
     /// <param name="field">The field read.</param>
     /// <param name="value">The value as the source system holds it; <see cref="JsonValueKind.Null"/> when the field is empty.</param>
     /// <param name="sources">The records the value was read from; at least one.</param>
-    /// <param name="path">The relations followed from the start entity, in order; empty for the start entity itself.</param>
-    public Claim(EntityKey entity, string field, JsonElement value, IReadOnlyList<SourceRecord> sources, IReadOnlyList<Hop> path)
+    /// <param name="paths">The ways the walk reached the entity — each the relations followed from the start entity, in order,
+    /// and empty for the start entity itself; at least one.</param>
+    public Claim(EntityKey entity, string field, JsonElement value, IReadOnlyList<SourceRecord> sources, IReadOnlyList<IReadOnlyList<Hop>> paths)
     {
         ArgumentNullException.ThrowIfNull(entity);
         ArgumentException.ThrowIfNullOrEmpty(field);
         ArgumentNullException.ThrowIfNull(sources);
-        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(paths);
         if (sources.Count == 0)
         {
             throw new ArgumentException("A claim names at least one source record; a value nobody can trace is not stated.", nameof(sources));
+        }
+
+        if (paths.Count == 0 || paths.Any(p => p is null))
+        {
+            throw new ArgumentException("A claim names at least one way the walk reached its entity; the start entity is reached by a path of no relations.", nameof(paths));
         }
 
         Entity = entity;
         Field = field;
         Value = value;
         Sources = sources;
-        Path = path;
+        Paths = paths;
     }
 
     /// <summary>The entity the fact is about.</summary>
@@ -251,8 +267,8 @@ public sealed record Claim
     /// <summary>The records the value was read from.</summary>
     public IReadOnlyList<SourceRecord> Sources { get; }
 
-    /// <summary>The relations followed from the start entity.</summary>
-    public IReadOnlyList<Hop> Path { get; }
+    /// <summary>The ways the walk reached the entity: each the relations followed from the start entity.</summary>
+    public IReadOnlyList<IReadOnlyList<Hop>> Paths { get; }
 
     /// <summary>
     /// What kind of value the field holds, as the ontology declares it — null where it declares none. A
