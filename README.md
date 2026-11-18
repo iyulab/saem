@@ -558,7 +558,8 @@ output schema. The tool's description and input schema are built from the ontolo
 listed, so the vocabulary a caller sees is the one its call is checked against, and the listing names
 the ontology's version in its `_meta` (`saem/catalogVersion`) — the version every answer carries. A call
 outside that vocabulary is a tool error, not a refusal, and so is a member the call does not declare (a limit, a comparison the
-lookup does not have): the input schema's `additionalProperties: false` is enforced, not only declared. At start the server warns of any system the ontology declares types
+lookup does not have): the input schema's `additionalProperties: false` is enforced, not only declared. A field named
+more than once in `read` is read once, and a name, key or value longer than 1,000 characters is a tool error. At start the server warns of any system the ontology declares types
 on that no source is configured for, and of a catalog it cannot read — it still starts, since the
 catalog is read again on every lookup. A lookup still running at its deadline
 (`Saem:Lookup:Deadline`, 10 seconds by default) is stopped and reported as not answered — a failure,

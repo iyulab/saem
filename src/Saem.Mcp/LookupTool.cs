@@ -124,7 +124,7 @@ internal sealed partial class LookupTool
         catch (Exception e) when (e is JsonException or ArgumentException)
         {
             // ArgumentException: a shape the contract refuses while it is read (a start with both a key and a field, or neither).
-            return Invalid($"The arguments are not a lookup: {e.Message}");
+            return Invalid($"The arguments are not a lookup: {Plain(e.Message)}");
         }
 
         // A name left out of the path or the read (a JSON null, or an empty string) names no relation and no field: said as the shape of
@@ -139,6 +139,17 @@ internal sealed partial class LookupTool
         {
             return Invalid("A 'start' named by a field's value gives the 'field' and the 'value' it holds: where: { field, value }.");
         }
+
+        // No key, value or name in a lookup is as long as this: text of that length is not one, and is not carried to the sources (where it
+        // would be reported as a source that failed) or into the message that names what was not understood.
+        if (TextsOf(call).Any(t => t.Length > MaxTextLength))
+        {
+            return Invalid($"A name, key or value in a lookup is at most {MaxTextLength} characters.");
+        }
+
+        // A field named twice is the same field: reading it again asks for nothing more, and an answer that held it once for each
+        // time it was named would be counted that many times by a caller that adds values up.
+        call = call with { Read = [.. call.Read.Distinct(StringComparer.Ordinal)] };
 
         var ontology = await _catalog.GetAsync(cancellationToken).ConfigureAwait(false);
         string SystemOf(string type) => ontology.EntityTypes.TryGetValue(type, out var declared) ? declared.System : "-";
@@ -354,6 +365,47 @@ internal sealed partial class LookupTool
     }
 
     private static bool Unnamed(string? name) => string.IsNullOrWhiteSpace(name);
+
+    /// <summary>The longest name, key or value a lookup names — well past any key a source holds.</summary>
+    private const int MaxTextLength = 1_000;
+
+    private static IEnumerable<string> TextsOf(LookupCall call)
+    {
+        yield return call.Start.Type;
+        if (call.Start.Key is { } key)
+        {
+            yield return key;
+        }
+
+        if (call.Start.Where is { } where)
+        {
+            yield return where.Field;
+            yield return where.Value;
+        }
+
+        foreach (var name in call.Path.Concat(call.Read))
+        {
+            yield return name;
+        }
+    }
+
+    /// <summary>
+    /// A reader's complaint about the call, without the names of the contract types it was read into: what the caller
+    /// needs is the member it sent that a lookup does not have, not the server's own type for a lookup.
+    /// </summary>
+    private static string Plain(string message)
+    {
+        message = System.Text.RegularExpressions.Regex.Replace(message, @"\s*(?:contained )?in type '[^']*'", string.Empty);
+        message = message.Replace(".NET member", "member", StringComparison.Ordinal);
+        message = System.Text.RegularExpressions.Regex.Replace(message, @"\bSaem\.Contracts\.(\w+)", match => match.Groups[1].Value switch
+        {
+            "LookupCall" => "a lookup",
+            "LookupStart" => "a start",
+            "FieldMatch" => "a where",
+            _ => "a lookup part",
+        });
+        return System.Text.RegularExpressions.Regex.Replace(message, @"\s*Path: .*$", string.Empty, System.Text.RegularExpressions.RegexOptions.Singleline).Trim();
+    }
 
     /// <summary>What the log says in place of a name the ontology does not declare.</summary>
     private const string Undeclared = "(undeclared)";
