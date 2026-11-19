@@ -191,10 +191,17 @@ public sealed class LookupWalker
             if (step is { Backwards: true } or { Identity: not null })
             {
                 var reached = ontology.EntityTypes[step.Reaches];
-                var walked = await ThroughPartitionsAsync(open, states, sessions, relations, trace, step, at, reached, frontier, hop + 1, Needed(plan, hop + 1), reports, cancellationToken).ConfigureAwait(false);
+                var (walked, ledNowhere) = await ThroughPartitionsAsync(open, states, sessions, relations, trace, step, at, reached, frontier, hop + 1, Needed(plan, hop + 1), reports, cancellationToken).ConfigureAwait(false);
                 if (walked is null)
                 {
                     return With(new Refused(new Refusal(RefusalReason.NoMaterializedPartition, hop + 1, step.Name, reached.System)));
+                }
+
+                if (ledNowhere)
+                {
+                    // No partition held an edge for this step: the copies were asked, no source was, so it is not the
+                    // source's silence — and a copy that was never refreshed looks exactly like one with nothing to say.
+                    return With(new Refused(new Refusal(RefusalReason.NoMaterializedEdge, hop + 1, step.Name, reached.System)));
                 }
 
                 if (walked.Count == 0)
@@ -266,10 +273,11 @@ public sealed class LookupWalker
     /// of the other type the partition holds to be the same thing, each read as the person with what the next step needs —
     /// kept when the source shows the row, and only from an entity the person sees (which is read first when no row stands
     /// for it yet). An edge or a member built before the source changed, or one naming a row this person may not see,
-    /// adds nothing; its partition is then reported blocked, which says that much and no more. Null when the person is in
-    /// no partition.
+    /// adds nothing; its partition is then reported blocked, which says that much and no more. Branches are null when the
+    /// person is in no partition; <c>LedNowhere</c> says that every partition was asked and none held an edge for the step
+    /// — a copy that was never refreshed and one with nothing to say look alike, and neither is the source's silence.
     /// </summary>
-    private async Task<IReadOnlyList<Branch>?> ThroughPartitionsAsync(
+    private async Task<(IReadOnlyList<Branch>? Branches, bool LedNowhere)> ThroughPartitionsAsync(
         Dictionary<string, ISourceSession> open,
         Dictionary<(string, string), SourceProjection?> states,
         ISourceSessions sessions,
@@ -286,7 +294,7 @@ public sealed class LookupWalker
     {
         if (relations.Partitions.Count == 0)
         {
-            return null;
+            return (null, false);
         }
 
         // Across an identity the entity crossed from is read as the person too (D-86): an identity is the group's own
@@ -307,7 +315,7 @@ public sealed class LookupWalker
             frontier = seen;
             if (frontier.Count == 0)
             {
-                return [];
+                return ([], false);
             }
         }
 
@@ -330,6 +338,11 @@ public sealed class LookupWalker
 
                 leading.Add((partition, branch, edges));
             }
+        }
+
+        if (leading.All(l => l.Edges.Keys.Count == 0 && !l.Edges.Incomplete))
+        {
+            return ([], true);
         }
 
         var next = new List<Branch>();
@@ -371,7 +384,7 @@ public sealed class LookupWalker
             reports[partition] = report with { Blocked = report.Blocked || blocked, Incomplete = report.Incomplete || edges.Incomplete };
         }
 
-        return next;
+        return (next, false);
     }
 
     /// <summary>The rows of <paramref name="type"/> whose field holds the value, with the record columns — at most <paramref name="limit"/>.</summary>

@@ -176,7 +176,7 @@ public class LookupWalkerTests
 
         var answer = await Back(new FakeSessions("alice"), edges, "Supplier", "S-1", ["supplies", "ordered_by"], ["quantity"], Walking());
 
-        Assert.Equal(new Refusal(RefusalReason.NoVisibleResult, 2, "ordered_by", "mes"), Assert.IsType<Refused>(answer).Refusal);
+        Assert.Equal(new Refusal(RefusalReason.NoMaterializedEdge, 2, "ordered_by", "mes"), Assert.IsType<Refused>(answer).Refusal);
         Assert.NotNull(answer.Partitions);
     }
 
@@ -594,11 +594,30 @@ public class LookupWalkerTests
     }
 
     [Fact]
-    public async Task A_partition_without_an_edge_to_the_entity_is_refused_at_the_backward_step()
+    public async Task A_partition_without_an_edge_to_the_entity_is_refused_at_the_backward_step_without_reading_any_source()
     {
-        var answer = await Back(new FakeSessions("alice"), Plant, "Item", "I-200", ["ordered_by"], ["quantity"]);
+        var sessions = new FakeSessions("alice");
 
-        Assert.Equal(new Refusal(RefusalReason.NoVisibleResult, 1, "ordered_by", "mes"), Assert.IsType<Refused>(answer).Refusal);
+        var answer = await Back(sessions, Plant, "Item", "I-200", ["ordered_by"], ["quantity"]);
+
+        // The copies were asked and no source was: the source did not say nothing, so this is not `NoVisibleResult`.
+        Assert.Equal(new Refusal(RefusalReason.NoMaterializedEdge, 1, "ordered_by", "mes"), Assert.IsType<Refused>(answer).Refusal);
+        Assert.Empty(sessions.Opened);
+    }
+
+    /// <summary>A copy that was never refreshed holds no edge at all — the walk says what it asked, not that the source was silent.</summary>
+    [Fact]
+    public async Task A_copy_that_holds_nothing_is_refused_for_its_edges_not_for_the_source()
+    {
+        var sessions = new FakeSessions("alice");
+
+        var answer = await Back(sessions, new Partitions { ["g-plant"] = [] }, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        var refusal = Assert.IsType<Refused>(answer).Refusal;
+        Assert.Equal(RefusalReason.NoMaterializedEdge, refusal.Reason);
+        Assert.DoesNotContain("The source returned no rows", refusal.Statement, StringComparison.Ordinal);
+        Assert.Contains("has not been refreshed yet", refusal.Statement, StringComparison.Ordinal);
+        Assert.Empty(sessions.Opened);
     }
 
     [Fact]

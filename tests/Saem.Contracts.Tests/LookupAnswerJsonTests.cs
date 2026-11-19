@@ -135,6 +135,22 @@ public class LookupAnswerJsonTests
         Assert.Contains("in none that has them", refusal.GetProperty("statement").GetString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_refusal_for_want_of_an_edge_in_the_copies_says_so_by_name_and_does_not_blame_the_source()
+    {
+        var json = Write(new Refused(new Refusal(RefusalReason.NoMaterializedEdge, AtHop: 1, Relation: "supplies", System: "mes")));
+
+        using var document = JsonDocument.Parse(json);
+        var refusal = document.RootElement.GetProperty("refusal");
+        Assert.Equal("noMaterializedEdge", refusal.GetProperty("reason").GetString());
+        var statement = refusal.GetProperty("statement").GetString()!;
+        Assert.Contains("has not been refreshed yet", statement, StringComparison.Ordinal);
+        Assert.DoesNotContain("The source returned no rows", statement, StringComparison.Ordinal);
+        Assert.Equal(
+            Enum.GetValues<RefusalReason>().Select(r => JsonSerializer.Serialize(r, ContractJson.Default.RefusalReason).Trim('"')),
+            ContractSchema.Answer.GetProperty("$defs").GetProperty("refusal").GetProperty("properties").GetProperty("reason").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
+    }
+
     /// <summary>
     /// D-80 ① ⑤: a partition's report travels with its statements, and the catalog version with the answer; both
     /// are left out where there is nothing to say, and a refusal carries a blocked partition as an answer does.

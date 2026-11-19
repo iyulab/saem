@@ -53,6 +53,16 @@ describe("walking a local graph", () => {
     expect(idOf(wo)).toBe("WorkOrder/WO-3");
   });
 
+  it("says a copy with no edge was asked and the source was not, and points at Groups", () => {
+    const refused: LookupAnswer = { kind: "refused", refusal: { reason: "noMaterializedEdge", atHop: 1, relation: "produced_by", system: "erp" }, partitions: [] };
+
+    const text = refusalText(step(empty(), wo, "produced_by", refused).steps[0].refusal!);
+
+    expect(text).toContain("copies hold no link leading there");
+    expect(text).toContain("see Groups");
+    expect(text).not.toContain("may hold rows your account cannot read");
+  });
+
   it("keeps the candidates a start by a field's value answered with, to start again from one by key", () => {
     const start = { type: "WorkOrder", where: { field: "item", value: "I-200" } };
     const answer: LookupAnswer = {

@@ -261,7 +261,10 @@ step — anywhere in a path — asks the edges materialized for the person's gro
 entities lead there, then reads each of them as the person and keeps only the ones the source shows and
 still says lead there: the edges find candidates, the answer is still the person's own reads. Each
 group's partition is answered on its own and the hop names it. A person in no group the deployment keeps
-edges for is refused for that reason (`noMaterializedPartition`), and no source is read.
+edges for is refused for that reason (`noMaterializedPartition`), and no source is read. A person whose groups keep edges, but
+none of whose copies holds one leading to the entity, is refused with `noMaterializedEdge` — also with no source read, and saying so:
+a copy that has not been refreshed yet cannot be told from one with nothing to say, and neither is the source's silence
+(`noVisibleResult`, which is only for what a source was asked and did not show).
 
 Each partition such a step read is reported on the answer (`partitions`), with what it says beyond the
 facts. `blocked`: the partition led to entities the person's own reads did not show — they changed since

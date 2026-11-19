@@ -95,7 +95,11 @@ export function step(graph: LocalGraph, from: LookupStart, relation: string | nu
 /** Why a step stated nothing, in the words the contract gives it: not "not found" — what this person can see. */
 export function refusalText(refusal: Refusal): string {
   const where = refusal.relation ? `at ${refusal.relation} (step ${refusal.atHop})` : "at the start";
-  return refusal.reason === "noMaterializedPartition"
-    ? `Nothing to walk ${where}: you are in no group whose edges are kept for ${refusal.system}.`
-    : `Nothing you can see ${where} in ${refusal.system}. The source may hold rows your account cannot read.`;
+  if (refusal.reason === "noMaterializedPartition") {
+    return `Nothing to walk ${where}: you are in no group whose edges are kept for ${refusal.system}.`;
+  }
+  if (refusal.reason === "noMaterializedEdge") {
+    return `Nothing to walk ${where}: your groups' copies hold no link leading there. Either nothing does, or a copy has not been refreshed yet (see Groups).`;
+  }
+  return `Nothing you can see ${where} in ${refusal.system}. The source may hold rows your account cannot read.`;
 }

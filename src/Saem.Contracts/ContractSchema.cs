@@ -100,7 +100,7 @@ public static class ContractSchema
               "type": "object",
               "required": ["reason", "atHop", "system", "statement"],
               "properties": {
-                "reason": { "enum": ["noVisibleResult", "noMaterializedPartition"] },
+                "reason": { "enum": ["noVisibleResult", "noMaterializedPartition", "noMaterializedEdge"] },
                 "atHop": { "type": "integer", "minimum": 0 },
                 "relation": { "type": ["string", "null"] },
                 "system": { "type": "string" },
