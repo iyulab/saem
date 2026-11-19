@@ -445,7 +445,7 @@ public sealed record Refusal(RefusalReason Reason, int AtHop, string? Relation, 
         RefusalReason.NoMaterializedPartition =>
             "This relation is answered from relations built ahead of time for the groups a person is in, and this person is in none that has them. Nothing is said about whether such entities exist.",
         RefusalReason.NoMaterializedEdge =>
-            "This relation is answered from relations built ahead of time for the groups a person is in, and none of them holds one that leads to this entity. Either no such entity exists, or the groups' accounts cannot see it, or a group's copy has not been refreshed yet — saem cannot tell which.",
+            "This step is answered from what was built ahead of time for the groups a person is in, and none of those groups holds a link or a same-thing pairing that leads on from this entity. Either nothing does, or the groups' accounts cannot see it, or a group's copy is out of date or was never refreshed — the answer's partitions say which groups were asked and as of when (no time: never refreshed). Nothing is said about whether such entities exist.",
         _ => throw new InvalidOperationException($"No statement for {Reason}."),
     };
 }
@@ -471,8 +471,9 @@ public enum RefusalReason
     /// <summary>
     /// The path walks a relation backwards (or crosses an identity), the person is in groups that keep edges for it, and
     /// none of those groups' copies holds one that leads to the entity. <c>system</c> names the system the entities walked
-    /// to stand on; nothing was read from it, so this is not the source's silence. A copy that was never refreshed and a
-    /// copy with nothing to say are the same here, and neither says the entity does not exist.
+    /// to stand on; nothing was read from it, so this is not the source's silence. The answer's <c>partitions</c> name the
+    /// groups that were asked with their <c>asOf</c> — empty for a copy that was never refreshed — so that state is told, not
+    /// guessed; and no refusal says the entity does not exist.
     /// </summary>
     [JsonStringEnumMemberName("noMaterializedEdge")]
     NoMaterializedEdge,

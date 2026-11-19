@@ -144,7 +144,7 @@ public class LookupAnswerJsonTests
         var refusal = document.RootElement.GetProperty("refusal");
         Assert.Equal("noMaterializedEdge", refusal.GetProperty("reason").GetString());
         var statement = refusal.GetProperty("statement").GetString()!;
-        Assert.Contains("has not been refreshed yet", statement, StringComparison.Ordinal);
+        Assert.Contains("never refreshed", statement, StringComparison.Ordinal);
         Assert.DoesNotContain("The source returned no rows", statement, StringComparison.Ordinal);
         Assert.Equal(
             Enum.GetValues<RefusalReason>().Select(r => JsonSerializer.Serialize(r, ContractJson.Default.RefusalReason).Trim('"')),

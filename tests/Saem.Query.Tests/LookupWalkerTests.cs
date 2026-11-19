@@ -616,8 +616,34 @@ public class LookupWalkerTests
         var refusal = Assert.IsType<Refused>(answer).Refusal;
         Assert.Equal(RefusalReason.NoMaterializedEdge, refusal.Reason);
         Assert.DoesNotContain("The source returned no rows", refusal.Statement, StringComparison.Ordinal);
-        Assert.Contains("has not been refreshed yet", refusal.Statement, StringComparison.Ordinal);
+        Assert.Contains("never refreshed", refusal.Statement, StringComparison.Ordinal);
         Assert.Empty(sessions.Opened);
+    }
+
+    /// <summary>The state of a copy is known, so the refusal tells it: the groups asked, with no time for a copy that was never refreshed.</summary>
+    [Fact]
+    public async Task The_refusal_for_want_of_an_edge_reports_the_groups_asked_and_as_of_when()
+    {
+        var edges = new Partitions { ["g-office"] = [], ["g-plant"] = [] };
+        edges.AsOf["g-plant"] = DateTimeOffset.Parse("2026-11-19T07:58:41Z", System.Globalization.CultureInfo.InvariantCulture);
+
+        var answer = await Back(new FakeSessions("alice"), edges, "Item", "I-100", ["ordered_by"], ["quantity"]);
+
+        var refused = Assert.IsType<Refused>(answer);
+        Assert.Equal(RefusalReason.NoMaterializedEdge, refused.Refusal.Reason);
+        Assert.Equal([("g-office", (DateTimeOffset?)null), ("g-plant", DateTimeOffset.Parse("2026-11-19T07:58:41Z", System.Globalization.CultureInfo.InvariantCulture))], refused.Partitions!.Select(p => (p.Name, p.AsOf)));
+        Assert.All(refused.Partitions!, p => Assert.False(p.Blocked || p.Incomplete));
+    }
+
+    /// <summary>Crossing an identity the groups hold nothing for is refused the same way (the person sees the entity, so it is not the source's silence).</summary>
+    [Fact]
+    public async Task Crossing_an_identity_no_group_holds_anything_for_is_refused_for_its_edges()
+    {
+        var sessions = new FakeSessions("alice");
+
+        var answer = await Back(sessions, new Partitions { ["g-plant"] = [] }, "Item", "I-100", ["same_item"], ["name"]);
+
+        Assert.Equal(RefusalReason.NoMaterializedEdge, Assert.IsType<Refused>(answer).Refusal.Reason);
     }
 
     [Fact]

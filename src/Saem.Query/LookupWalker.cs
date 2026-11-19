@@ -342,6 +342,12 @@ public sealed class LookupWalker
 
         if (leading.All(l => l.Edges.Keys.Count == 0 && !l.Edges.Incomplete))
         {
+            // Said with the groups that were asked and as of when (no time: never refreshed) — the state of a copy is known, so it is told.
+            foreach (var partition in leading.Select(l => l.Partition).Distinct(StringComparer.Ordinal))
+            {
+                reports.TryAdd(partition, new PartitionRead(partition, await relations.AsOfAsync(partition, cancellationToken).ConfigureAwait(false), Blocked: false, Incomplete: false));
+            }
+
             return ([], true);
         }
 
