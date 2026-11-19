@@ -156,6 +156,7 @@ services:
   # One executor for each group: it holds that group's account on the source and no other's.
   executor-g-plant: &executor
     build: {context: .., dockerfile: deploy/Dockerfile, target: executor}
+    init: true  # a .NET process that is PID 1 keeps spinning after an unhandled exception (dotnet/runtime#112580); with an init it exits
     entrypoint: ["sh", "-c", ". /secrets/g-plant.env && exec dotnet saem-materialize.dll serve --catalog /data/catalog.json --sources /data/groups/g-plant/sources.json --group g-plant --base-iri https://example.org/saem/ontology/ --store http://formbase-g-plant:8080 --listen http://0.0.0.0:8080"]
     environment:
       SAEM_STORE_TOKEN: ${SAEM_G_PLANT_ACCESS_KEY}
@@ -180,6 +181,7 @@ services:
 
   mcp:
     build: {context: .., dockerfile: deploy/Dockerfile, target: mcp}
+    init: true  # a .NET process that is PID 1 keeps spinning after an unhandled exception (dotnet/runtime#112580); with an init it exits
     environment:
       ASPNETCORE_URLS: http://+:8080
       Saem__Ontology: /data/catalog.json
@@ -210,6 +212,7 @@ services:
 
   console:
     build: {context: .., dockerfile: deploy/Dockerfile, target: console}
+    init: true  # a .NET process that is PID 1 keeps spinning after an unhandled exception (dotnet/runtime#112580); with an init it exits
     environment:
       ASPNETCORE_URLS: http://+:8080
       Saem__Console__Identity__Authority: *issuer
@@ -277,6 +280,7 @@ services:
   # forms' documents goes to that endpoint and nowhere else; the draft it writes waits for a person to confirm it in the console.
   author:
     build: {context: .., dockerfile: deploy/Dockerfile, target: author}
+    init: true  # a .NET process that is PID 1 keeps spinning after an unhandled exception (dotnet/runtime#112580); with an init it exits
     profiles: [author]
     entrypoint:
       - sh
