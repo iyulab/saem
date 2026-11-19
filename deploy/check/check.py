@@ -223,9 +223,9 @@ def main() -> None:
     row("groups Q5", ok, f"nobody WO-3001 -> {[c['value'] for c in fwd.get('claims', [])]} (expected ['Spacer M5'])")
     row("groups answer key", correct >= 7, f"{correct} / 8 (threshold >= 7)")
 
-    hops = [h for q in ("Q1", "Q2") for c in seen[q].get("claims", []) for h in c.get("path", [])]
+    hops = [h for q in ("Q1", "Q2") for c in seen[q].get("claims", []) for p in c.get("paths", []) for h in p]
     row("groups partitions named", bool(hops) and all(h.get("partition") and h.get("partitionAsOf") for h in hops), f"{len(hops)} hops, each names its partition and the time its edges were read")
-    partitions = lambda a: {h.get("partition") for c in a.get("claims", []) for h in c.get("path", [])}
+    partitions = lambda a: {h.get("partition") for c in a.get("claims", []) for p in c.get("paths", []) for h in p}
     row("groups two answers", claims_of(seen["Q1"]) != claims_of(seen["Q2"]) and partitions(seen["Q1"]) == {"g-plant"} and partitions(seen["Q2"]) == {"g-office"},
         "pat is answered from g-plant's partition, olive from g-office's")
     parts = seen["Q3"].get("partitions", [])

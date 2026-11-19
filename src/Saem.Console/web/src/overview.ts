@@ -1,5 +1,10 @@
 import { kinds } from "./catalog";
 
+/** True when the catalog declares nothing of any kind — the moment a first-time builder needs to be told where to go next. */
+export function nothingDeclared(declarations: Record<string, number>): boolean {
+  return kinds.every((k) => (declarations[k.kind] ?? 0) === 0);
+}
+
 /** What a catalog declares as one sentence a person reads: "2 kinds of things and 1 link", or that it declares nothing yet. */
 export function declaredSentence(declarations: Record<string, number>): string {
   const words: Record<string, [string, string]> = {

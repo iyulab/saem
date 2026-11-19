@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { declaredSentence } from "./overview";
+import { declaredSentence, nothingDeclared } from "./overview";
 
 describe("saying what a catalog declares", () => {
   it("counts the kinds a catalog holds in words", () => {
     expect(declaredSentence({ entityType: 2, relation: 1 })).toBe("2 kinds of things and 1 link");
     expect(declaredSentence({ entityType: 1 })).toBe("1 kind of thing");
     expect(declaredSentence({ entityType: 3, relation: 2, identity: 1 })).toBe("3 kinds of things, 2 links and 1 same-thing rule");
+  });
+
+  it("knows when nothing is declared, so the overview can say where to go next", () => {
+    expect(nothingDeclared({})).toBe(true);
+    expect(nothingDeclared({ entityType: 0, relation: 0 })).toBe(true);
+    expect(nothingDeclared({ relation: 1 })).toBe(false);
   });
 
   it("says so when nothing is declared", () => {

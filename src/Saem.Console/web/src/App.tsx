@@ -67,7 +67,11 @@ export function App() {
         </button>
       </header>
       <main>
-        {screen === "overview" && <OverviewView onOpenCheck={me.value.roles.includes("builder") ? () => setScreen("check") : undefined} />}
+        {screen === "overview" && <OverviewView
+            onOpenCheck={me.value.roles.includes("builder") ? () => setScreen("check") : undefined}
+            onOpenReview={() => setScreen("review")}
+            onOpenDraft={() => setScreen("draft")}
+          />}
         {screen === "catalog" && <CatalogView />}
         {screen === "review" && <ReviewView onOpenDraft={() => setScreen("draft")} onOpenCatalog={() => setScreen("catalog")} />}
         {screen === "draft" && <DraftView onOpenReview={() => setScreen("review")} onOpenCatalog={() => setScreen("catalog")} />}

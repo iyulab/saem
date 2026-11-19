@@ -2,11 +2,11 @@ import type { Declaration } from "./api";
 
 /** The kinds a catalog declares, in the order a catalog file lists them, with the name a builder reads. */
 export const kinds: ReadonlyArray<{ kind: string; title: string }> = [
-  { kind: "entityType", title: "Entity types" },
-  { kind: "relation", title: "Relations" },
-  { kind: "identity", title: "Identities" },
-  { kind: "linkage", title: "Linkage rules" },
-  { kind: "grouping", title: "Groupings" },
+  { kind: "entityType", title: "Kinds of things" },
+  { kind: "relation", title: "Links" },
+  { kind: "identity", title: "Same-thing rules" },
+  { kind: "linkage", title: "Matching rules" },
+  { kind: "grouping", title: "Groups" },
 ];
 
 /** The declarations kind by kind, in the catalog's order; a kind this page does not know comes last, under its own name. */

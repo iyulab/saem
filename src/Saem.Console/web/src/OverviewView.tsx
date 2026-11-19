@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { api, whyNot, type Answer, type Overview } from "./api";
-import { declaredSentence } from "./overview";
+import { declaredSentence, nothingDeclared } from "./overview";
 
 /** What is waiting at a glance: the catalog in force and the last check of it against the sources. */
-export function OverviewView({ onOpenCheck }: { onOpenCheck?: () => void }) {
+export function OverviewView({ onOpenCheck, onOpenReview, onOpenDraft }: { onOpenCheck?: () => void; onOpenReview?: () => void; onOpenDraft?: () => void }) {
   const [overview, setOverview] = useState<Answer<Overview> | null>(null);
 
   useEffect(() => {
@@ -28,6 +28,13 @@ export function OverviewView({ onOpenCheck }: { onOpenCheck?: () => void }) {
           <p className="muted">
             Version <code>{catalogVersion}</code>
           </p>
+          {nothingDeclared(declarations) && (onOpenReview || onOpenDraft) && (
+            <p>
+              Next: {onOpenReview && <button className="link" onClick={onOpenReview}>Review what was proposed</button>}
+              {onOpenReview && onOpenDraft && " or "}
+              {onOpenDraft && <button className="link" onClick={onOpenDraft}>open the draft that waits to be confirmed</button>}
+            </p>
+          )}
         </article>
         <article className={checkProblem || (check && (!check.holds || !check.current)) ? "card attention" : "card"}>
           <h2>Checked against the sources?</h2>
