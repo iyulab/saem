@@ -169,6 +169,18 @@ def main() -> None:
         answered.append(answer)
         return answer
 
+    # Before any pass: a backward step led nowhere by copies that were never read says so — the answer is not «the source returned no
+    # rows» (no source is read) and it names the groups asked with no read time. A re-run finds the copies already read and the
+    # question answers; that is the same behaviour, not a failure.
+    a, raw = inst.reverse("pat", "I-500")
+    keep("pat", a, raw)
+    if a.get("kind") == "answered":
+        row("first read of the copies", claims_of(a) == {"WO-2702": 60}, "the copies were already read (a re-run) and pat's backward question answers")
+    else:
+        refusal, asked = a.get("refusal") or {}, a.get("partitions") or []
+        row("first read of the copies", a.get("kind") == "refused" and refusal.get("reason") == "noMaterializedEdge" and bool(asked) and all(not p.get("asOf") for p in asked),
+            f"pat I-500 before any pass -> {a.get('kind')} {refusal.get('reason', '')}; groups asked {[(p.get('name'), p.get('asOf')) for p in asked]} (expected noMaterializedEdge, no read time)")
+
     # The groups' copies: a whole pass for each, so the partitions answer (a pass is safe to repeat).
     for g in GROUPS:
         j = inst.job(g, "pass")
