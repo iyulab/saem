@@ -50,3 +50,11 @@ export function askExample(declarations: readonly Declaration[]): { start: { typ
     read: fields.slice(0, 1),
   };
 }
+
+/**
+ * True when a question can walk a link backwards or cross a same-thing rule: such a step is answered from the copy each group keeps of the
+ * relations, not from the source, so it says nothing until a builder has read those copies on the Groups screen.
+ */
+export function walksFromGroupCopies(declarations: readonly Declaration[]): boolean {
+  return declarations.some((d) => d.kind === "identity" || (d.kind === "relation" && typeof d.inverse === "string" && d.inverse.length > 0));
+}

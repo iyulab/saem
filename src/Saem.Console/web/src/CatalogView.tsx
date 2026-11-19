@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, whyNot, type Answer, type Catalog } from "./api";
-import { askExample, byKind } from "./catalog";
+import { askExample, byKind, walksFromGroupCopies } from "./catalog";
 import { describe } from "./review";
 
 /** The declarations in force, kind by kind, as a catalog file holds them. */
@@ -39,6 +39,12 @@ export function CatalogView() {
             Every answer comes with the source records it was read from. A question that names something not declared here is refused with an error saying what is missing.
             Ask whoever runs the MCP server for its address.
           </p>
+          {walksFromGroupCopies(catalog.value.declarations) && (
+            <p className="muted">
+              A link walked backwards, or a same-thing rule crossed, is answered from the copy each group keeps of the links, not from the source. A builder reads those
+              copies on the <strong>Groups</strong> screen; until they are read, such a question is refused.
+            </p>
+          )}
         </details>
       )}
       {sections.map((s) => (

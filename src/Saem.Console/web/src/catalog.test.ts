@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askExample, byKind, summary } from "./catalog";
+import { askExample, byKind, summary, walksFromGroupCopies } from "./catalog";
 
 describe("the catalog, kind by kind", () => {
   it("keeps the catalog file's order of kinds, drops empty ones, and puts an unknown kind last", () => {
@@ -37,5 +37,23 @@ describe("a lookup to ask the catalog", () => {
   it("offers nothing when no kind of thing is declared", () => {
     expect(askExample([])).toBeNull();
     expect(askExample([{ kind: "relation", name: "r", from: "a", to: "b" }])).toBeNull();
+  });
+});
+
+describe("which questions need the groups' copies read first", () => {
+  const relation = { kind: "relation", name: "item", from: "work_orders", via: "item_code", to: "items" };
+
+  it("is false for a catalog whose links are only followed forwards", () => {
+    expect(walksFromGroupCopies([relation])).toBe(false);
+    expect(walksFromGroupCopies([])).toBe(false);
+  });
+
+  it("is true when a link declares an inverse, or a same-thing rule is declared", () => {
+    expect(walksFromGroupCopies([{ ...relation, inverse: "produced_by" }])).toBe(true);
+    expect(walksFromGroupCopies([{ kind: "identity", name: "same" }])).toBe(true);
+  });
+
+  it("does not take an empty inverse for one", () => {
+    expect(walksFromGroupCopies([{ ...relation, inverse: "" }])).toBe(false);
   });
 });
