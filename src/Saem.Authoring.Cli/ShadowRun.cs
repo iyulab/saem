@@ -28,6 +28,7 @@ internal sealed record ShadowOptions(
           --model-endpoint <url>         An OpenAI-compatible base address, version segment included (…/v1/).
           --model <name>                 The model to ask.
           --repeats <n>                  How many times each proposal is asked about (default 5).
+          --prompt-version <1|2>         1 shows a relation's own records only; 2 (default) also shows the records of the type it points to.
           --model-stream                 Ask for the answer as it is written (behind a gateway that cuts a slow first byte).
           --model-timeout-minutes <n>    How long to wait on the model before a call fails (default 10).
           --retries <n>                  How many more times a call that fails transiently is tried (default 1).
@@ -63,7 +64,7 @@ internal sealed record ShadowOptions(
                 continue;
             }
 
-            if (arg is not ("--proposals" or "--formbase" or "--formbase-namespace" or "--ledger" or "--model-endpoint" or "--model" or "--repeats" or "--model-timeout-minutes" or "--retries"))
+            if (arg is not ("--proposals" or "--formbase" or "--formbase-namespace" or "--ledger" or "--model-endpoint" or "--model" or "--repeats" or "--prompt-version" or "--model-timeout-minutes" or "--retries"))
             {
                 throw new AuthorUsageException($"Unknown argument '{arg}'.");
             }
@@ -94,9 +95,10 @@ internal sealed record ShadowOptions(
                 values.ContainsKey("--model-stream"),
                 TimeSpan.FromMinutes(Count("--model-timeout-minutes", 10, 1)),
                 Count("--retries", 1, 0),
-                Count("--repeats", RepeatConsistency.DefaultRepeats, 2));
+                Count("--repeats", RepeatConsistency.DefaultRepeats, 2),
+                Count("--prompt-version", RepeatConsistency.Version, 1));
         }
-        else if (values.Keys.Any(k => k is "--model-endpoint" or "--model" or "--repeats" or "--model-timeout-minutes" or "--retries" or "--model-stream"))
+        else if (values.Keys.Any(k => k is "--model-endpoint" or "--model" or "--repeats" or "--prompt-version" or "--model-timeout-minutes" or "--retries" or "--model-stream"))
         {
             throw new AuthorUsageException("The model options belong to --repeat-consistency, which is not given.");
         }
@@ -119,7 +121,7 @@ internal sealed record ShadowOptions(
 }
 
 /// <summary>The model a repeated judgment asks, and how many times it asks each proposal.</summary>
-internal sealed record RepeatOptions(Uri Endpoint, string Model, string? ApiKey, bool Stream, TimeSpan Timeout, int Retries, int Repeats);
+internal sealed record RepeatOptions(Uri Endpoint, string Model, string? ApiKey, bool Stream, TimeSpan Timeout, int Retries, int Repeats, int PromptVersion = RepeatConsistency.Version);
 
 /// <summary>The Formbase connector as the place cited documents are read again.</summary>
 internal sealed class FormbaseCitationSource(FormbaseConnector connector) : ICitationSource
@@ -193,9 +195,9 @@ internal static class ShadowRun
 
         if (options.Repeat is { } repeat)
         {
-            await output.WriteLineAsync($"Asking {repeat.Model} {repeat.Repeats} times about each proposal (prompt {RepeatConsistency.PromptFingerprint}); a call takes minutes.").ConfigureAwait(false);
+            await output.WriteLineAsync($"Asking {repeat.Model} {repeat.Repeats} times about each proposal (prompt version {repeat.PromptVersion}, {RepeatConsistency.FingerprintOf(repeat.PromptVersion)}); a call takes minutes.").ConfigureAwait(false);
             var lines = new List<string>();
-            var asked = await RepeatConsistency.JudgeAsync(proposals, source, model!, repeat.Repeats, DateTimeOffset.UtcNow, lines.Add, cancellationToken).ConfigureAwait(false);
+            var asked = await RepeatConsistency.JudgeAsync(proposals, source, model!, repeat.Repeats, DateTimeOffset.UtcNow, repeat.PromptVersion, lines.Add, cancellationToken).ConfigureAwait(false);
             foreach (var line in lines)
             {
                 await output.WriteLineAsync("  " + line).ConfigureAwait(false);

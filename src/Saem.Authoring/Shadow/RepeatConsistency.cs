@@ -38,7 +38,14 @@ public static class RepeatConsistency
     private static readonly string[] Verdicts = ["supported", "unsupported", "unsure"];
 
     /// <summary>A fingerprint of the wording the model is asked with.</summary>
-    public static string PromptFingerprint { get; } = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Wording + "\n" + TargetHeading + "\n" + NoTargets))).ToLowerInvariant()[..8];
+    public static string PromptFingerprint { get; } = FingerprintOf(Version);
+
+    /// <summary>The versions of the prompt a run can ask with: 1 shows a relation's own records only, 2 shows the target type's too.</summary>
+    public static IReadOnlyList<int> PromptVersions { get; } = [1, 2];
+
+    /// <summary>A fingerprint of the wording <paramref name="version"/> of the prompt asks with.</summary>
+    public static string FingerprintOf(int version) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(version >= 2 ? Wording + "\n" + TargetHeading + "\n" + NoTargets : Wording))).ToLowerInvariant()[..8];
 
     private const string Wording = """
         You check one proposal against the records it was drawn from, and against nothing else.
@@ -72,7 +79,8 @@ public static class RepeatConsistency
     public static string Prompt(
         Declaration declaration,
         IReadOnlyList<(string Record, IReadOnlyDictionary<string, string?> Fields)> records,
-        IReadOnlyList<(string Record, IReadOnlyDictionary<string, string?> Fields)>? targets = null)
+        IReadOnlyList<(string Record, IReadOnlyDictionary<string, string?> Fields)>? targets = null,
+        int version = Version)
     {
         var text = new StringBuilder(Wording).AppendLine().AppendLine().Append("Proposal: ").AppendLine(Describe(declaration)).AppendLine().AppendLine("Records:");
         foreach (var (record, fields) in records.Take(MaxRecords))
@@ -87,7 +95,7 @@ public static class RepeatConsistency
             text.AppendLine();
         }
 
-        if (declaration is RelationDeclaration relation)
+        if (declaration is RelationDeclaration relation && version >= 2)
         {
             text.AppendLine().AppendLine(TargetHeading.Replace("{0}", relation.To, StringComparison.Ordinal));
             if (targets is not { Count: > 0 })
@@ -165,6 +173,18 @@ public static class RepeatConsistency
         : votes.Distinct(StringComparer.Ordinal).Count() == 1 ? ShadowVerdict.StablePrefix + votes[0]
         : ShadowVerdict.Wobbling;
 
+    /// <summary>Asks the model about each entity type and relation of <paramref name="proposals"/> with the current version of the prompt.</summary>
+    /// <inheritdoc cref="JudgeAsync(ProposedDeclarations, ICitationSource, IModelClient, int, DateTimeOffset, int, Action{string}?, CancellationToken)"/>
+    public static Task<SourceRecheckResult> JudgeAsync(
+        ProposedDeclarations proposals,
+        ICitationSource source,
+        IModelClient model,
+        int repeats,
+        DateTimeOffset at,
+        Action<string>? progress = null,
+        CancellationToken cancellationToken = default) =>
+        JudgeAsync(proposals, source, model, repeats, at, Version, progress, cancellationToken);
+
     /// <summary>Asks the model about each entity type and relation of <paramref name="proposals"/>.</summary>
     /// <param name="proposals">The pass's proposals, with the records each was drawn from.</param>
     /// <param name="source">Where the cited records are read again, to put in front of the model as they stand now.</param>
@@ -180,6 +200,7 @@ public static class RepeatConsistency
         IModelClient model,
         int repeats,
         DateTimeOffset at,
+        int promptVersion,
         Action<string>? progress = null,
         CancellationToken cancellationToken = default)
     {
@@ -187,6 +208,12 @@ public static class RepeatConsistency
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(model);
         ArgumentOutOfRangeException.ThrowIfLessThan(repeats, 2);
+        if (!PromptVersions.Contains(promptVersion))
+        {
+            throw new ArgumentOutOfRangeException(nameof(promptVersion), promptVersion, "The prompt has versions 1 and 2.");
+        }
+
+        var fingerprint = FingerprintOf(promptVersion);
 
         var (items, notJudged) = SourceRecheck.ItemsOf(proposals);
         if (items.Count > MaxItems)
@@ -211,13 +238,13 @@ public static class RepeatConsistency
 
             if (shown.Count == 0)
             {
-                rows.Add(new ShadowRow(proposals.Pass, id, ProposedDeclarations.KindOf(declaration), declaration.Name, Layer, Version, ShadowVerdict.Incomplete,
-                    field, null, cited, note.Length > 0 ? note : "None of the cited records could be read, so there was nothing to put in front of the model.", at, [], PromptFingerprint));
+                rows.Add(new ShadowRow(proposals.Pass, id, ProposedDeclarations.KindOf(declaration), declaration.Name, Layer, promptVersion, ShadowVerdict.Incomplete,
+                    field, null, cited, note.Length > 0 ? note : "None of the cited records could be read, so there was nothing to put in front of the model.", at, [], fingerprint));
                 continue;
             }
 
             IReadOnlyList<(string Record, IReadOnlyDictionary<string, string?> Fields)>? targets = null;
-            if (declaration is RelationDeclaration relation && items.FirstOrDefault(i => i.Declaration is EntityTypeDeclaration e && e.Name == relation.To) is { Declaration: EntityTypeDeclaration target } targetItem)
+            if (promptVersion >= 2 && declaration is RelationDeclaration relation && items.FirstOrDefault(i => i.Declaration is EntityTypeDeclaration e && e.Name == relation.To) is { Declaration: EntityTypeDeclaration target } targetItem)
             {
                 var ofTarget = targetItem.Cites
                     .Select(c => (Cite: c, Reading: c.Subject is null ? new CitedReading(CitedStanding.NotCheckable, SourceRecheck.NoFields) : readings[(c.Subject, c.Record)]))
@@ -227,7 +254,7 @@ public static class RepeatConsistency
                 targets = TargetsOf(relation, shown, ofTarget, target.Key);
             }
 
-            var prompt = Prompt(declaration, shown, targets);
+            var prompt = Prompt(declaration, shown, targets, promptVersion);
             var votes = new List<string>();
             var failures = new List<string>();
             for (var repeat = 1; repeat <= repeats; repeat++)
@@ -248,8 +275,8 @@ public static class RepeatConsistency
             }
 
             var extra = failures.Count == 0 ? null : string.Join(" ", failures);
-            rows.Add(new ShadowRow(proposals.Pass, id, ProposedDeclarations.KindOf(declaration), declaration.Name, Layer, Version, VerdictOf(votes),
-                field, null, cited, string.Join(" ", new[] { note, extra }.Where(n => !string.IsNullOrEmpty(n))) is { Length: > 0 } joined ? joined : null, at, votes, PromptFingerprint));
+            rows.Add(new ShadowRow(proposals.Pass, id, ProposedDeclarations.KindOf(declaration), declaration.Name, Layer, promptVersion, VerdictOf(votes),
+                field, null, cited, string.Join(" ", new[] { note, extra }.Where(n => !string.IsNullOrEmpty(n))) is { Length: > 0 } joined ? joined : null, at, votes, fingerprint));
         }
 
         return new SourceRecheckResult(rows, notJudged);

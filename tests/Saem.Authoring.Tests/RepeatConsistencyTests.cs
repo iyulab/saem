@@ -87,6 +87,38 @@ public sealed class RepeatConsistencyTests
     }
 
     [Fact]
+    public void The_two_versions_of_the_prompt_keep_the_fingerprints_the_ledger_already_holds()
+    {
+        Assert.Equal("d18569a4", RepeatConsistency.FingerprintOf(1));
+        Assert.Equal("e2438c40", RepeatConsistency.FingerprintOf(2));
+        Assert.Equal(RepeatConsistency.FingerprintOf(RepeatConsistency.Version), RepeatConsistency.PromptFingerprint);
+    }
+
+    [Fact]
+    public async Task Version_one_asks_a_relation_without_the_target_records_and_says_so_in_the_ledger_and_an_entity_prompt_is_the_same_in_both()
+    {
+        var item = new EntityTypeDeclaration("Item", "mes", "items", "code", new Dictionary<string, string>());
+        var proposals = new ProposedDeclarations("pass-1", [WorkOrder, item, MadeOf], null, new Dictionary<string, IReadOnlyList<PassCitation>>
+        {
+            [ProposedDeclarations.IdOf(WorkOrder)] = [new PassCitation("d-1", "workorders")],
+            [ProposedDeclarations.IdOf(item)] = [new PassCitation("d-2", "items")],
+            [ProposedDeclarations.IdOf(MadeOf)] = [new PassCitation("d-1", "workorders")],
+        });
+        var one = new ScriptedModel(_ => """{"verdict":"supported"}""");
+        var two = new ScriptedModel(_ => """{"verdict":"supported"}""");
+
+        var first = await RepeatConsistency.JudgeAsync(proposals, Source(), one, 2, At, 1, null, TestContext.Current.CancellationToken);
+        var second = await RepeatConsistency.JudgeAsync(proposals, Source(), two, 2, At, 2, null, TestContext.Current.CancellationToken);
+
+        Assert.All(one.Prompts, p => Assert.DoesNotContain("points to ('Item')", p, StringComparison.Ordinal));
+        Assert.Contains(two.Prompts, p => p.Contains("points to ('Item')", StringComparison.Ordinal));
+        Assert.Equal(one.Prompts.Where(p => p.Contains("An entity type named", StringComparison.Ordinal)), two.Prompts.Where(p => p.Contains("An entity type named", StringComparison.Ordinal)));
+        Assert.All(first.Rows, r => Assert.Equal((1, "d18569a4"), (r.LayerVersion, r.PromptFingerprint)));
+        Assert.All(second.Rows, r => Assert.Equal((2, "e2438c40"), (r.LayerVersion, r.PromptFingerprint)));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => RepeatConsistency.JudgeAsync(proposals, Source(), one, 2, At, 3, null, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task Repeats_that_differ_leave_the_proposal_wobbling_with_every_vote_kept()
     {
         var calls = 0;
