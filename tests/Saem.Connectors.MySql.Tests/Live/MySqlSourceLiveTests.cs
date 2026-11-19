@@ -184,10 +184,11 @@ public class MySqlSourceLiveTests
         var claim = Assert.Single(forAlice.Claims);
         Assert.Equal(Canary, claim.Value.GetString());
         // The path names both systems' entities: a work order in mes, the item and supplier in erp.
-        Assert.Equal(["orders_item", "supplied_by"], claim.Path.Select(h => h.Relation));
-        Assert.Equal(new EntityKey("WorkOrder", "WO-2"), claim.Path[0].From);
-        Assert.Equal(new EntityKey("Item", "I-200"), claim.Path[0].To);
-        Assert.Equal(new EntityKey("Supplier", "S-2"), claim.Path[1].To);
+        var path = Assert.Single(claim.Paths);
+        Assert.Equal(["orders_item", "supplied_by"], path.Select(h => h.Relation));
+        Assert.Equal(new EntityKey("WorkOrder", "WO-2"), path[0].From);
+        Assert.Equal(new EntityKey("Item", "I-200"), path[0].To);
+        Assert.Equal(new EntityKey("Supplier", "S-2"), path[1].To);
 
         // bob may see WO-2 in mes, but erp shows him only the items of suppliers he may see — not I-200,
         // which S-2 supplies: the walk is refused at the hop into erp.
