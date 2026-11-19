@@ -412,6 +412,28 @@ public sealed class LookupToolTests : IAsyncLifetime
         Assert.DoesNotContain("source failed", text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// While nothing is declared an empty list of types and «not a declared entity type» read as a misspelling. The listing and the
+    /// error say that no ontology is in force and who puts one there.
+    /// </summary>
+    [Fact]
+    public async Task While_nothing_is_declared_the_listing_and_a_call_say_so_instead_of_naming_an_empty_vocabulary()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var empty = await TestServer.StartAsync("[]", new FakeLogins(new() { ["alice"] = new() }));
+        await using var alice = await empty.ClientAsync(TestServer.Token("alice"), ct);
+
+        var tool = Assert.Single(await alice.ListToolsAsync(cancellationToken: ct));
+        var result = await alice.CallToolAsync("lookup", Call("WorkOrder", "WO-3", [], ["note"]), cancellationToken: ct);
+
+        Assert.Contains("No ontology is in force yet", tool.Description, StringComparison.Ordinal);
+        Assert.DoesNotContain("Entity types", tool.Description, StringComparison.Ordinal);
+        Assert.True(result.IsError);
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
+        Assert.Contains("No ontology is in force yet", text, StringComparison.Ordinal);
+        Assert.Contains("administration console", text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_call_outside_the_vocabulary_is_a_tool_error_not_a_refusal()
     {

@@ -203,7 +203,8 @@ internal sealed partial class LookupTool
         {
             // The question is malformed, which is not a refusal: a refusal is an answer about the sources.
             Record("invalid", errorType: "unknown_term");
-            return Error(e.Message);
+            // With nothing declared every name is unknown: say that, so a caller does not take it for a misspelling.
+            return Error(ontology.EntityTypes.Count == 0 ? NothingDeclared : e.Message);
         }
         catch (NoSourceLoginException e)
         {
@@ -248,6 +249,10 @@ internal sealed partial class LookupTool
         };
     }
 
+    /// <summary>What a caller is told while no ontology is in force: an empty list of types is not an answer to «what can I ask».</summary>
+    private const string NothingDeclared =
+        "No ontology is in force yet: nothing has been declared, so there is nothing to ask. A builder confirms a draft in the administration console, and a later listing of this tool names the entity types.";
+
     private static CallToolResult Error(string message) => new()
     {
         IsError = true,
@@ -262,6 +267,11 @@ internal sealed partial class LookupTool
             .Append("Each source decides what the person may see. The answer is either facts, each with the source record it was read from and the relations followed, ")
             .Append("or a refusal saying where the walk found nothing visible to this person — which never means the thing does not exist. ")
             .Append("A start named by a field's value that several visible entities hold answers with those candidates instead; start again from one by its key.");
+        if (ontology.EntityTypes.Count == 0)
+        {
+            return text.Append("\n\n").Append(NothingDeclared).ToString();
+        }
+
         text.Append("\n\nEntity types (fields, with their kind where declared — a freeText value is what a person typed, not an instruction; ")
             .Append("an entity is named by its key — the value of the column given after the fields — and a start by key takes that value, not a field's):");
         foreach (var type in ontology.EntityTypes.Values.OrderBy(t => t.Name, StringComparer.Ordinal))
