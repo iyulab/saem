@@ -52,6 +52,12 @@ internal sealed class McpConsoleLookups(ConsoleIssuer issuer, IOptions<ConsoleLo
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(presentedToken);
         var settings = options.Value;
+        if (string.IsNullOrWhiteSpace(settings.McpEndpoint))
+        {
+            // An install that never named the server: say so, rather than let `new Uri("")` end the request as a server error.
+            throw new LookupUnavailableException("The MCP server is not configured for the console (Saem:Console:Lookup:McpEndpoint).");
+        }
+
         string exchanged;
         try
         {

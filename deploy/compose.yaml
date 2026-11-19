@@ -222,6 +222,7 @@ services:
       Saem__Console__Identity__ClientSecret: ${SAEM_CONSOLE_CLIENT_SECRET}
       Saem__Console__Identity__Scopes__0: saem-rig
       Saem__Console__Roles__Builders__0: g-plant
+      Saem__Console__Lookup__McpEndpoint: http://mcp:8080/mcp
       Saem__Console__Ontology: /data/catalog.json
       Saem__Console__Draft: /data/draft.json
       Saem__Console__Proposals: /data/proposals.json

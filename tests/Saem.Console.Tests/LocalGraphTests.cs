@@ -67,6 +67,21 @@ public sealed class LocalGraphTests
     }
 
     [Fact]
+    public async Task A_console_never_told_where_the_server_is_says_so_and_asks_the_issuer_for_nothing()
+    {
+        var issuer = new ExchangingIssuer();
+        var lookups = new McpConsoleLookups(
+            TestIssuer.For(issuer, clientSecret: "s3cret"),
+            Options.Create(new ConsoleLookupOptions()),
+            (_, _, _, _) => throw new InvalidOperationException("the server must not be called"));
+
+        var e = await Assert.ThrowsAsync<LookupUnavailableException>(() => lookups.LookupAsync("console-token-of-alice", Call, TestContext.Current.CancellationToken));
+
+        Assert.Contains("not configured", e.Message);
+        Assert.Empty(issuer.Grants);
+    }
+
+    [Fact]
     public async Task Without_presenting_an_actor_the_exchange_is_the_only_request_and_names_none()
     {
         var issuer = new ExchangingIssuer();
