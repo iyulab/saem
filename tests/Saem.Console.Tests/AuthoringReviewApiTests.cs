@@ -74,6 +74,30 @@ public sealed class AuthoringReviewApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_proposal_shows_the_first_records_it_was_drawn_from_with_their_values_and_counts_the_rest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var records = string.Join(",", Enumerable.Range(1, 5).Select(i => $$$"""{"record":"d-{{{i}}}","subject":"equipment","fields":{"tag":"E-{{{i}}}","line":"L1"}}"""));
+        await File.WriteAllTextAsync(_proposals, $$"""
+            {
+              "pass": "pass-20261030T010203000Z",
+              "added": [{{Equipment}},{{Shift}},{{OnLine}}],
+              "evidence": { "entityType:Equipment": [{{records}}], "entityType:Shift": [{"record":"d-9"}] }
+            }
+            """, ct);
+        using var builder = Builder();
+
+        var view = await builder.GetFromJsonAsync<JsonElement>("api/authoring/review", ct);
+
+        var equipment = view.GetProperty("proposals")[0];
+        Assert.Equal(["d-1", "d-2", "d-3"], equipment.GetProperty("evidence").EnumerateArray().Select(e => e.GetProperty("record").GetString()));
+        Assert.Equal("E-1", equipment.GetProperty("evidence")[0].GetProperty("fields").GetProperty("tag").GetString());
+        Assert.Equal(2, equipment.GetProperty("evidenceMore").GetInt32());
+        Assert.Empty(view.GetProperty("proposals")[1].GetProperty("evidence")[0].GetProperty("fields").EnumerateObject());
+        Assert.True(view.GetProperty("proposals")[2].GetProperty("evidence").ValueKind is JsonValueKind.Null or JsonValueKind.Undefined);
+    }
+
+    [Fact]
     public async Task Leaving_a_proposal_takes_it_out_of_the_draft_and_taking_it_again_puts_it_back()
     {
         using var builder = Builder();

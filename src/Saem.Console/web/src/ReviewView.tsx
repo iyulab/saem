@@ -178,6 +178,20 @@ function ProposalRow({
         <span className={`state ${proposal.state}`}>{stateLabel(proposal.state)}</span>
         {discardsEdit(proposal) && <span className="muted"> · leaving it out discards your edit</span>}
         <details>
+          <summary>
+            {proposal.evidence && proposal.evidence.length > 0
+              ? `Drawn from ${proposal.evidence.length + (proposal.evidenceMore ?? 0)} ${proposal.evidence.length + (proposal.evidenceMore ?? 0) === 1 ? "record" : "records"} — show them`
+              : "Where it was drawn from — not recorded"}
+          </summary>
+          {proposal.evidence?.map((e) => (
+            <p className="muted" key={e.record}>
+              <code>{e.record}</code>
+              {e.subject ? ` (${e.subject})` : ""}: {Object.entries(e.fields).map(([name, value]) => `${name} = ${value}`).join(", ")}
+            </p>
+          ))}
+          {(proposal.evidenceMore ?? 0) > 0 && <p className="muted">… and {proposal.evidenceMore} more</p>}
+        </details>
+        <details>
           <summary>{proposal.state === "edited" ? "Show the proposal and your edit" : "Show the declaration"}</summary>
           <pre>{JSON.stringify(proposal.declaration, null, 2)}</pre>
           {proposal.state === "edited" && proposal.current ? <pre>{JSON.stringify(proposal.current, null, 2)}</pre> : null}

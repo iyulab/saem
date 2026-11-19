@@ -23,6 +23,21 @@ public class PassEvidenceTests
     }
 
     [Fact]
+    public void The_values_the_pass_saw_in_a_record_are_kept_with_it_and_a_record_without_them_reads_as_before()
+    {
+        var evidence = new Dictionary<string, IReadOnlyList<PassCitation>>
+        {
+            ["entityType:WorkOrder"] = [new PassCitation("d-1", "workorders", new Dictionary<string, string?> { ["wo"] = "WO-1", ["qty"] = "5" }), new PassCitation("d-2", null)],
+        };
+
+        var read = ProposedDeclarations.Parse(new ProposedDeclarations("pass-1", [WorkOrder], null, evidence).ToJson()).Evidence!["entityType:WorkOrder"];
+
+        Assert.Equal(new Dictionary<string, string?> { ["wo"] = "WO-1", ["qty"] = "5" }, read[0].Fields);
+        Assert.Null(read[1].Fields);
+        Assert.Equal(new PassCitation("d-3", "s"), ProposedDeclarations.Parse("""{"pass":"p","added":[],"evidence":{"entityType:A":[{"record":"d-3","subject":"s"}]}}""").Evidence!["entityType:A"][0]);
+    }
+
+    [Fact]
     public void Proposals_kept_before_the_records_were_have_none_and_no_evidence_is_written_when_there_is_none()
     {
         var proposed = new ProposedDeclarations("pass-1", [WorkOrder]);

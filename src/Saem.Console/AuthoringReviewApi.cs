@@ -167,6 +167,9 @@ internal static class AuthoringReviewApi
         return await Show(options, ct);
     }
 
+    /// <summary>How many of the records a proposal was drawn from the review lists; the rest are counted.</summary>
+    private const int EvidenceShown = 3;
+
     private static AuthoringReviewView View(Loaded loaded)
     {
         var inDraft = loaded.Seen!.DraftDeclarations!.ToDictionary(ProposedDeclarations.IdOf, StringComparer.Ordinal);
@@ -174,15 +177,18 @@ internal static class AuthoringReviewApi
         {
             var id = ProposedDeclarations.IdOf(declaration);
             var proposedNode = Node(declaration);
+            var drawn = loaded.Proposals.Evidence?.GetValueOrDefault(id);
+            var shown = drawn is null ? null : (IReadOnlyList<ReviewedEvidence>)[.. drawn.Take(EvidenceShown).Select(c => new ReviewedEvidence(c.Record, c.Subject, c.Fields ?? new Dictionary<string, string?>()))];
+            var more = drawn is null ? 0 : Math.Max(0, drawn.Count - EvidenceShown);
             if (!inDraft.TryGetValue(id, out var held))
             {
-                return new ReviewedProposal(id, ProposedDeclarations.KindOf(declaration), declaration.Name, "left", proposedNode, null);
+                return new ReviewedProposal(id, ProposedDeclarations.KindOf(declaration), declaration.Name, "left", proposedNode, null, shown, more);
             }
 
             var heldNode = Node(held);
             return JsonNode.DeepEquals(proposedNode, heldNode)
-                ? new ReviewedProposal(id, ProposedDeclarations.KindOf(declaration), declaration.Name, "taken", proposedNode, null)
-                : new ReviewedProposal(id, ProposedDeclarations.KindOf(declaration), declaration.Name, "edited", proposedNode, heldNode);
+                ? new ReviewedProposal(id, ProposedDeclarations.KindOf(declaration), declaration.Name, "taken", proposedNode, null, shown, more)
+                : new ReviewedProposal(id, ProposedDeclarations.KindOf(declaration), declaration.Name, "edited", proposedNode, heldNode, shown, more);
         });
 
         return new AuthoringReviewView(
@@ -306,4 +312,10 @@ public sealed record AuthoringReviewView(string Pass, PassGeneration? Generation
 /// <param name="State"><c>taken</c> (the draft holds it as proposed), <c>edited</c> (it holds it changed) or <c>left</c> (it holds none).</param>
 /// <param name="Declaration">The declaration as the pass proposed it.</param>
 /// <param name="Current">For an edited proposal, the declaration as the draft holds it.</param>
-public sealed record ReviewedProposal(string Id, string Kind, string Name, string State, JsonNode Declaration, JsonNode? Current);
+public sealed record ReviewedProposal(string Id, string Kind, string Name, string State, JsonNode Declaration, JsonNode? Current, IReadOnlyList<ReviewedEvidence>? Evidence = null, int EvidenceMore = 0);
+
+/// <summary>One record a proposal was drawn from, with the values the pass saw in it.</summary>
+/// <param name="Record">The record's id in the source.</param>
+/// <param name="Subject">The kind of form it is, when the pass said.</param>
+/// <param name="Fields">The values the pass saw, empty ones left out.</param>
+public sealed record ReviewedEvidence(string Record, string? Subject, IReadOnlyDictionary<string, string?> Fields);

@@ -66,6 +66,17 @@ public sealed record ProposedDeclarations(
                             writer.WriteString("subject", citation.Subject);
                         }
 
+                        if (citation.Fields is { Count: > 0 })
+                        {
+                            writer.WriteStartObject("fields");
+                            foreach (var (name, value) in citation.Fields)
+                            {
+                                writer.WriteString(name, value);
+                            }
+
+                            writer.WriteEndObject();
+                        }
+
                         writer.WriteEndObject();
                     }
 
@@ -128,7 +139,13 @@ public sealed record ProposedDeclarations(
                 }
 
                 var subject = citation.TryGetProperty("subject", out var named) && named.ValueKind == JsonValueKind.String ? named.GetString() : null;
-                citations.Add(new PassCitation(record.GetString()!, subject));
+                Dictionary<string, string?>? fields = null;
+                if (citation.TryGetProperty("fields", out var drawn) && drawn.ValueKind == JsonValueKind.Object)
+                {
+                    fields = drawn.EnumerateObject().ToDictionary(f => f.Name, f => f.Value.ValueKind == JsonValueKind.String ? f.Value.GetString() : null, StringComparer.Ordinal);
+                }
+
+                citations.Add(new PassCitation(record.GetString()!, subject, fields));
             }
 
             read[proposal.Name] = citations;
@@ -141,4 +158,4 @@ public sealed record ProposedDeclarations(
 /// <summary>A record a proposal was drawn from: the id the source gave it and the subject (form type or table) it is of, when the pass knew it.</summary>
 /// <param name="Record">The record's id as the sampled record carried it — for a Formbase document, its document id.</param>
 /// <param name="Subject">The subject the record is of; absent when the pass did not know it.</param>
-public sealed record PassCitation(string Record, string? Subject);
+public sealed record PassCitation(string Record, string? Subject, IReadOnlyDictionary<string, string?>? Fields = null);

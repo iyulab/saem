@@ -60,14 +60,14 @@ if (options.ModelApiKey is { } apiKey)
 }
 
 var retries = new List<ModelCallRetry>();
-var proposer = new SinglePassOntologyProposer(new RetryingModelClient(
+var proposer = new SinglePassOntologyProposer(new WaitingModelClient(new RetryingModelClient(
     new HttpModelClient(model, options.Model, stream: options.ModelStream),
     options.Retries,
     onRetry: retry =>
     {
         retries.Add(retry);
         Console.Error.WriteLine($"model call attempt {retry.Attempt} failed ({retry.Failure.GetType().Name}: {retry.Failure.Message}); trying again.");
-    }));
+    }), Console.Out, TimeSpan.FromSeconds(30)));
 var connector = new FormbaseConnector(formbase, options.FormbaseNamespace, options.Sample);
 
 try

@@ -96,9 +96,13 @@ internal static class AuthorRun
     private static Dictionary<string, IReadOnlyList<PassCitation>> EvidenceOf(AuthoringPass drafted)
     {
         var subjects = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var fieldsOf = new Dictionary<string, IReadOnlyDictionary<string, string?>>(StringComparer.Ordinal);
         foreach (var record in drafted.Records)
         {
-            subjects.TryAdd(record.Id, record.Subject?.Value);
+            if (subjects.TryAdd(record.Id, record.Subject?.Value))
+            {
+                fieldsOf[record.Id] = record.Fields.Where(f => !string.IsNullOrWhiteSpace(f.Value)).ToDictionary(f => f.Key, f => f.Value, StringComparer.Ordinal);
+            }
         }
 
         var evidence = new Dictionary<string, IReadOnlyList<PassCitation>>(StringComparer.Ordinal);
@@ -106,7 +110,7 @@ internal static class AuthorRun
         {
             if (drafted.Draft.Evidence.TryGetValue(declaration.Name, out var records))
             {
-                evidence[ProposedDeclarations.IdOf(declaration)] = [.. records.Select(id => new PassCitation(id, subjects.GetValueOrDefault(id)))];
+                evidence[ProposedDeclarations.IdOf(declaration)] = [.. records.Select(id => new PassCitation(id, subjects.GetValueOrDefault(id), fieldsOf.GetValueOrDefault(id)))];
             }
         }
 

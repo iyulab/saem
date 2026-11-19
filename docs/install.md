@@ -37,7 +37,7 @@ not read its row.
 
 1. In the console, open **Draft** and press **Confirm the draft**: that puts the sample catalog in force.
 2. Open **Groups** and, for `g-plant` and for `g-office`, press **Refresh from the source**. Each group reads the source through an
-   account of its own and keeps its edges in a store of its own.
+   account of its own and keeps its edges in a store of its own. The console asks once more before it reads everything: press **Run it**.
 3. Run the check; it asks the questions the sample's answers are known for, as the people the sample names:
 
    ```sh
@@ -70,7 +70,7 @@ SAEM_MODEL=your-model-name
 SAEM_MODEL_API_KEY=...
 ```
 
-and run `docker compose -f deploy/compose.yaml run --rm author`. Up to 20 documents of each form type are sent to that endpoint,
+and run `docker compose -f deploy/compose.yaml run --rm author`. A model that thinks takes minutes — a few for the sample; the run says that it is still waiting every half minute, so a quiet terminal is not a stopped one. Up to 20 documents of each form type are sent to that endpoint,
 and to nothing else. The draft it writes replaces the sample draft and waits for a person to confirm it in the console. The model drafts only what the catalog in force does not declare yet: run it before confirming the sample, or it has little to add.
 
 ## Stop, start, remove

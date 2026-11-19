@@ -45,7 +45,14 @@ export type ReviewedProposal = {
   declaration: Record<string, unknown>;
   /** For an edited proposal, the declaration as the draft holds it. */
   current?: Record<string, unknown> | null;
+  /** The records the pass drew it from, with the values it saw — the first few. Absent when the pass did not record them. */
+  evidence?: ReviewedEvidence[] | null;
+  /** How many more records it was drawn from than are listed. */
+  evidenceMore?: number;
 };
+
+/** One record a proposal was drawn from, with the values the pass saw in it. */
+export type ReviewedEvidence = { record: string; subject?: string | null; fields: Record<string, string | null> };
 
 /** What the authoring pass was made with, when it recorded it. */
 export type PassGeneration = {
