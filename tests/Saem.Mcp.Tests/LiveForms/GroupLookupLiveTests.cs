@@ -116,7 +116,7 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
         // Every hop walked backwards says when its partition's edges were read.
         if (result.StructuredContent!.Value.TryGetProperty("claims", out var claims))
         {
-            Assert.All(claims.EnumerateArray(), c => Assert.True(c.GetProperty("path")[0].TryGetProperty("partitionAsOf", out _)));
+            Assert.All(claims.EnumerateArray(), c => Assert.True(c.GetProperty("paths")[0][0].TryGetProperty("partitionAsOf", out _)));
         }
         return result.StructuredContent!.Value;
     }
@@ -125,7 +125,7 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
         answer.GetProperty("claims").EnumerateArray().Select(c => (
             c.GetProperty("entity").GetProperty("key").GetString()!,
             c.GetProperty("value").GetInt32(),
-            c.GetProperty("path")[0].GetProperty("partition").GetString()));
+            c.GetProperty("paths")[0][0].GetProperty("partition").GetString()));
 
     /// <summary>The same question, two people of different groups: each is answered from their own group's partition only.</summary>
     [Fact]
@@ -245,7 +245,7 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
 
         var claim = Assert.Single(forPat.GetProperty("claims").EnumerateArray());
         Assert.Equal(("WO-3", 10), (claim.GetProperty("entity").GetProperty("key").GetString(), claim.GetProperty("value").GetInt32()));
-        var hop = Assert.Single(claim.GetProperty("path").EnumerateArray());
+        var hop = Assert.Single(Assert.Single(claim.GetProperty("paths").EnumerateArray()).EnumerateArray());
         Assert.Equal(("same_item_order", "g-plant", "automatic"), (hop.GetProperty("relation").GetString(), hop.GetProperty("partition").GetString(), hop.GetProperty("identity").GetString()));
         Assert.False(hop.TryGetProperty("grounds", out _));
 
@@ -253,6 +253,17 @@ public sealed class GroupLookupLiveTests : IAsyncLifetime
         Assert.True(Assert.Single(forQuinn.GetProperty("partitions").EnumerateArray()).GetProperty("blocked").GetBoolean());
         Assert.DoesNotContain("WO-3", forQuinn.GetRawText(), StringComparison.Ordinal);
         Assert.Equal("refused", forOlive.GetProperty("kind").GetString());
-        Assert.False(forOlive.TryGetProperty("partitions", out _));
+        // A refusal reports the groups the person asked through, and only those: olive's own group is not
+        // blocked and nothing of g-plant's partition or of WO-3 reaches olive.
+        if (forOlive.TryGetProperty("partitions", out var oliveGroups))
+        {
+            Assert.All(oliveGroups.EnumerateArray(), group =>
+            {
+                Assert.NotEqual("g-plant", group.GetProperty("name").GetString());
+                Assert.False(group.GetProperty("blocked").GetBoolean());
+            });
+        }
+
+        Assert.DoesNotContain("WO-3", forOlive.GetRawText(), StringComparison.Ordinal);
     }
 }

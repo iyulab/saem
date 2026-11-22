@@ -110,7 +110,7 @@ public sealed class McpRigLiveTests : IAsyncLifetime
         var claim = Assert.Single(forAlice.StructuredContent!.Value.GetProperty("claims").EnumerateArray());
         Assert.Equal(SupplierCanary, claim.GetProperty("value").GetString());
         Assert.Equal("erp", Assert.Single(claim.GetProperty("sources").EnumerateArray()).GetProperty("system").GetString());
-        var hops = claim.GetProperty("path").EnumerateArray().ToList();
+        var hops = Assert.Single(claim.GetProperty("paths").EnumerateArray()).EnumerateArray().ToList();
         Assert.Equal(["WorkOrder", "Item", "Supplier"], [hops[0].GetProperty("from").GetProperty("type").GetString(), hops[0].GetProperty("to").GetProperty("type").GetString(), hops[1].GetProperty("to").GetProperty("type").GetString()]);
 
         // Each hop carries the row the person just read to take it: the work order in mes, then the item in erp.
